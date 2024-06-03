@@ -1,5 +1,5 @@
 # hyper
-A PINN approach to reconstruct 3D wind fields from meteor measurementshttps://github.com/mcordero191/hyper/blob/main/README.md
+A PINN approach to reconstruct 3D wind fields from meteor measurements
 
 # How to test the code
 - Download the meteor data file
