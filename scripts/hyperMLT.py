@@ -16,15 +16,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
     #VORTEX cmapaign
-    parser.add_argument('-e', '--exp', dest='exp', default='vortex', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='dns', help='Experiment configuration')
     
-    #-d /Users/mcordero/Data/IAP/SIMONe/Norway/VorTex --lon-center=16.4 --lat-center=69.3 --alt-center=89 --lon-range=7.5 --lat-range=2.5 --alt-range=14
+    #-d /Users/radar/Data/IAP/SIMONe/Norway/VorTex --lon-center=16.4 --lat-center=69.3 --alt-center=89 --lon-range=7.5 --lat-range=2.5 --alt-range=14
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=64, help='# kernel', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=10, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=128, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=2, help='', type=int)
     
@@ -32,10 +32,11 @@ if __name__ == '__main__':
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-8, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-7, help='', type=float)
     
-    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-2, help='', type=float)
-    parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='', type=float)
+    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
+    parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
+    parser.add_argument('--srt-weight',        dest='w_srt', default=1e0, help='Slope recovery time loss weight', type=float)
     
     parser.add_argument('--pde',        dest='NS_type', default="VV", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
@@ -126,6 +127,8 @@ if __name__ == '__main__':
     
     w_pde           = args.w_pde
     w_data          = args.w_data
+    w_srt           = args.w_srt
+    
     w_pde_update_rate = args.w_pde_update_rate
     
     N_pde           = args.N_pde
@@ -177,7 +180,7 @@ if __name__ == '__main__':
             lon_center      = 12.5
             lat_center      = 54
             alt_center      = 91
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Germany/Simone2018"
+            path            = "/Users/radar/Data/IAP/SIMONe/Germany/Simone2018"
         
         elif exp.upper()  == 'EXTREMEW':
             
@@ -190,7 +193,7 @@ if __name__ == '__main__':
             # lon_center      = 12.5
             # lat_center      = 54
             # alt_center      = 91
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Germany/ExtremeW"
+            path            = "/Users/radar/Data/IAP/SIMONe/Germany/ExtremeW"
         
         
         elif exp.upper()  == 'VORTEX':
@@ -203,7 +206,7 @@ if __name__ == '__main__':
             # lon_center      = 16.25
             # lat_center      = 69.25
             # alt_center      = 90
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex"
+            path            = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex"
         
         elif exp.upper()  == 'WAVECONVECTION':
             
@@ -215,7 +218,7 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             # alt_center      = 90
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/WaveConvection"
+            path            = "/Users/radar/Data/IAP/SIMONe/Norway/WaveConvection"
         
         elif exp.upper()  == 'EXT24':
             
@@ -228,7 +231,7 @@ if __name__ == '__main__':
             # lon_center      = 16.25
             # lat_center      = 69.25
             # alt_center      = 89
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/ExtremeEvent"
+            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
             
         
         elif exp.upper()  == 'EXT1':
@@ -242,7 +245,7 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             alt_center      = 89
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/ExtremeEvent"
+            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
             
         elif exp.upper()  == 'EXT2':
             
@@ -255,7 +258,7 @@ if __name__ == '__main__':
             # lon_center      = 16.5
             # lat_center      = 70
             # alt_center      = 89
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/ExtremeEvent"
+            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
         
         elif exp.upper()  == 'NM':
             
@@ -263,29 +266,29 @@ if __name__ == '__main__':
             dt              = 24
             
             # alt_center      = 90
-            path            = "/Users/mcordero/Data/IAP/SIMONe/NewMexico/EclipseOct"
+            path            = "/Users/radar/Data/IAP/SIMONe/NewMexico/EclipseOct"
             
         elif exp.upper()  == 'TONGA1':
             
             tini            = 0
             dt              = 24
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Condor/Tonga"
+            path            = "/Users/radar/Data/IAP/SIMONe/Condor/Tonga"
         
         elif exp.upper()  == 'TONGA2':
             
             tini            = 0
             dt              = 24
-            path            = "/Users/mcordero/Data/IAP/SIMONe/JRO/Tonga"
+            path            = "/Users/radar/Data/IAP/SIMONe/JRO/Tonga"
         
         elif exp.upper()  == 'TONGA3':
             
             tini            = 0
             dt              = 24
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Piura/Tonga"
+            path            = "/Users/radar/Data/IAP/SIMONe/Piura/Tonga"
             
         elif exp.upper()  == 'DNS':
             
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91"
+            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91"
             noise_sigma     = -1.0
             tini            = 0
             dt              = 4
@@ -294,12 +297,12 @@ if __name__ == '__main__':
             
             tini            = 0
             dt              = 3
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
+            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
             noise_sigma     = -1.0
             
         elif exp.upper()  == 'ICON2016':
             
-            path            = "/Users/mcordero/Data/IAP/SIMONe/Virtual/ICON_20160816/ICON_-08+73+90"
+            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160816/ICON_-08+73+90"
             # noise_sigma     = 6.0
         
         else:
@@ -345,6 +348,8 @@ if __name__ == '__main__':
                             num_outputs=num_outputs,
                             w_pde=w_pde,
                             w_data=w_data,
+                            w_srt=w_srt,
+                            laaf=nn_laaf,
                             learning_rate=learning_rate,
                             noise_sigma=noise_sigma,
                             nepochs=nepochs, 
@@ -358,8 +363,6 @@ if __name__ == '__main__':
                             filename_model_tl=filename_model_tl,
                             short_naming=short_naming,
                             activation=nn_activation,
-                            laaf=nn_laaf,
-                            w_srt=1e0,
                             init_sigma=nn_init_sigma,
                             NS_type=NS_type,
                             w_init=nn_w_init,
@@ -371,7 +374,6 @@ if __name__ == '__main__':
                             only_SMR=only_SMR,
                             w_pde_update_rate=w_pde_update_rate,
                             nn_type=nn_type,
-                            
                             )
         
         # break

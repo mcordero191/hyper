@@ -30,7 +30,7 @@ time_base = 1.468e9
 from georeference.geo_coordinates import lla2xyh
 from utils.histograms import ax_2dhist
 from utils.plotting import epoch2num
-from pinn.models import iPINN, rPINN, resPINN, sPINN, DeepONet, DeepONetOpt, DeepONetOri,\
+from pinn.nn_architectures import iPINN, rPINN, resPINN, sPINN, DeepONet, DeepONetOpt, DeepONetOri,\
     MultiNet, DeepMultiNet
     
 from pinn.bfgs import LBFGS
@@ -332,13 +332,13 @@ class App:
     @tf.function
     def forward_pass(self, model, X, training=False, return_all=False):
         
-        print("Tracing model!") 
+        # print("Tracing model!") 
         
         z = 2. * (X - self.lbi) / (self.ubi - self.lbi)  - 1.
         
         u = model(z, training=training)
         
-        print("Finish tracing model!")
+        # print("Finish tracing model!")
         
         return(u)
     
@@ -878,7 +878,7 @@ class App:
     # @tf.function
     def pde_vorticity_3O_hydrostatic(self, model, t, z, x, y, nu, rho, rho_ratio, N):
         
-        print("Tracing pde hydro!")
+        # print("Tracing pde hydro!")
         
         with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tpS2:
             
@@ -1081,7 +1081,7 @@ class App:
         # thermal     = heat + theta_zero
         junk = tf.constant(0.0, dtype=data_type)
         
-        print("Finish tracing pde hydro!")
+        # print("Finish tracing pde hydro!")
         
         return(div, junk, mom_x, mom_y, mom_z, junk)
     
@@ -1605,7 +1605,7 @@ class App:
         '''
         X = [t, z, x, y, nu, rho, rho_ratio, N]
         '''
-        print("Tracing pde!")
+        # print("Tracing pde!")
         
         t = X[:,0:1]
         z = X[:,1:2]
@@ -1623,7 +1623,7 @@ class App:
         
         output = self.pde_func(model, t, z, x, y, nu, rho, rho_ratio, N)
         
-        print("Finish tracing pde!")
+        # print("Finish tracing pde!")
         
         return output
     
@@ -1633,7 +1633,7 @@ class App:
         X = [t, z, x, y, nu, rho, rho_ratio, N]
         '''
         
-        print("Tracing loss_pde!")
+        # print("Tracing loss_pde!")
         
         #div, mom, temp, theta
         outputs = self.pde(model, X)
@@ -1645,7 +1645,7 @@ class App:
         
         # loss_srt = tf.constant(0.0, dtype=data_type)
         
-        print("Finish tracing loss_pde!")
+        # print("Finish tracing loss_pde!")
         
         return (loss_div, loss_mom, loss_div_vor, loss_temp)
     
@@ -1671,7 +1671,7 @@ class App:
         
         
         '''
-        print("Tracing loss_data!")
+        # print("Tracing loss_data!")
         
         f = X[:,4:5]
         k = X[:,5:8]
@@ -1712,7 +1712,7 @@ class App:
                 w_data, w_pde, w_srt,
                 ):
         
-        print("Tracing loss_glb!") 
+        # print("Tracing loss_glb!") 
         
         loss_data = self.loss_data(model, X_data)
         
@@ -1727,7 +1727,7 @@ class App:
         loss_total = w_data*loss_data + w_pde*loss_pde + w_srt*loss_srt
         
         
-        print("Finish tracing loss_glb!") 
+        # print("Finish tracing loss_glb!") 
         
         return loss_total, loss_data, loss_pde, loss_srt
     
@@ -1739,7 +1739,7 @@ class App:
                 w_data, w_pde, w_srt,
                 ):
         
-        print("Tracing loss_glb!") 
+        # print("Tracing loss_glb!") 
         
         loss_data = self.loss_data(model, X_data)
         
@@ -1754,13 +1754,13 @@ class App:
         loss_total = w_data*loss_data + w_pde*loss_pde + w_srt*loss_srt
         
         
-        print("Finish tracing loss_glb!") 
+        # print("Finish tracing loss_glb!") 
         
         return loss_total
     
     @tf.function
     def grad_desc(self, *args):
-        print("\nTracing grad_desc!") 
+        # print("\nTracing grad_desc!") 
         
         # print("Tracing Grad_desc!!") 
         trainable_variables = self.model.trainable_variables
@@ -1776,14 +1776,14 @@ class App:
         # del tp
         self.optimizer.apply_gradients(zip(grad, trainable_variables))
         
-        print("Finish tracing grad_desc!") 
+        # print("Finish tracing grad_desc!") 
         
         return losses
     
     @tf.function
     def grad_desc_plus(self, *args):
         
-        print("\nTracing grad_desc_plus!") 
+        # print("\nTracing grad_desc_plus!") 
         
         # print("Tracing Grad_desc_plus!") 
         trainable_params = self.model.trainable_variables
@@ -1815,7 +1815,7 @@ class App:
         
         grads  = [grad_mean, grad_data_mean,  grad_pde_mean, grad_srt_mean]
         
-        print("Finish tracing grad_desc_plus!") 
+        # print("Finish tracing grad_desc_plus!") 
         
         return losses, grads
     
