@@ -2,8 +2,8 @@ import os
 import time, datetime
 import numpy as np
 
-from radar.specular_meteor_radars.SMR import SMRReader
-from radar.specular_meteor_radars.hyper_winds import train_hyper
+from radar.smr.smr_file import SMRReader
+from radar.smr.winds_hyper import train_hyper
 
 if __name__ == '__main__':
     
@@ -18,22 +18,9 @@ if __name__ == '__main__':
     #VORTEX cmapaign
     parser.add_argument('-e', '--exp', dest='exp', default='vortex', help='Experiment configuration')
     
-    #-d /Users/radar/Data/IAP/SIMONe/Norway/VorTex --lon-center=16.4 --lat-center=69.3 --alt-center=89 --lon-range=7.5 --lat-range=2.5 --alt-range=14
+    #-d /Users/mcordero/Data/IAP/SIMONe/Norway/VorTex --lon-center=16.4 --lat-center=69.3 --alt-center=89 --lon-range=7.5 --lat-range=2.5 --alt-range=14
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160816/ICON_-08+73+90", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default='/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Argentina/DanielsData", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Germany/Simone2018", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Germany/ExtremeShear", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Norway/WaveConvection", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/JRO/Tonga", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Piura/Tonga", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Condor/Tonga", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91", help='Data path')
-    
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     
     parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
@@ -190,7 +177,7 @@ if __name__ == '__main__':
             lon_center      = 12.5
             lat_center      = 54
             alt_center      = 91
-            path            = "/Users/radar/Data/IAP/SIMONe/Germany/Simone2018"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Germany/Simone2018"
         
         elif exp.upper()  == 'EXTREMEW':
             
@@ -203,7 +190,7 @@ if __name__ == '__main__':
             # lon_center      = 12.5
             # lat_center      = 54
             # alt_center      = 91
-            path            = "/Users/radar/Data/IAP/SIMONe/Germany/ExtremeW"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Germany/ExtremeW"
         
         
         elif exp.upper()  == 'VORTEX':
@@ -216,7 +203,7 @@ if __name__ == '__main__':
             # lon_center      = 16.25
             # lat_center      = 69.25
             # alt_center      = 90
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex"
         
         elif exp.upper()  == 'WAVECONVECTION':
             
@@ -228,7 +215,7 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             # alt_center      = 90
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/WaveConvection"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/WaveConvection"
         
         elif exp.upper()  == 'EXT24':
             
@@ -241,7 +228,7 @@ if __name__ == '__main__':
             # lon_center      = 16.25
             # lat_center      = 69.25
             # alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/ExtremeEvent"
             
         
         elif exp.upper()  == 'EXT1':
@@ -255,7 +242,7 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/ExtremeEvent"
             
         elif exp.upper()  == 'EXT2':
             
@@ -268,7 +255,7 @@ if __name__ == '__main__':
             # lon_center      = 16.5
             # lat_center      = 70
             # alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Norway/ExtremeEvent"
         
         elif exp.upper()  == 'NM':
             
@@ -276,29 +263,29 @@ if __name__ == '__main__':
             dt              = 24
             
             # alt_center      = 90
-            path            = "/Users/radar/Data/IAP/SIMONe/NewMexico/EclipseOct"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/NewMexico/EclipseOct"
             
         elif exp.upper()  == 'TONGA1':
             
             tini            = 0
             dt              = 24
-            path            = "/Users/radar/Data/IAP/SIMONe/Condor/Tonga"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Condor/Tonga"
         
         elif exp.upper()  == 'TONGA2':
             
             tini            = 0
             dt              = 24
-            path            = "/Users/radar/Data/IAP/SIMONe/JRO/Tonga"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/JRO/Tonga"
         
         elif exp.upper()  == 'TONGA3':
             
             tini            = 0
             dt              = 24
-            path            = "/Users/radar/Data/IAP/SIMONe/Piura/Tonga"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Piura/Tonga"
             
         elif exp.upper()  == 'DNS':
             
-            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91"
             noise_sigma     = -1.0
             tini            = 0
             dt              = 4
@@ -307,12 +294,12 @@ if __name__ == '__main__':
             
             tini            = 0
             dt              = 3
-            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
             noise_sigma     = -1.0
             
         elif exp.upper()  == 'ICON2016':
             
-            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160816/ICON_-08+73+90"
+            path            = "/Users/mcordero/Data/IAP/SIMONe/Virtual/ICON_20160816/ICON_-08+73+90"
             # noise_sigma     = 6.0
         
         else:

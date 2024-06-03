@@ -23,7 +23,7 @@ from pinn import hyper as pinn
 from utils.PhysicalParameters import MSIS
 from utils.histograms import ax_2dhist_simple
 from utils.plotting import epoch2num
-from radar.specular_meteor_radars.SMR import filter_data
+from radar.smr.smr_file import filter_data
 
 
 def plot_delta_sampling(df, path):
