@@ -696,7 +696,7 @@ def train_hyper(df,
     dop_errs    = 2*np.pi*df_training['dop_errs'].values
     
     dop_std     = np.std(dops)
-    noise_std   = 3#np.std(dop_errs)
+    noise_std   = 10#np.std(dop_errs)
     
     d = dops
     
