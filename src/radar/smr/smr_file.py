@@ -163,7 +163,7 @@ def filter_data(df, tini=0, dt=24,
     
     ##################################################
     
-    if ~sevenfold:
+    if not(sevenfold):
         #Filter synthetic measurements
         if 'SMR_like' in df.keys():
             valid = (df['SMR_like'] == 1) 
