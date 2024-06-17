@@ -1938,11 +1938,6 @@ class App:
         lb = tf.reduce_min (X_data, axis = 0)[:4]
         ub = tf.reduce_max (X_data, axis = 0)[:4]
         
-        # lb = tf.constant([lb[0].numpy(),  80e3,-150e3,-150e3], dtype=data_type)
-        # ub = tf.constant([ub[0].numpy(), 100e3, 150e3, 150e3], dtype=data_type)
-        
-        # rb = tf.multiply( (ub - lb), [0.,1.,1.,1.])
-        
         self.lbi = lb #+ rb*0.1
         self.ubi = ub #- rb*0.1
         
@@ -2016,18 +2011,6 @@ class App:
             
             X_pde = self.gen_LHS_samples()
             # X_pde = self.gen_Chebyshev_samples()
-            
-            # if ep % resampling_rate == 0:
-                # X_pde = self.gen_LHS_samples()
-            #     # X_pde = self.gen_LHS_samples()
-            #     X_pde = self.adaptive_pde_sampling()
-                
-            # self.model.set_mask(ep, epochs)
-                
-                
-                # for d in range(self.depth):
-                #     self.alphas[d].assign(1.01*self.alphas[d])
-                
             
             print(".", end='', flush=True)
             
@@ -2212,43 +2195,9 @@ class App:
             if ep % grad_upd_rate == 0:
                 calc_gradients = True
             
-            # if ep % resampling_rate == 0:
-            #     X_pde = self.adaptive_pde_sampling(X_pde)
-            
-            # if ep_loss < tol:
-            #     print(">>>>> program terminating with the loss converging to its tolerance.")
-            #     print("\n************************************************************")
-            #     print("*****************     MAIN PROGRAM END     *****************")
-            #     print("************************************************************")
-            #     print(">>>>> end time:", datetime.datetime.now())
-            #     break
-            
-            # if ep % print_rate == 1:
-            #
-            #     diff = np.mean( np.subtract(self.loss_data_log[-101:-2], self.loss_data_log[-100:-1:]) )
-            #
-            #     print("loss data diff: %.2e" %diff)
-            #
-
-                # if np.abs(diff) < tol:
-                #     print("\n************************************************************")
-                #     print(">>>>> program terminating. Converge is low %f" %diff)
-                #     print("\n************************************************************")
-                #     break
-        
-        # self.save(filename, ep)
-        #
-        # X_pde = self.gen_LHS_samples()
-        #
-        # options = {'max_iterations': 100}
-        # optimizer_BFGS = LBFGS(self.loss_glb_lbfgs, self.model.trainable_variables, options)
-        # results = optimizer_BFGS.minimize(self.model, X_data, X_pde, w_data, w_div, w_srt)
-        #
-        # print("Final loss and gradient:", results.objective_value.numpy(), results.objective_gradient.numpy() )
-        
-        
-        figname = '%s%s%s' %( filename, '_PDE_sampling','.png')
-        self.plot_PDE_sampling(X_pde, figname)
+            if ep_loss < tol:
+                print(">>>>> program terminating with the loss converging to its tolerance.")
+                break
         
         print("\n************************************************************")
         print("*****************     MAIN PROGRAM END     *****************")
