@@ -99,7 +99,7 @@ def train_hyper(df,
     if short_naming:
         suffix = '%s' %ini_date.strftime('%Y%m%d-%H%M%S')
     else:
-        suffix = "%s_w%02dn%03.2f[%s]a%sl%02dn%03dd%03db%02dw%2.1elr%2.1em%2.1e_laaf%2.1e_%s_ur=%2.1e" %(
+        suffix = "%s_w%02dn%03.2f[%s]a%sl%02dn%03dd%03db%02dw%2.1ew%2.1elr%2.1em%2.1e_laaf%2.1e_%s_ur=%2.1e" %(
                                                             ini_date.strftime('%Y%m%d'),
                                                             dt,
                                                             noise_sigma,
@@ -110,9 +110,10 @@ def train_hyper(df,
                                                             n_nodes,
                                                             n_blocks,
                                                             w_pde,
+                                                            w_srt,
                                                             learning_rate,
                                                             N_pde,
-                                                            w_srt,
+                                                            laaf,
                                                             # dropout,
                                                             w_init[:2],
                                                             # init_sigma,
@@ -316,16 +317,13 @@ def train_hyper(df,
 if __name__ == '__main__':
     
     #delay in mins
-    delay = 0#230/60. + 300
+    delay = 0
     
     import argparse
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    #VORTEX cmapaign
     parser.add_argument('-e', '--exp', dest='exp', default='default', help='Experiment configuration')
-    
-    #-d /Users/radar/Data/IAP/SIMONe/Norway/VorTex --lon-center=16.4 --lat-center=69.3 --alt-center=89 --lon-range=7.5 --lat-range=2.5 --alt-range=14
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
@@ -369,45 +367,6 @@ if __name__ == '__main__':
     parser.add_argument('--lat-center', dest='lat_center', default=None, help='degrees', type=float)
     parser.add_argument('--alt-center', dest='alt_center', default=None, help='km', type=float)
     
-    ###SIMONe 2018
-    # parser.add_argument('--lon-range', dest='dlon', default=6, help='degrees', type=float)
-    # parser.add_argument('--lat-range', dest='dlat', default=3, help='degrees', type=float)
-    # parser.add_argument('--alt-range', dest='dh', default=24, help='km', type=float)
-    # parser.add_argument('--lon-center', dest='lon_center', default=12.5, help='degrees', type=float)
-    # parser.add_argument('--lat-center', dest='lat_center', default=54, help='degrees', type=float)
-    # parser.add_argument('--alt-center', dest='alt_center', default=91, help='km', type=float)
-    
-    ##VORTEX event
-    # parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=float)
-    # parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
-    
-    # parser.add_argument('--lon-range', dest='dlon', default=8, help='degrees', type=float)
-    # parser.add_argument('--lat-range', dest='dlat', default=2.5, help='degrees', type=float)
-    # parser.add_argument('--alt-range', dest='dh', default=None, help='km', type=float)
-    # parser.add_argument('--lon-center', dest='lon_center', default=16, help='degrees', type=float)
-    # parser.add_argument('--lat-center', dest='lat_center', default=69.25, help='degrees', type=float)
-    # parser.add_argument('--alt-center', dest='alt_center', default=90, help='km', type=float)
-    
-    ###Extreme event
-    # parser.add_argument('--initime',    dest='tini', default=3, help='hours', type=float)
-    # parser.add_argument('--time-window', dest='dtime', default=4, help='hours', type=float)
-    # parser.add_argument('--lon-range', dest='dlon', default=6, help='degrees', type=float)
-    # parser.add_argument('--lat-range', dest='dlat', default=2, help='degrees', type=float)
-    # parser.add_argument('--alt-range', dest='dh', default=None, help='km', type=float)
-    # parser.add_argument('--lon-center', dest='lon_center', default=16.25, help='degrees', type=float)
-    # parser.add_argument('--lat-center', dest='lat_center', default=69.25, help='degrees', type=float)
-    # parser.add_argument('--alt-center', dest='alt_center', default=90, help='km', type=float)
-    
-    ###Extreme event 2
-    # parser.add_argument('--initime',    dest='tini', default=4, help='hours', type=float)
-    # parser.add_argument('--time-window', dest='dtime', default=3, help='hours', type=float)
-    # parser.add_argument('--lon-range', dest='dlon', default=4, help='degrees', type=float)
-    # parser.add_argument('--lat-range', dest='dlat', default=1, help='degrees', type=float)
-    # parser.add_argument('--alt-range', dest='dh', default=16, help='km', type=float)
-    # parser.add_argument('--lon-center', dest='lon_center', default=16.5, help='degrees', type=float)
-    # parser.add_argument('--lat-center', dest='lat_center', default=70, help='degrees', type=float)
-    # parser.add_argument('--alt-center', dest='alt_center', default=91, help='km', type=float)
-    
     parser.add_argument('--output-file', dest='filename_model', default=None, help='')
     parser.add_argument('--output-file-short-naming', dest='short_naming', default=0, type=int)
     parser.add_argument('--realtime', dest='realtime', default=0, help='', type=int)
@@ -445,8 +404,8 @@ if __name__ == '__main__':
     noise_sigma     = args.noise_sigma
     nepochs         = args.nepochs
     
-    n_nodes   = args.n_nodes
-    n_blocks   = args.n_blocks
+    n_nodes         = args.n_nodes
+    n_blocks        = args.n_blocks
     
     hidden_layers   = args.hidden_layers
     neurons_per_layer   = args.neurons_per_layer
@@ -651,10 +610,6 @@ if __name__ == '__main__':
     
     print('Waiting %d min ...' %delay)
     time.sleep(delay*60)
-    
-    # info = meteor_obj.read_next_file()
-    
-    # for i in range(8):
     
     while True:
     

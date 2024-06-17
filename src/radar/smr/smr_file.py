@@ -190,12 +190,15 @@ def filter_data(df, tini=0, dt=24,
     
     for _ in range(1):
     #########################
-    ### Clustering ##########
-        dop = df['dops'].values
-        # kz = df['braggs_z'].values
+    ### Outliers removal ##########
+        
         dxy = np.sqrt( df['dcosx'].values**2 + df['dcosy'].values**2 )
         zenith = np.arcsin(dxy)*180/np.pi
         
+        if np.max(zenith) <= 0:
+            break
+        
+        dop = df['dops'].values
         links = df['link'].values
         ids = le.transform(links)
         
