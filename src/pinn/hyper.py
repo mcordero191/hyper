@@ -1849,7 +1849,7 @@ class App:
             #                                      )
             
             ## grads  = [grad_mean, grad_data_mean,  grad_div_mean, grad_mom_mean, grad_temp_mean, grad_srt_mean]
-            grads  = [1.0, 1e0,  1e-5, 1e-5, 1e-5, 1e-5]
+            grads  = [1.0, 1e0,  1e-2, 1e-2, 1e-2, 1e-2]
             
         return(losses, grads)
              

@@ -337,9 +337,9 @@ if __name__ == '__main__':
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-8, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
     
-    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-3, help='PDE weight', type=float)
+    parser.add_argument('--pde-weight',         dest='w_pde', default=1e0, help='PDE weight', type=float)
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e0, help='Slope recovery time loss weight', type=float)
     
@@ -349,7 +349,7 @@ if __name__ == '__main__':
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
     parser.add_argument('--architecture', dest='nn_type', default='respinn', help='')
-    parser.add_argument('--version',     dest='nn_version', default=3.52, type=float)
+    parser.add_argument('--version',     dest='nn_version', default=3.60, type=float)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     parser.add_argument('--laaf',        dest='nn_laaf', default=1, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
