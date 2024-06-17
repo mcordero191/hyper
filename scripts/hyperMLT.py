@@ -43,7 +43,7 @@ def train_hyper(df,
                   lat_center=None,
                   alt_center=None,
                   batch_size=None,
-                  only_SMR=True,
+                  sevenfold=False,
                   dropout=True,
                   w_pde_update_rate=1e-4,
                   nn_type = 'deeponet',
@@ -66,7 +66,7 @@ def train_hyper(df,
                      lon_center=lon_center,
                       lat_center=lat_center,
                       alt_center=alt_center,
-                      only_SMR=only_SMR)
+                      sevenfold=sevenfold)
     
     df_training = df_filtered
     df_test     = df_filtered#.sample(frac=0.01, random_state=0) #
@@ -317,21 +317,20 @@ if __name__ == '__main__':
     
     #delay in mins
     delay = 0#230/60. + 300
-    only_SMR    = True
     
     import argparse
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
     #VORTEX cmapaign
-    parser.add_argument('-e', '--exp', dest='exp', default='nm', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='default', help='Experiment configuration')
     
     #-d /Users/radar/Data/IAP/SIMONe/Norway/VorTex --lon-center=16.4 --lat-center=69.3 --alt-center=89 --lon-range=7.5 --lat-range=2.5 --alt-range=14
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
     parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
@@ -340,9 +339,9 @@ if __name__ == '__main__':
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-8, help='', type=float)
     
-    parser.add_argument('--pde-weight',         dest='w_pde', default=1e0, help='PDE weight', type=float)
+    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-3, help='PDE weight', type=float)
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e0, help='Slope recovery time loss weight', type=float)
     
@@ -471,13 +470,21 @@ if __name__ == '__main__':
     
     exp             = args.exp
     
+    sevenfold       = True
     batch_size      = None
     
-    if not only_SMR:
+    if sevenfold:
         nn_version += 10
     
     if exp is not None:
-        if exp.upper()  == 'SIMONE2018':
+        if exp.upper()  == 'DEFAULT':
+            
+            tini            = 0
+            dt              = 24
+            
+            path            = "../data/"
+            
+        elif exp.upper()  == 'SIMONE2018':
             
             tini            = 0
             dt              = 24
@@ -688,7 +695,7 @@ if __name__ == '__main__':
                             alt_center=alt_center,
                             batch_size=batch_size,
                             dropout=nn_dropout,
-                            only_SMR=only_SMR,
+                            sevenfold=sevenfold,
                             w_pde_update_rate=w_pde_update_rate,
                             nn_type=nn_type,
                             )

@@ -144,7 +144,7 @@ def filter_data(df, tini=0, dt=24,
                 lon_center=None,
                 lat_center=None,
                 alt_center=None,
-                only_SMR=True):
+                sevenfold=False):
     
     if tini >= 0:
         tbase = pd.to_datetime( df['t'].min() )
@@ -163,7 +163,8 @@ def filter_data(df, tini=0, dt=24,
     
     ##################################################
     
-    if only_SMR:
+    if ~sevenfold:
+        #Filter synthetic measurements
         if 'SMR_like' in df.keys():
             valid = (df['SMR_like'] == 1) 
             df = df[valid]
