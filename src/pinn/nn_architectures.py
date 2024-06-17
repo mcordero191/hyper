@@ -1280,6 +1280,7 @@ class resPINN(tf.keras.Model):
                  values = [1e0,1e0,1e-1],
                  activation    = 'sine',
                  add_nu=False,
+                 laaf=1,
                  ):
                  
         super().__init__()
@@ -1312,13 +1313,16 @@ class resPINN(tf.keras.Model):
         
         self._layers = layers
         
-        self.alphas = self.add_weight(
-                        name="alphas",
-                        shape=(n_layers+1, ),
-                        initializer="ones",
-                        # constraint = tf.keras.constraints.NonNeg(),
-                        trainable=True,   
-                    )
+        if laaf:
+            self.alphas = self.add_weight(
+                            name="alphas",
+                            shape=(n_layers+1, ),
+                            initializer="ones",
+                            # constraint = tf.keras.constraints.NonNeg(),
+                            trainable=True,   
+                        )
+        else:
+            self.alphas = tf.ones( (n_layers+1, ) )
         
         self.linear = Densenet(n_neurons=n_outs, n_layers=1, activation=None, name='linear', kernel_initializer=kernel_initializer)
         

@@ -19,7 +19,7 @@ from atmospheric_models.DNS import DNSReader
 from georeference.geo_coordinates import lla2enu, lla2xyh
 
 from pinn import hyper as pinn
-from radar.specular_meteor_radars.SMR import SMRReader, filter_data
+from radar.smr.smr_file import SMRReader, filter_data
 
 from utils.io import save_h5file
 from utils.plotting import plot_field, plot_rmses
@@ -505,8 +505,8 @@ def main(model_name, decS=1, decZ=10,
         #     skip_block = True
         
         j += 1
-        if j >= 10:
-            break
+        # if j >= 10:
+        #     break
         
         df = model_sys.read_next_block(skip_block=skip_block)
         if df is None: break  
@@ -562,7 +562,7 @@ def main(model_name, decS=1, decZ=10,
         if gradients: func = nn.infer_gradients
         
         for i in range(nz):
-            outs = func(t[i].flatten(), x = X[i].flatten(), y=Y[i].flatten(), z=Z[i].flatten())
+            outs = func(t[i].flatten(), x = X[i].flatten(), y=Y[i].flatten(), z=Z[i].flatten(), filter_output=False)
             
             uet  = outs[:,0]#-30
             vet  = outs[:,1]#-35
@@ -853,16 +853,16 @@ if __name__ == '__main__':
     subfolder = 'nnIPINN_15.03'
     
     model_name = None #'mean_model_20181102-000000_w04_n0.3_NS[VV]_o3_asine_l03_n064_d032_b02_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_0_HeNorm_None_ur=1.0e-05.h5'
-    subfolder = 'nnRESPINN_13.02'
+    subfolder = 'nnRESPINN_3.19'
     
     log_index       = None
     
     units           = 'm'
-    gradients       = True
+    gradients       = False
     plot_fields     = True
-    only_SMR        = False
+    only_SMR        = True
     rti_type        = 'corr'
-    save_cuts       = True
+    save_cuts       = False
         
     path_data = os.path.split( os.path.realpath(path_meteor_data) )[0]
     path_PINN = os.path.join(path_data, "winds", subfolder)
@@ -873,11 +873,11 @@ if __name__ == '__main__':
     else:
         models = [  model_name ]
     
-    for model_name in models[:]:
+    for model_name in models[1:]:
         # try:
-        main(model_name, decS=1, decZ=1,
+        main(model_name, decS=1, decZ=20,
              plot_rti=False,
-             zdecimation=20,
+             zdecimation=1,
              )
         # except:
         #     continue

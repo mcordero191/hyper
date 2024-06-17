@@ -83,7 +83,7 @@ def plot_spectrum(u, v, Fu, Fv, umin=-10, umax=10, vmin=1e-14, vmax=1e2, cmap_u=
     plt.show()
 
 
-def plot_spectra(Fus, Fvs, umin=-10, umax=10, vmin=1e-14, vmax=1e2, cmap_u='RdBu_r', labels=None):
+def plot_spectra(Fus, Fvs, umin=-10, umax=10, vmin=1e-14, vmax=1e0, cmap_u='RdBu_r', labels=None):
     
     Fus = np.array(Fus)
     Fvs = np.array(Fvs)
@@ -91,15 +91,26 @@ def plot_spectra(Fus, Fvs, umin=-10, umax=10, vmin=1e-14, vmax=1e2, cmap_u='RdBu
     n, nt, nx, ny = Fus.shape
     
     x = np.arange(nx)
-    y = np.arange(ny)+1
+    y = np.arange(ny)
     
     norm = mpl.colors.LogNorm(vmin=vmin, vmax=vmax)
     # fig, axs = plt.subplots(1, 2, sharex=False, sharey=False, figsize=(12,6))
     
-    fig, axs = plt.subplot_mosaic("03;13;23", figsize=(12,6))
+    # fig, axs = plt.subplot_mosaic("03;13;23", figsize=(12,6))
+    fig, axs = plt.subplot_mosaic("01", figsize=(10,5))
     axs = [axs[key] for key in sorted(axs.keys())]
     
     colors = ['r', 'g', 'b']
+    
+    axs[0].set_title("(a) 1D spectra")
+    axs[0].set_ylabel("E(k)")
+    axs[0].set_xlabel("k")
+    
+    axs[1].set_title("(b) Ratio HYPER/DNS")
+    axs[1].set_ylabel("Ratio")
+    axs[1].set_xlabel("k")
+    
+    means = []
     for i in range(n):
     
         pow_u = np.power(np.abs(Fus[i]), 2)
@@ -109,37 +120,57 @@ def plot_spectra(Fus, Fvs, umin=-10, umax=10, vmin=1e-14, vmax=1e2, cmap_u='RdBu
         mean_y = np.mean(pow_uv, axis=1)
         mean_t = np.mean(mean_y, axis=0)
         
-        axs[i].pcolormesh(y, x, pow_uv[0], norm=norm  )
+        # axs[i].pcolormesh(y, x, pow_uv[0], norm=norm  )
         
         label=''
         if labels is not None:
             label = labels[i]
         
         for j in range(nt):
-            axs[3].plot(y, mean_y[j], '-', color=colors[i], alpha=0.1) 
+            axs[0].plot(y, mean_y[j], '-', color=colors[i], alpha=0.1) 
                
-        axs[3].plot(y, mean_t, 'o--', label=label, color=colors[i])
+        axs[0].plot(y, mean_t, 'o--', label=label, color=colors[i])
         
-        if i == 0:
-            noise_level = 0.3*np.mean(mean_t)
-            axs[3].axhline(noise_level, linestyle='--', color='k')
+        # if i == 0:
+        #     noise_level = 0.3*np.mean(mean_t)
+        #     axs[0].axhline(noise_level, linestyle='--', color='k')
         
-        for ax in axs[0:3]:
-            ax.set_xscale('log')
-            ax.set_xlim(1,500)
+        # for ax in axs[0:3]:
+        #     ax.set_xscale('log')
+        #     ax.set_xlim(1,500)
         
         
-        ax = axs[-1]
+        ax = axs[0]
         ax.set_xscale('log')
         ax.set_yscale('log')
         
-        ax.set_xlim(1,500)
+        ax.set_xlim(1,200)
         ax.set_ylim(vmin, vmax)
         
         ax.legend()
         
         ax.grid(True)
+        
+        means.append(mean_t)
     
+    ratio1 = means[1]/means[0]
+    ratio10 = means[2]/means[0]
+    
+    ax = axs[1]
+    
+    ax.plot(ratio1, "o", color=colors[1], label=labels[1])
+    ax.plot(ratio10, "o", color=colors[2], label=labels[2])
+    
+    ax.set_ylim(1e-5, 1e1)
+    ax.set_xlim(1,200)
+    
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+        
+    ax.legend()
+    ax.grid(True)
+        
+        
     plt.tight_layout()
     plt.show()
 
@@ -169,7 +200,10 @@ if __name__ == '__main__':
     
     
     hx1_path  = "/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/winds/nnRESPINN_3.00/dl05n256dur=1.0e-07/None/outs"
-    hx10_path = "/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/winds/nnRESPINN_13.00/dl05n256dur=1.0e-07/None/outs"
+    hx10_path  = "/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/winds/nnRESPINN_13.00/dl05n256dur=1.0e-07/None/outs"
+    
+    hx1_path  = "/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/winds/nnRESPINN_3.19/l05n256/None/outs"
+    hx10_path = "/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/winds/nnRESPINN_13.23/l05n256/None/outs"
     
     dns = DNSReader(dns_path, dimZ=100)
     hx1 = DNSReader(hx1_path, dimZ=100)
@@ -230,4 +264,4 @@ if __name__ == '__main__':
     
     plot_spectra([Fus0, Fus1, Fus2],
                  [Fvs0, Fvs1, Fvs2],
-                 labels=['DNS', 'Hx1', 'Hx10'])
+                 labels=['DNS', 'HYPER x1', 'HYPER x7'])

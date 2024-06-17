@@ -12,7 +12,7 @@ from sklearn.mixture import GaussianMixture
 
 import matplotlib.pyplot as plt
     
-def hierarchical_cluster(X, cmap='nipy_spectral', alpha=0.2):
+def hierarchical_cluster(X, cmap='nipy_spectral', alpha=0.1):
     '''
     X[npoints, nfeatures]    :    Dataset with npoints and nfeatures
     '''
@@ -23,6 +23,9 @@ def hierarchical_cluster(X, cmap='nipy_spectral', alpha=0.2):
     xmin = np.min(X, axis=0)
     xmax = np.max(X, axis=0)
     xmean = np.mean(X, axis=0)
+    
+    xmin[2] = 0
+    xmax[2] = 1
     
     X = (X - xmean[None,:])/(xmax-xmin)[None,:]
     
@@ -43,73 +46,95 @@ def hierarchical_cluster(X, cmap='nipy_spectral', alpha=0.2):
     # Specify the desired number of clusters
     # nlinks = len(np.unique(X[:,2]))
     
-    n_clusters = 30
-    
     # # Create an Agglomerative Clustering model
     # model = AgglomerativeClustering(n_clusters=n_clusters)
     # # Fit the model to the data and get cluster labels
     # cluster_labels = model.fit_predict(X)
     
+    ### DBSCAN
     # define the model
-    # model = DBSCAN(eps=0.30, min_samples=9)
+    model = DBSCAN(eps=0.1, min_samples=40)
     # fit model and predict clusters
-    # cluster_labels = model.fit_predict(X)
+    cluster_labels = model.fit_predict(X)
     
+    outliers = np.where(cluster_labels == -1, True, False)
     
-    model = GaussianMixture(n_components=n_clusters)
-    # fit the model
-    model.fit(X)
-    # assign a cluster to each example
-    cluster_labels = model.predict(X)    
+    if np.count_nonzero(outliers) < 0.01*npoints:
+        valid = ~outliers
+    else:
+        valid = (outliers | True)
+    
+    return(valid)
 
-    min_idx = np.argmin(X[:,0])
-    max_idx = np.argmax(X[:,0])
+    ### Gaussian Mixture
+    # n_clusters = 55
+    # model = GaussianMixture(n_components=n_clusters)
+    # # fit the model
+    # model.fit(X)
+    # # assign a cluster to each example
+    # cluster_labels = model.predict(X)    
+    #
+    # min_idx = np.argmin(X[:,0])
+    # max_idx = np.argmax(X[:,0])
+    #
+    # min_label = cluster_labels[min_idx]
+    # max_label = cluster_labels[max_idx]
+    #
+    #
+    # valid_min = (cluster_labels != min_label) 
+    # valid_max = (cluster_labels != max_label)
+    #
+    # valid = (valid_min | True)
+    #
+    # if np.count_nonzero(~valid_min) < 0.005*npoints:
+    #     valid = valid & valid_min
+    #
+    # if np.count_nonzero(~valid_max) < 0.005*npoints:
+    #     valid = valid & valid_max
     
-    min_label = model.predict(X[min_idx:min_idx+1,:])
-    max_label = model.predict(X[max_idx:max_idx+1,:])
     
-    valid = (cluster_labels != min_label) & (cluster_labels != max_label)
+    # return(valid)
+
+    X_valid = X[valid,:]
+    clabels_valid = cluster_labels[valid]
     
-    if np.count_nonzero(~valid) > 0.05*npoints:
-        valid[:] = True
+    fig = plt.figure(figsize=(8, 4))
     
-    X_invalid = X[~valid,:]
-    clabels_invalid = cluster_labels[~valid]
+    ax = fig.add_subplot(121, projection="3d")
     
-    plt.figure(figsize=(8, 4))
-    
-    # plt.subplot(121)
     # Plot the data with cluster labels
-    plt.scatter(X[:, 0], X[:, 1], c=cluster_labels, cmap=cmap, alpha=alpha)
+    im = ax.scatter(X[:, 0], X[:, 2], X[:, 1], c=cluster_labels, cmap=cmap, alpha=alpha)
     
     # X = X[valid,:]
     # plt.scatter(X[:, 0], X[:, 1], marker='x', cmap=cmap, alpha=alpha)
     
-    plt.title('Total counts: %d' %len(X[:,0]))
-    plt.xlabel('Feature 0')
-    plt.ylabel('Feature 1')
-    plt.colorbar(label='Cluster')
+    ax.set_title('Total counts: %d' %len(X[:,0]))
+    ax.set_xlabel('Feature 0')
+    ax.set_ylabel('Feature 2')
+    ax.set_zlabel('Feature 1')
+    plt.colorbar(im, ax=ax, label='Cluster')
     
     # plt.subplot(222)
     # # Plot the data with cluster labels
+    # # plt.scatter(X_invalid[:, 0], X_invalid[:, 1], c=clabels_invalid, cmap=cmap, alpha=alpha)
+    #
+    # # X = X[valid,:]
     # plt.scatter(X[:, 0], X[:, 2], c=cluster_labels, cmap=cmap, alpha=alpha)
-    # # plt.title(f'Agglomerative Clustering with {n_clusters} Clusters')
+    #
+    # plt.title('Total counts: %d' %len(X_valid[:,0]))
     # plt.xlabel('Feature 0')
     # plt.ylabel('Feature 2')
     # plt.colorbar(label='Cluster')
     
-    #
-    # plt.subplot(122)
-    # # Plot the data with cluster labels
-    # plt.scatter(X_invalid[:, 0], X_invalid[:, 1], c=clabels_invalid, cmap=cmap, alpha=alpha)
-    #
-    # # X = X[valid,:]
-    # # plt.scatter(X[:, 0], X[:, 1], marker='x', cmap=cmap, alpha=alpha)
-    #
-    # plt.title('Total counts: %d' %len(X_invalid[:,0]))
-    # plt.xlabel('Feature 0')
-    # plt.ylabel('Feature 1')
-    # plt.colorbar(label='Cluster')
+    ax = fig.add_subplot(122, projection="3d")
+    # Plot the data with cluster labels
+    
+    im = ax.scatter(X_valid[:, 0], X_valid[:, 2], X_valid[:, 1], c=clabels_valid, cmap=cmap, alpha=alpha)
+    ax.set_title('Total counts: %d' %len(X_valid[:,0]))
+    ax.set_xlabel('Feature 0')
+    ax.set_ylabel('Feature 2')
+    ax.set_ylabel('Feature 1')
+    plt.colorbar(im, ax=ax, label='Cluster')
     
     # plt.subplot(224)
     # # Plot the data with cluster labels
@@ -118,7 +143,6 @@ def hierarchical_cluster(X, cmap='nipy_spectral', alpha=0.2):
     # plt.xlabel('Feature 0')
     # plt.ylabel('Feature 2')
     # plt.colorbar(label='Cluster')
-    
     
     plt.tight_layout()
     plt.show()

@@ -7,13 +7,13 @@ import os, time
 import numpy as np
 
 from atmospheric_models.DNS import DNSReader
-from radar.specular_meteor_radars.SMR import SMRReader
+from radar.smr.smr_file import SMRReader
 
 if __name__ == '__main__':
     
-    path_meteor_data    = '/Users/mcordero/Data/IAP/SIMONe/Germany/Simone2018'
-    path_model          = '/Users/mcordero/Data/IAP/Models/DNS/StratifiedHD/outs'
-    rpath               = '/Users/mcordero/Data/IAP/SIMONe/Virtual/'
+    path_meteor_data    = '/Users/radar/Data/IAP/SIMONe/Norway/Vortex'
+    path_model          = '/Users/radar/Data/IAP/Models/DNS/NonStratified'
+    rpath               = '/Users/radar/Data/IAP/SIMONe/Virtual/'
     
     if not os.path.exists(rpath):
         os.mkdir(rpath)

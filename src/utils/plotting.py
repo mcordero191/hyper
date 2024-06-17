@@ -419,7 +419,7 @@ def plot_field(lons, lats, alts,
                vmaxs=None,
                df_sampling=None,
                alpha=1,
-               zdecimation=3,
+               zdecimation=1,
                apply_nan_mask=True,
                fontsize=18,
                labelsize=14,
@@ -445,8 +445,8 @@ def plot_field(lons, lats, alts,
     ylabel = 'NS direction (km)'
     
     if coord != 'xyz':
-        xlabel = r'Longitude (^\circ)'
-        ylabel = r'Latitude (^\circ)'
+        xlabel = r'Longitude ($^\circ$)'
+        ylabel = r'Latitude ($^\circ$)'
     
     props = dict(boxstyle='round', facecolor='wheat', alpha=0.9)
     meteor_size = 3
@@ -505,11 +505,11 @@ def plot_field(lons, lats, alts,
                 
                 std = np.nanstd(ve)
                 
-                ax.text(0.05, 0.95, r'$std=%.2e$' %std,
-                        transform=ax.transAxes, fontsize=14,
-                        verticalalignment='top',
-                        bbox=props
-                        )
+                # ax.text(0.05, 0.95, r'$std=%.2e$' %std,
+                #         transform=ax.transAxes, fontsize=14,
+                #         verticalalignment='top',
+                #         bbox=props
+                #         )
                 
                 if df_sampling is not None:
                     ax.plot(samp_lons, samp_lats, 'kx', alpha=alpha_meteors, markersize=meteor_size)
@@ -563,11 +563,11 @@ def plot_field(lons, lats, alts,
             
             std = np.nanstd(v)
                 
-            ax.text(0.05, 0.95, r'$std=%.2e$' %std,
-                    transform=ax.transAxes, fontsize=14,
-                    verticalalignment='top',
-                    bbox=props
-                    )
+            # ax.text(0.05, 0.95, r'$std=%.2e$' %std,
+            #         transform=ax.transAxes, fontsize=14,
+            #         verticalalignment='top',
+            #         bbox=props
+            #         )
                 
             if df_sampling is not None:
                 ax.plot(samp_lons, samp_lats, 'kx', alpha=alpha_meteors, markersize=meteor_size)

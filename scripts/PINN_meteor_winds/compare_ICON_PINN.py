@@ -22,7 +22,7 @@ from atmospheric_models.ICON import ICONReader
 from georeference.geo_coordinates import lla2enu, lla2xyh
 
 from pinn import hyper as pinn
-from radar.specular_meteor_radars.SMR import SMRReader
+from radar.smr.smr_file import SMRReader
 
 from utils.io import save_h5file
 from utils.plotting import plot_field, plot_rmses
@@ -512,7 +512,7 @@ def main(path_ICON_model,
         scaling_factor = 1e-3
         
     path_data = os.path.split( os.path.realpath(path_meteor_data) )[0]
-    path_PINN = os.path.join(path_data, subfolder)
+    path_PINN = os.path.join(path_data, 'winds', subfolder)
     
     filename = os.path.join(path_PINN, model_name)
     
@@ -524,11 +524,11 @@ def main(path_ICON_model,
     
     alt_range = 18
     lon_range = 5
-    lat_range = 4.5
+    lat_range = 3
     
-    decX = 2
-    decY = 2
-    decZ = 1
+    decX = 1
+    decY = 1
+    decZ = 4
     
     # if not (plot_fields):
     #     decX = 5
@@ -682,7 +682,8 @@ def main(path_ICON_model,
         
         outs = func(t.flatten(),
                      LON.flatten(), LAT.flatten(), ALT.flatten(),
-                     x = X.flatten(), y=Y.flatten(), z=Z.flatten()
+                     x = X.flatten(), y=Y.flatten(), z=Z.flatten(),
+                     filter_output=False,
                      )
         
         ue  = outs[:,0]
@@ -1023,10 +1024,10 @@ if __name__ == '__main__':
     model_name  =   'model_20160815-000000_w03_n0.0_NS[VP_div]_o3_asine_l04_n128_d016_w1.0e+00_w1.0e-03_lr1.0e-03_NS5.0e+03_0_0_He_None_ur=1.0e-03.h5'
     
     
-    subfolder   =   'nnIPINN_6.14'
+    subfolder   =   'nnRESPINN_3.25'
     model_name      = None
     
-    log_index       = 2000
+    log_index       = None
     
     units           = 'm'
     gradients       = False
@@ -1034,7 +1035,7 @@ if __name__ == '__main__':
     save_cuts       = False
     
     path_data = os.path.split( os.path.realpath(path_meteor_data) )[0]
-    path_PINN = os.path.join(path_data, subfolder)
+    path_PINN = os.path.join(path_data, 'winds', subfolder)
     
     if model_name is None:
         models = glob.glob1(path_PINN, '*model*[!s].h5')

@@ -51,7 +51,7 @@ class App:
                 init_sigma = 1.0,
                 # lr      = 1e-3,
                 # opt     = "Adam",
-                # laaf    = False,
+                laaf    = 0,
                 # w_data  = 1.,
                 # w_div   = 1e0,
                 # w_mom   = 1e0,
@@ -109,7 +109,7 @@ class App:
         
         self.f_scl_in   = f_scl_in
                 
-        # self.laaf       = laaf
+        self.laaf       = laaf
         # self.dropout    = dropout
         self.init_sigma = init_sigma
         
@@ -182,7 +182,8 @@ class App:
                               self.depth,
                               activation  = act,
                               add_nu     = add_nu,
-                              kernel_initializer = w_init
+                              kernel_initializer = w_init,
+                              laaf = laaf,
                             )    
         elif self.nn_type == 'spinn':            
             nn = sPINN( self.shape_out,
@@ -263,7 +264,7 @@ class App:
         print("         activation   :", self.act)
         print("         weight init  :", self.w_init)
         print("         bias   init  :", self.b_init)
-        # print("         laaf         :", self.laaf)
+        print("         laaf         :", self.laaf)
         # print("         learning rate:", self.lr)
         # print("         optimizer    :", self.opt)
         print("         width        :", self.width)
@@ -1301,7 +1302,7 @@ class App:
         del tpS2
         
         #Divergence
-        div = eq_continuity_full(u_x, v_y, w_z)#, u, v, w, rho, rho_t, rho_x, rho_y, rho_z)
+        div = eq_continuity(u_x, v_y, w_z)#, u, v, w, rho, rho_t, rho_x, rho_y, rho_z)
         
         div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
         
@@ -1684,8 +1685,8 @@ class App:
         
         df0 = f  + nn0
         
-        loss = tf.square(tf.reduce_mean(tf.abs(df0/f_err)))
-        # loss = tf.reduce_mean(tf.square(df0/f_err))
+        # loss = tf.square(tf.reduce_mean(tf.abs(df0/f_err)))
+        loss = tf.reduce_mean(tf.square(df0/f_err))
         
         return (loss)
     
@@ -1870,7 +1871,6 @@ class App:
               tmax=None,
               lr      = 1e-3,
               opt     = "Adam",
-              laaf    = 0,
               w_data  = 1.,
               w_div   = 1e0,
               w_mom   = 1e0,
@@ -1891,7 +1891,6 @@ class App:
         
         self.lr      = lr
         self.opt     = opt
-        self.laaf    = laaf
         self.dropout = dropout
         
         self.w_data  = w_data
@@ -2740,7 +2739,7 @@ class App:
         
         return (outputs)
     
-    def infer_gradients(self, t, lon=None, lat=None, alt=None, return_numpy=True,
+    def infer_gradients(self, t, lon=None, lat=None, alt=None, filter_output=True,
                         x=None, y=None, z=None):
         
         t = t - time_base
@@ -2794,8 +2793,9 @@ class App:
                        ],
                        axis=1)
         
-        if return_numpy:
-            Y = Y.numpy()
+        Y = Y.numpy()
+        
+        if filter_output:
             Y[mask,:] = np.nan
         
         return (Y)
@@ -4050,65 +4050,65 @@ def eq_continuity(u_x, v_y, w_z, w=tf.constant(0., dtype=data_type), rho_ratio=t
 #
 #     return(y)
 #
-# def eq_horizontal_momentum(u, v, w,
-#                            u_t, u_x, u_y, u_z,
-#                            u_xx, u_yy, u_zz,
-#                            p_x,
-#                            F    = tf.constant(0.0, dtype=data_type),
-#                            nu   = tf.constant(0.0, dtype=data_type),
-#                            rho  = tf.constant(1.0, dtype=data_type),
-#                            ):
-#     """
-#     Momentum equation in 3D for an incomprensible flow
-#
-#     Inputs:
-#         u    :    velocity field in the x direction (m/s)
-#         v    :    velocity field in the y direction (m/s)
-#         w    :    velocity field in the z direction (m/s)
-#
-#         u_i    :    partial derivative of u respect to i (m/s/s or m/s/km)
-#         u_ii    :   2nd partial derivative of u respect to i (m/s/km/km)
-#
-#         nu     :    kinematic viscocity
-#         p_x    :    presure/rho_0 change in the x direction
-#         f_x    :    external force in the x direction
-#     """
-#     #Scale (1e0): u = 100 m/s, u_x = 10*1e-3 m/s/km, u_z = 100*1e-3 m/s/km
-#     y = u_t + u*u_x + v*u_y + w*u_z + p_x/rho - F - nu*(u_xx+u_yy+u_zz) 
-#
-#     return(y)
-#
-# def eq_vertical_momentum(u, v, w,
-#                          w_t, w_x, w_y, w_z,
-#                          w_xx, w_yy, w_zz,
-#                          p_z,
-#                          F      = tf.constant(0.0, dtype=data_type),
-#                          nu     = tf.constant(0.0, dtype=data_type),
-#                          rho    = tf.constant(1.0, dtype=data_type),
-#                          N      = tf.constant(0.0, dtype=data_type),
-#                          theta  = tf.constant(0.0, dtype=data_type),
-#                          ):
-#     """
-#     Momentum equation in 3D for an incomprensible flow
-#
-#     Inputs:
-#         u    :    velocity field in the x direction (m/s)
-#         v    :    velocity field in the y direction (m/s)
-#         w    :    velocity field in the z direction (m/s)
-#
-#         w_i    :    partial derivative of u respect to i (m/s/s or m/s/m)
-#
-#         nu     :    kinematic viscocity
-#         p_z    :    presure/rho_0 change in the z direction
-#         f_z    :    external force in the z direction
-#
-#         N    :    Brunt Vaisala frequency = SQRT{-(g/rho_0)*rho_z}
-#         theta    :    scaled density perturbation g*rho'/rho_0
-#     """
-#     #Scale (1e0): w = 10 m/s, w_z = 10*1e-3 m/s/km, theta = 1e0
-#     y = w_t + u*w_x + v*w_y + w*w_z + p_z/rho + N*theta - F - nu*(w_xx+w_yy+w_zz)
-#
-#     return(y)
+def eq_horizontal_momentum(u, v, w,
+                           u_t, u_x, u_y, u_z,
+                           u_xx, u_yy, u_zz,
+                           p_x,
+                           F    = tf.constant(0.0, dtype=data_type),
+                           nu   = tf.constant(0.0, dtype=data_type),
+                           rho  = tf.constant(1.0, dtype=data_type),
+                           ):
+    """
+    Momentum equation in 3D for an incomprensible flow
+
+    Inputs:
+        u    :    velocity field in the x direction (m/s)
+        v    :    velocity field in the y direction (m/s)
+        w    :    velocity field in the z direction (m/s)
+
+        u_i    :    partial derivative of u respect to i (m/s/s or m/s/km)
+        u_ii    :   2nd partial derivative of u respect to i (m/s/km/km)
+
+        nu     :    kinematic viscocity
+        p_x    :    presure/rho_0 change in the x direction
+        f_x    :    external force in the x direction
+    """
+    #Scale (1e0): u = 100 m/s, u_x = 10*1e-3 m/s/km, u_z = 100*1e-3 m/s/km
+    y = u_t + u*u_x + v*u_y + w*u_z + p_x/rho - F - nu*(u_xx+u_yy+u_zz) 
+
+    return(y)
+
+def eq_vertical_momentum(u, v, w,
+                         w_t, w_x, w_y, w_z,
+                         w_xx, w_yy, w_zz,
+                         p_z,
+                         F      = tf.constant(0.0, dtype=data_type),
+                         nu     = tf.constant(0.0, dtype=data_type),
+                         rho    = tf.constant(1.0, dtype=data_type),
+                         N      = tf.constant(0.0, dtype=data_type),
+                         theta  = tf.constant(0.0, dtype=data_type),
+                         ):
+    """
+    Momentum equation in 3D for an incomprensible flow
+
+    Inputs:
+        u    :    velocity field in the x direction (m/s)
+        v    :    velocity field in the y direction (m/s)
+        w    :    velocity field in the z direction (m/s)
+
+        w_i    :    partial derivative of u respect to i (m/s/s or m/s/m)
+
+        nu     :    kinematic viscocity
+        p_z    :    presure/rho_0 change in the z direction
+        f_z    :    external force in the z direction
+
+        N    :    Brunt Vaisala frequency = SQRT{-(g/rho_0)*rho_z}
+        theta    :    scaled density perturbation g*rho'/rho_0
+    """
+    #Scale (1e0): w = 10 m/s, w_z = 10*1e-3 m/s/km, theta = 1e0
+    y = w_t + u*w_x + v*w_y + w*w_z + p_z/rho + N*theta - F - nu*(w_xx+w_yy+w_zz)
+
+    return(y)
 
 def eq_temperature(u, v, w,
                    theta_t, theta_x, theta_y, theta_z,
