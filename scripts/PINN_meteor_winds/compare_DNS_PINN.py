@@ -411,7 +411,7 @@ def main(model_name, decS=1, decZ=10,
     info = meteor_sys.read_next_file(enu_coordinates=True)
     df_meteor = meteor_sys.df
     
-    df_meteor = filter_data(df_meteor, only_SMR=only_SMR)
+    df_meteor = filter_data(df_meteor, sevenfold=sevenfold)
     
     # mask  = np.abs(df_meteor['lons'] - lon_center) < lon_range/2.
     # mask &= np.abs(df_meteor['lats'] - lat_center) < lat_range/2.
@@ -853,14 +853,14 @@ if __name__ == '__main__':
     subfolder = 'nnIPINN_15.03'
     
     model_name = None #'mean_model_20181102-000000_w04_n0.3_NS[VV]_o3_asine_l03_n064_d032_b02_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_0_HeNorm_None_ur=1.0e-05.h5'
-    subfolder = 'nnRESPINN_3.19'
+    subfolder = 'nnRESPINN_14.00'
     
     log_index       = None
     
     units           = 'm'
     gradients       = False
     plot_fields     = True
-    only_SMR        = True
+    sevenfold       = True
     rti_type        = 'corr'
     save_cuts       = False
         
@@ -873,7 +873,7 @@ if __name__ == '__main__':
     else:
         models = [  model_name ]
     
-    for model_name in models[1:]:
+    for model_name in models[:]:
         # try:
         main(model_name, decS=1, decZ=20,
              plot_rti=False,

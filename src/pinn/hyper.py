@@ -247,7 +247,7 @@ class App:
             raise ValueError('nn_type not recognized')
         
         model = nn.build_graph( (self.shape_in,) )
-        model.summary()
+        nn.summary()
         
         self.model = nn
         

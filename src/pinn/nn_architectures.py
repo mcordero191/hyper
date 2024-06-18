@@ -903,12 +903,14 @@ class LaafLayer(tf.keras.layers.Layer):
 class Linear(tf.keras.layers.Layer):
 
     def __init__(self,
+                 noutputs = 1.0,
                  kernel_initializer = 'LecunNormal',
                  **kwargs
                  ):
         
         super().__init__(**kwargs)
         self.kernel_initializer = kernel_initializer
+        self.noutputs = noutputs
         
     def build(self, input_shape):
         
@@ -916,20 +918,20 @@ class Linear(tf.keras.layers.Layer):
         # nd     = input_shape[2]
         
         self.w = self.add_weight(
-            shape=(nnodes,),
+            shape=(nnodes, self.noutputs),
             initializer=self.kernel_initializer,
             trainable=True,
         )
         
         self.b = self.add_weight(
-            shape=(1,),
+            shape=(1, self.noutputs),
             initializer='zeros',
             trainable=True
         )
         
-        self.built = True
+        # self.built = True
         
-    def call(self, inputs):
+    def call(self, inputs, alpha=tf.constant(1.0)):
         '''
         Inputs [npoints, nnodes, nd]
         
@@ -937,9 +939,18 @@ class Linear(tf.keras.layers.Layer):
         '''
         # npoints, nnodes, nd = inputs.shape
         
-        u = tf.einsum('ij,j->i', inputs, self.w) + self.b
+        
+        u = tf.matmul(inputs, self.w) + self.b
+        u = alpha*u
         
         return(u)
+    
+    # def get_config(self):
+    #
+    #     config = super().get_config()
+    #     config.update({"kernel_initializer": self.kernel_initializer})
+    #
+    #     return config
 
 class EinsumLayer(tf.keras.layers.Layer):
 
@@ -1003,12 +1014,14 @@ class Scaler(tf.keras.layers.Layer):
     def __init__(self,
                  values=[10.,10.,1.],
                  add_nu = False,
+                 **kwargs
                  ):
         
-        super().__init__()
+        super().__init__(**kwargs)
         
         self.values = values
         self.add_nu = add_nu
+        self.scaling = tf.constant(self.values, name='output_scaling', dtype=data_type)
         
     def build(self, input_shape):
         
@@ -1017,11 +1030,13 @@ class Scaler(tf.keras.layers.Layer):
         self.w = self.add_weight(
             shape = (n_in,),
             initializer = 'ones',
+            trainable=True,
         )
         
         self.b = self.add_weight(
             shape = (n_in,),
             initializer = 'zeros',
+            trainable=True,
         )
         
         self.nu = self.add_weight(name='Nu',
@@ -1030,7 +1045,7 @@ class Scaler(tf.keras.layers.Layer):
                         trainable = self.add_nu,
                         constraint = tf.keras.constraints.NonNeg())
         
-        self.scaling = tf.constant(self.values, name='output_scaling', dtype=data_type)
+        
         
     def call(self, inputs):
         
@@ -1303,6 +1318,8 @@ class resPINN(tf.keras.Model):
             
         self.emb = Embedding(n_neurons=n_neurons, kernel_initializer=kernel_initializer)
         
+        # self._linear = Densenet(n_neurons=n_outs, n_layers=1, activation=None, name='linear', kernel_initializer=kernel_initializer)
+        
         layers = []
         for _ in range(n_layers):
             layer = LaafLayer(n_neurons,
@@ -1311,7 +1328,7 @@ class resPINN(tf.keras.Model):
                               )
             layers.append(layer)
         
-        self._layers = layers
+        self.laaf_layers = layers
         
         if laaf:
             self.alphas = self.add_weight(
@@ -1324,7 +1341,7 @@ class resPINN(tf.keras.Model):
         else:
             self.alphas = tf.ones( (n_layers+1, ) )
         
-        self.linear = Densenet(n_neurons=n_outs, n_layers=1, activation=None, name='linear', kernel_initializer=kernel_initializer)
+        self.linear = Linear(n_outs, kernel_initializer=kernel_initializer)
         
         self.scale = Scaler(values, add_nu=add_nu)
         
@@ -1341,20 +1358,20 @@ class resPINN(tf.keras.Model):
         
         u = self.emb(inputs, self.alphas[0])
         
-        u = self._layers[0](u, self.alphas[1])
+        u = self.laaf_layers[0](u, self.alphas[1])
         
         output = u
         
         for i in range(1,self.n_layers):
-            u = self._layers[i](u, self.alphas[i+1])
+            u = self.laaf_layers[i](u, self.alphas[i+1])
             
             output = output + u
         
-        u = self.linear(output)
+        output = self.linear(output)#, alpha=self.alphas[i+2])
         
-        u = self.scale(u)
+        output = self.scale(output)
         
-        return(u)
+        return(output)
     
     def build_graph(self, in_shape):
         

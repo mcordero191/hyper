@@ -43,57 +43,28 @@ def get_xyz_bounds(x, y, z, n=4):
     # ysigma = np.std(y)
     # zsigma = np.std(z)
     
-    xbins = np.arange( np.min(x), np.max(x), 30e3)
-    ybins = np.arange( np.min(y), np.max(y), 30e3)
-    zbins = np.arange( np.min(z), np.max(z), 1e3)
+    xbins = np.arange( np.min(x), np.max(x)+30e3, 30e3)
+    ybins = np.arange( np.min(y), np.max(y)+30e3, 30e3)
+    zbins = np.arange( np.min(z), np.max(z)+1e3, 1e3)
     
     hist, edges = np.histogramdd( np.array([x, y, z]).T, (xbins, ybins, zbins) )
     
-    valid = np.where(hist > 5)
+    valid = np.where(hist >= 5)
     
     idx0 = np.min(valid, axis=1)
     idx1 = np.max(valid, axis=1)
     
     xmin = edges[0][idx0[0]]
-    xmax = edges[0][idx1[0]]
+    xmax = edges[0][idx1[0]+1]
     
     ymin = edges[1][idx0[1]]
-    ymax = edges[1][idx1[1]]
+    ymax = edges[1][idx1[1]+1]
     
     zmin = edges[2][idx0[2]]
-    zmax = edges[2][idx1[2]]
+    zmax = edges[2][idx1[2]+1]
     
     
     return( xmax-xmin, ymax-ymin, zmax-zmin )
-
-def time_filter(df, tini=0, dt=24):
-    
-    # Slice to reconstruct
-    #tbase = pd.to_datetime(dfraw['t'][0].date())
-    de = df['dop_errs']
-    
-    std = np.sqrt(np.var(de))
-    cond1 = (de > 3*std)
-    
-    dxy = np.sqrt( df['dcosx']**2 + df['dcosy']**2 )
-    zenith = np.arcsin(dxy)*180/np.pi
-    cond2 = (zenith > 65)
-    
-    df = df[~(cond1 & cond2)]
-    
-    if tini >= 0:
-        tbase = pd.to_datetime( df['t'].min() )
-    else:
-        tbase = pd.to_datetime( df['t'].max() )
-        
-    t = tbase + pd.to_timedelta(tini, unit='h') # Center time for reconstruction
-    
-    tmin = pd.to_datetime(t) #- pd.to_timedelta(dt/2, unit='h')
-    tmax = pd.to_datetime(t) + pd.to_timedelta(dt*60*60, unit='s')
-    
-    valid  = (df['t'] >= tmin)       & (df['t'] <= tmax)
-    
-    return(df[valid])
 
 def plot_hist(df):
     
@@ -228,13 +199,13 @@ def filter_data(df, tini=0, dt=24,
     # zmid = attrs['alt_center']
     
     if lon_center is not None: xmid = lon_center
-    else: xmid = np.round( x.median(), 1)
+    else: xmid = np.round( x.mean(), 1)
     
     if lat_center is not None: ymid = lat_center
-    else: ymid = np.round( y.median(), 1)
+    else: ymid = np.round( y.mean(), 1)
     
     if alt_center is not None: zmid = alt_center
-    else: zmid = np.round( z.median(), 1)
+    else: zmid = np.round( z.mean(), 1)
     
     print('Filter middle point:', xmid, ymid, zmid)
     
