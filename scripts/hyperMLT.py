@@ -149,7 +149,7 @@ def train_hyper(df,
     dop_errs    = 2*np.pi*df_training['dop_errs'].values
     
     dop_std     = np.std(dops)
-    noise_std   = 1.0#np.std(dop_errs)
+    noise_std   = 10.0#np.std(dop_errs)
     
     d = dops
     
@@ -198,7 +198,7 @@ def train_hyper(df,
     # filename_mean = os.path.join(rpath, filename_model)
     
     suffix_mean = suffix #'%s_w%02d_n%03.1f' %(ini_date.strftime('%Y%m%d-%H%M%S'), dt, noise_sigma) # #
-    filename_mean = os.path.join(rpath, 'mean_model_%s.h5' %suffix_mean)
+    filename_mean = os.path.join(rpath, 'hyper%s.h5' %suffix_mean)
     
     if os.path.exists(filename_mean):
     
@@ -334,12 +334,12 @@ if __name__ == '__main__':
     parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
     
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
-    parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
+    parser.add_argument('--ns',                       dest='nepochs', default=10000, help='', type=int)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
     parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
     
-    parser.add_argument('--pde-weight',         dest='w_pde', default=1e0, help='PDE weight', type=float)
+    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-3, help='PDE weight', type=float)
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e0, help='Slope recovery time loss weight', type=float)
     
