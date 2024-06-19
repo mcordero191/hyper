@@ -431,6 +431,8 @@ if __name__ == '__main__':
     
     sevenfold       = True
     batch_size      = None
+    ##No synthetic noise
+    noise_sigma     = -1.0
     
     if sevenfold:
         nn_version += 10
