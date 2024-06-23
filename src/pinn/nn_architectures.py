@@ -6,10 +6,14 @@ Created on 22 Apr 2024
 import numpy as np
 
 import tensorflow as tf
+import keras
 
 data_type     = tf.float32
 version       = 5.00
 
+keras.saving.get_custom_objects().clear()
+
+@keras.saving.register_keras_serializable(package="hyper")
 class DeepEmbedding(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -71,6 +75,7 @@ class DeepEmbedding(tf.keras.layers.Layer):
         
         return(x)
 
+@keras.saving.register_keras_serializable(package="hyper")
 class DeepDense(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -121,6 +126,7 @@ class DeepDense(tf.keras.layers.Layer):
         
         return(x)
 
+@keras.saving.register_keras_serializable(package="hyper")
 class DeepMixFilters(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -179,7 +185,8 @@ class DeepMixFilters(tf.keras.layers.Layer):
             
         return(x)
 
-class DeepBlock(tf.keras.Model):
+@keras.saving.register_keras_serializable(package="hyper")
+class DeepBlock(tf.keras.layers.Layer):
 
     def __init__(self,
                  n_features,
@@ -232,7 +239,7 @@ class DeepBlock(tf.keras.Model):
         x = tf.keras.layers.Input(shape=in_shape)
         
         return tf.keras.Model(inputs=[x], outputs=self.call(x))
-    
+
 class DeepMultiNet(tf.keras.Model):
 
     def __init__(self,
@@ -313,7 +320,8 @@ class DeepMultiNet(tf.keras.Model):
         x = tf.keras.layers.Input(shape=in_shape)
         
         return tf.keras.Model(inputs=[x], outputs=self.call(x))
-    
+
+@keras.saving.register_keras_serializable(package="hyper")
 class Shift(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -379,6 +387,7 @@ class Shift(tf.keras.layers.Layer):
         return {"n_nodes": self.n_nodes,
                 "use_fixed_h": self.use_fixed_h}
 
+@keras.saving.register_keras_serializable(package="hyper")
 class Embedding(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -463,8 +472,9 @@ class Embedding(tf.keras.layers.Layer):
                        ], axis=1)
         
         return(x)
-    
-class NNKernel(tf.keras.Model):
+
+@keras.saving.register_keras_serializable(package="hyper")
+class NNKernel(tf.keras.layers.Layer):
 
     def __init__(self,
                  n_outputs=3,
@@ -536,7 +546,7 @@ class NNKernel(tf.keras.Model):
         
         return(x)
     
-
+@keras.saving.register_keras_serializable(package="hyper")
 class FourierLayer(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -594,6 +604,7 @@ class FourierLayer(tf.keras.layers.Layer):
         
         return(x)
 
+@keras.saving.register_keras_serializable(package="hyper")
 class FeatureLayer(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -706,8 +717,9 @@ class FeatureLayer(tf.keras.layers.Layer):
                        axis=1)
         
         return(x)
-    
-class FourierKernel(tf.keras.Model):
+
+@keras.saving.register_keras_serializable(package="hyper")
+class FourierKernel(tf.keras.layers.Layer):
 
     def __init__(self,
                  n_outputs=3,
@@ -802,8 +814,9 @@ class FourierKernel(tf.keras.Model):
         x = tf.reshape(x, shape=[-1, shape[1]*self.n_outputs])
         
         return(x)
-    
-class Densenet(tf.keras.Model):
+
+@keras.saving.register_keras_serializable(package="hyper")
+class Densenet(tf.keras.layers.Layer):
 
     def __init__(self,
                  n_neurons,
@@ -853,6 +866,7 @@ class Densenet(tf.keras.Model):
         
         return(u)
 
+@keras.saving.register_keras_serializable(package="hyper")
 class LaafLayer(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -900,6 +914,7 @@ class LaafLayer(tf.keras.layers.Layer):
         
         return(u)
 
+@keras.saving.register_keras_serializable(package="hyper")
 class Linear(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -952,6 +967,7 @@ class Linear(tf.keras.layers.Layer):
     #
     #     return config
 
+@keras.saving.register_keras_serializable(package="hyper")
 class EinsumLayer(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -970,7 +986,8 @@ class EinsumLayer(tf.keras.layers.Layer):
         u = tf.einsum('ik,ik->i', input0, input1)
         
         return(u)
-    
+
+@keras.saving.register_keras_serializable(package="hyper")
 class StackLayer(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -990,6 +1007,7 @@ class StackLayer(tf.keras.layers.Layer):
         
         return(u)
     
+@keras.saving.register_keras_serializable(package="hyper")
 class ConcatLayer(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -1009,6 +1027,7 @@ class ConcatLayer(tf.keras.layers.Layer):
         
         return(u)
 
+@keras.saving.register_keras_serializable(package="hyper")
 class Scaler(tf.keras.layers.Layer):
     
     def __init__(self,

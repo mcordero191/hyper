@@ -5,9 +5,12 @@ Created on 2 Sep 2022
 '''
 import os, glob
 import h5py
+from datetime import datetime
+
 
 import numpy as np
 import pandas as pd
+
 import matplotlib.pyplot as plt
 
 import matplotlib.dates as mdates
@@ -49,7 +52,7 @@ def get_xyz_bounds(x, y, z, n=4):
     
     hist, edges = np.histogramdd( np.array([x, y, z]).T, (xbins, ybins, zbins) )
     
-    valid = np.where(hist >= 5)
+    valid = np.where(hist >= 10)
     
     idx0 = np.min(valid, axis=1)
     idx1 = np.max(valid, axis=1)
@@ -207,7 +210,7 @@ def filter_data(df, tini=0, dt=24,
     if alt_center is not None: zmid = alt_center
     else: zmid = np.round( z.mean(), 1)
     
-    print('Filter middle point:', xmid, ymid, zmid)
+    # print('Filter middle point:', xmid, ymid, zmid)
     
     dlon0, dlat0, dh0 = get_xyz_bounds(x, y, z)
     
@@ -506,7 +509,7 @@ def plot_2point_sampling(df, path,
     
     fig.write_image(filename, format='png') 
     
-def plot_Doppler_sampling(df_unfiltered, df, path, suffix='',
+def plot_Doppler_sampling(df_unfiltered, df, path="./", suffix='',
                           lla=True, cmap='jet',
                           label_colorbar='meteor counts',
                           vmin=-10, vmax=10,
@@ -516,8 +519,8 @@ def plot_Doppler_sampling(df_unfiltered, df, path, suffix='',
                           density=False,
                           noise=None):
     
-    bins_u = np.linspace(umin, umax, bins)
-    bins_w = np.linspace(vmin, vmax, bins)
+    # bins_u = np.linspace(umin, umax, bins)
+    # bins_w = np.linspace(vmin, vmax, bins)
     
     
     # t = df['times'].values
@@ -532,11 +535,11 @@ def plot_Doppler_sampling(df_unfiltered, df, path, suffix='',
     ky = df['braggs_y'].values
     kz = df['braggs_z'].values
     
-    dops = 2*np.pi*df['dops'].values
-    derr = 2*np.pi*df['dop_errs'].values
+    dops = df['dops'].values
+    derr = df['dop_errs'].values
     
-    dops_unf = 2*np.pi*df_unfiltered['dops'].values
-    derr_unf = 2*np.pi*df_unfiltered['dop_errs'].values
+    dops_unf = df_unfiltered['dops'].values
+    derr_unf = df_unfiltered['dop_errs'].values
     
     std = np.std(dops)
     std_unf = np.std(dops_unf)
@@ -556,7 +559,7 @@ def plot_Doppler_sampling(df_unfiltered, df, path, suffix='',
     
     ax0 = axs[0,0]
     
-    ax0.set_title(r'Original dataset: $2 \pi f$ (std=%3.2f)' %std_unf)
+    ax0.set_title(r'Original dataset: f (std=%3.2f)' %std_unf)
     ax0.hist(dops_unf, bins,
                     label='Doopler'
                      )    
@@ -568,7 +571,7 @@ def plot_Doppler_sampling(df_unfiltered, df, path, suffix='',
     #              ) 
         
     ax0.set_ylabel('Counts')
-    ax0.set_xlabel('Doppler (m/s)')
+    ax0.set_xlabel('Doppler (Hz)')
     # ax0.set_xlim(vmin, vmax)
     ax0.set_yscale('log')
     ax0.grid(True)
@@ -576,7 +579,7 @@ def plot_Doppler_sampling(df_unfiltered, df, path, suffix='',
     
     ax0 = axs[0,1]
     
-    ax0.set_title(r'Filtered data: $2 \pi f$ (std=%3.2f)' %std)
+    ax0.set_title(r'Filtered data: f (std=%3.2f)' %std)
     ax0.hist(dops, bins,
                     label='Doopler'
                      )    
@@ -587,7 +590,7 @@ def plot_Doppler_sampling(df_unfiltered, df, path, suffix='',
     #             alpha=0.3,
     #              ) 
         
-    ax0.set_xlabel('Doppler (m/s)')
+    ax0.set_xlabel('Doppler (Hz)')
     # ax0.set_xlim(vmin, vmax)
     ax0.set_yscale('log')
     ax0.grid(True)
@@ -602,7 +605,7 @@ def plot_Doppler_sampling(df_unfiltered, df, path, suffix='',
                      )
     
     ax0.set_ylabel('Zenith (deg)')
-    ax0.set_xlabel('Doppler error (m/s)')
+    ax0.set_xlabel('Doppler error (Hz)')
     
     
     # ax0 = axs[0,1]
@@ -793,6 +796,7 @@ class SMRReader(object):
         df = self.__read_data(files[0], enu_coordinates=False)
         
         self.df = df
+        self.unfiltered_df = df
         self.files = files
         
         if realtime:
@@ -943,13 +947,13 @@ class SMRReader(object):
     def set_spatial_center(self, lat_center=None, lon_center=None, alt_center=None):
         
         if lat_center is None:
-            lat_center = np.round( np.median(self.df['lats'].values), 1)
+            lat_center = np.round( np.mean(self.df['lats'].values), 1)
             
         if lon_center is None:
-            lon_center = np.round( np.median(self.df['lons'].values), 1)
+            lon_center = np.round( np.mean(self.df['lons'].values), 1)
         
         if alt_center is None:
-            alt_center = np.round( np.median(self.df['heights'].values), 1)
+            alt_center = np.round( np.mean(self.df['heights'].values), 1)
               
         self.lat_center = lat_center
         self.lon_center = lon_center
@@ -979,12 +983,13 @@ class SMRReader(object):
         if self.file_index >= len(self.files):
             return 0
         
-        for i in range(1):
+        for _ in range(1):
             filename = self.files[self.file_index]
             df = self.__read_data(filename, enu_coordinates=enu_coordinates)
             print('\nMeteor file %s [t=%2.1f]' %(filename, self.ini_time) )
 
             self.df = df
+            self.unfiltered_df = df
             
             
         self.filename = filename
@@ -1038,6 +1043,38 @@ class SMRReader(object):
             fp.attrs[key] = df.attrs[key]
             
         fp.close()
+    
+    def filter(self, **kwargs):
+        
+        df = self.df
+        df_filtered = filter_data(df, **kwargs)
+        
+        self.df  = df_filtered
+        
+    def plot_sampling(self, suffix="", **kwargs):
+        
+        df = self.df
+        
+        ini_date = self.get_initial_date()
+        
+        suffix += ini_date.strftime('%Y%m%d')
+        
+        plot_spatial_sampling(df, suffix=suffix, **kwargs)
+        
+        return
+    
+    def plot_hist(self, **kwargs):
+        
+        df = self.df
+        df_unfiltered = self.unfiltered_df
+        
+        plot_Doppler_sampling(df_unfiltered, df, **kwargs)
+        
+    def get_initial_date(self):
+        
+        ini_date = datetime.utcfromtimestamp(self.df['times'].min()) 
+        
+        return(ini_date)
         
 
 def read_doppler_hdf5(fn, latref = 54., lonref = 12.5,

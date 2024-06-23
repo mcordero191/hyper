@@ -45,7 +45,7 @@ class App:
                 width   = 8,
                 depth   = 16, 
                 nnodes  = 50,
-                w_init  = 'HeNormal',
+                w_init  = 'GlorotNormal',
                 b_init  = "zeros",
                 act     = "sine",
                 init_sigma = 1.0,
@@ -126,10 +126,6 @@ class App:
         
         self.msis       = msis
         
-        self.lon_ref    = lon_ref
-        self.lat_ref    = lat_ref
-        self.alt_ref    = alt_ref
-        
         self.NS_type    = NS_type
         
         add_nu = False
@@ -156,6 +152,10 @@ class App:
         
         self.X_pde = None
         
+        self.lon_ref    = lon_ref
+        self.lat_ref    = lat_ref
+        self.alt_ref    = alt_ref
+            
         # hiddens_shape = (self.depth-1) * [self.width]
         
         # build
@@ -1653,7 +1653,7 @@ class App:
     # @tf.function
     def loss_data(self, model, X):
         '''
-        X = [t, z, x, y, d, kx, ky, kz]
+        X = [t, z, x, y, d, d_err, kx, ky, kz]
         
         d = u*k_x + w*k_z + n
         
@@ -1674,19 +1674,17 @@ class App:
         '''
         # print("Tracing loss_data!")
         
-        f = X[:,4:5]
-        k = X[:,5:8]
-        f_err = X[:,8:9]
+        f       = X[:,4:5]
+        f_err   = X[:,5:6]
+        k       = X[:,6:9]
         
         #Standard
         u0 = self.forward_pass(model, X[:,0:4], training=True)
         
-        nn0 = tf.reduce_sum(u0*k, axis=1, keepdims=True)
+        df0 = tf.constant(2*np.pi)*f  + tf.reduce_sum(u0*k, axis=1, keepdims=True)
         
-        df0 = f  + nn0
-        
-        # loss = tf.square(tf.reduce_mean(tf.abs(df0/f_err)))
-        loss = tf.reduce_mean(tf.square(df0/f_err))
+        loss = tf.square(tf.reduce_mean(tf.abs(df0/f_err)))
+        # loss = tf.reduce_mean(tf.square(df0/f_err))
         
         return (loss)
     
@@ -1842,22 +1840,69 @@ class App:
         
         if calc_gradients:
             #Calculate losses and losses and gradients
-            # losses, grads = self.grad_desc_plus( self.model,X_data,
-            #                                      X_pde,
-            #                                      w_data, w_pde, w_srt
-            #                                      # tf.constant(1.0, dtype=data_type),
-            #                                      )
+            losses, grads = self.grad_desc_plus( self.model,X_data,
+                                                 X_pde,
+                                                 w_data, w_pde, w_srt
+                                                 )
             
-            ## grads  = [grad_mean, grad_data_mean,  grad_div_mean, grad_mom_mean, grad_temp_mean, grad_srt_mean]
-            grads  = [1.0, 1e0,  1e-2, 1e-2, 1e-2, 1e-2]
+            ### grads  = [grad_mean, grad_data_mean,  grad_div_mean, grad_mom_mean, grad_temp_mean, grad_srt_mean]
+            # grads  = [1.0, 1e0,  1e-3, 1e-3, 1e-3, 1e-3]
             
         return(losses, grads)
-             
+    
+    def convert_df2tensors(self, df, update_ref=False):    
+        
+        ###########################
+        #Traiing dataset
+    
+        t = df['times'].values  - time_base                 #[N]
+        
+        lon = df['lons'].values                             #[N]
+        lat = df['lats'].values                             #[N]
+        alt = df['heights'].values                          #[N]
+        
+        kx = df['braggs_x'].values                     #[N]
+        ky = df['braggs_y'].values
+        kz = df['braggs_z'].values
+        
+        u = df['u'].values                              #[N]
+        v = df['v'].values                              #[N]
+        w = df['w'].values                              #[N]
+        
+        dops        = df['dops'].values
+        dop_errs    = np.ones_like(dops) #df['dop_errs'].values
+        
+        k = np.stack([kx, ky, kz], axis=1)                      #[N,3]
+        
+        if update_ref:
+            self.lon_ref    = lon.mean()
+            self.lat_ref    = lat.mean()
+            self.alt_ref    = alt.mean()
+        
+        # Training dataset
+        x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
+        
+        t = tf.convert_to_tensor(t.reshape(-1,1), data_type)
+        x = tf.convert_to_tensor(x.reshape(-1,1), data_type)
+        y = tf.convert_to_tensor(y.reshape(-1,1), data_type)
+        z = tf.convert_to_tensor(z.reshape(-1,1), data_type)
+        
+        d  = tf.convert_to_tensor(dops.reshape(-1,1), data_type)
+        k  = tf.convert_to_tensor(k.reshape(-1,3), data_type)
+        
+        d_err  = tf.convert_to_tensor(dop_errs.reshape(-1,1), data_type)
+        
+        u = tf.convert_to_tensor(u.reshape(-1,1), data_type)
+        v = tf.convert_to_tensor(v.reshape(-1,1), data_type)
+        w = tf.convert_to_tensor(w.reshape(-1,1), data_type)
+        
+        X  = tf.concat([t, z, x, y, d, d_err, k, u, v, w], axis=1)
+        
+        return(X)
+        
     def train(self,
-              t, lon, lat, alt, d, k,
-              t_val, lon_val, lat_val, alt_val,
-              u_val, v_val, w_val,
-              d_err = None,
+              df_training,
+              df_testing,
               epochs = 10 ** 4,
               batch_size = None,
               tol = 1e-5,
@@ -1881,9 +1926,6 @@ class App:
               dropout     = True,
               ):
             
-        t = t - time_base 
-        t_val = t_val - time_base 
-            
         print("\n>>>>> training setting;")
         print("         # of epoch     :", epochs)
         print("         batch size     :", batch_size)
@@ -1906,35 +1948,10 @@ class App:
         # optimization
         self.optimizer = self.opt_(self.lr, self.opt, epochs)
         
-        x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
-        x_val, y_val, z_val = lla2xyh(lat_val, lon_val, alt_val, self.lat_ref, self.lon_ref, self.alt_ref)
-        
         # Training dataset
-        t = tf.convert_to_tensor(t.reshape(-1,1), data_type)
-        x = tf.convert_to_tensor(x.reshape(-1,1), data_type)
-        y = tf.convert_to_tensor(y.reshape(-1,1), data_type)
-        z = tf.convert_to_tensor(z.reshape(-1,1), data_type)
+        X_data  = self.convert_df2tensors(df_training, update_ref=True)
+        X_testing = self.convert_df2tensors(df_testing)
         
-        d  = tf.convert_to_tensor(d.reshape(-1,1), data_type)
-        k  = tf.convert_to_tensor(k.reshape(-1,3), data_type)
-        
-        if d_err is None:
-            d_err = np.ones_like(d)
-            
-        d_err  = tf.convert_to_tensor(d_err.reshape(-1,1), data_type)
-        
-        #Validation dataset
-        t_val = tf.convert_to_tensor(t_val.reshape(-1,1), data_type)
-        x_val = tf.convert_to_tensor(x_val.reshape(-1,1), data_type)
-        y_val = tf.convert_to_tensor(y_val.reshape(-1,1), data_type)
-        z_val = tf.convert_to_tensor(z_val.reshape(-1,1), data_type)
-        
-        u_val  = tf.convert_to_tensor(u_val.reshape(-1,1), data_type)
-        v_val  = tf.convert_to_tensor(v_val.reshape(-1,1), data_type)
-        w_val  = tf.convert_to_tensor(w_val.reshape(-1,1), data_type)
-        
-        # bounds (for feature scaling)
-        X_data  = tf.concat([t, z, x, y, d, k, d_err], axis=1)
         lb = tf.reduce_min (X_data, axis = 0)[:4]
         ub = tf.reduce_max (X_data, axis = 0)[:4]
         
@@ -2053,8 +2070,7 @@ class App:
             tv_we = np.nan
             
             if ep % print_rate == 1:
-                rmses = self.rmse(t_val, z_val, x_val, y_val,
-                                  u_val, v_val, w_val)
+                rmses = self.rmse(X_testing)
                 
                 ep_loss_u = rmses[0].numpy()
                 ep_loss_v = rmses[1].numpy()
@@ -2169,7 +2185,7 @@ class App:
             
             alpha = w_pde_update_rate
                 
-            if ep < 200 -1:
+            if ep < 500 -1:
                 continue
             
             #Adaptive PDE weights
@@ -2203,434 +2219,6 @@ class App:
         print("*****************     MAIN PROGRAM END     *****************")
         print("************************************************************")
         print(">>>>> end time:", datetime.datetime.now())
-    
-    def train_residuals(self,
-              t, lon, lat, alt, d, k,
-              t_val, lon_val, lat_val, alt_val,
-              u_val, v_val, w_val,
-              d_err = None,
-              epochs = 10 ** 4,
-              batch_size = None,
-              tol = 1e-5,
-              # print_rate    = 200,
-              saving_rate   = 500,
-              resampling_rate = 200,
-              grad_upd_rate = 200,
-              filename = None,
-              w_pde_update_rate = 1e-4,
-              ):
-        
-        print("\n>>>>> training setting;")
-        print("         # of epoch     :", epochs)
-        print("         batch size     :", batch_size)
-        print("         convergence tol:", tol)
-        
-        t = t - time_base
-        t_val = t_val - time_base 
-        
-        # optimization
-        self.optimizer = self.opt_(self.lr, self.opt, epochs)
-        
-        x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
-        x_val, y_val, z_val = lla2xyh(lat_val, lon_val, alt_val, self.lat_ref, self.lon_ref, self.alt_ref)
-        
-        # Training dataset
-        t = tf.convert_to_tensor(t.reshape(-1,1), data_type)
-        x = tf.convert_to_tensor(x.reshape(-1,1), data_type)
-        y = tf.convert_to_tensor(y.reshape(-1,1), data_type)
-        z = tf.convert_to_tensor(z.reshape(-1,1), data_type)
-        
-        d  = tf.convert_to_tensor(d.reshape(-1,1), data_type)
-        k  = tf.convert_to_tensor(k.reshape(-1,3), data_type)
-        
-        if d_err is None:
-            d_err = np.ones_like(d)
-            
-        d_err  = tf.convert_to_tensor(d_err.reshape(-1,1), data_type)
-        
-        #Validation dataset
-        t_val = tf.convert_to_tensor(t_val.reshape(-1,1), data_type)
-        x_val = tf.convert_to_tensor(x_val.reshape(-1,1), data_type)
-        y_val = tf.convert_to_tensor(y_val.reshape(-1,1), data_type)
-        z_val = tf.convert_to_tensor(z_val.reshape(-1,1), data_type)
-        
-        u_val  = tf.convert_to_tensor(u_val.reshape(-1,1), data_type)
-        v_val  = tf.convert_to_tensor(v_val.reshape(-1,1), data_type)
-        w_val  = tf.convert_to_tensor(w_val.reshape(-1,1), data_type)
-        
-        # bounds (for feature scaling)
-        X_data  = tf.concat([t, z, x, y, d, k, d_err], axis=1)
-        lb = tf.reduce_min (X_data, axis = 0)[:4]
-        ub = tf.reduce_max (X_data, axis = 0)[:4]
-        
-        # lb = tf.constant([lb[0].numpy(),  80e3,-150e3,-150e3])
-        # ub = tf.constant([ub[0].numpy(), 100e3, 150e3, 150e3])
-        
-        # rb = tf.multiply( (ub - lb), [0.,1.,1.,1.])
-        
-        self.lbi = lb #+ rb*0.1
-        self.ubi = ub #- rb*0.1
-        
-        self.mn = tf.reduce_mean(X_data, axis = 0)[:4]
-        
-        print("         lower bounds    :", self.lbi.numpy())
-        print("         upper bounds    :", self.ubi.numpy())
-        
-        w_data  = tf.convert_to_tensor(self.w_data, data_type)
-        w_div   = tf.convert_to_tensor(self.w_div, data_type)
-        w_mom   = tf.convert_to_tensor(self.w_mom, data_type)
-        w_temp  = tf.convert_to_tensor(self.w_temp, data_type)
-        w_srt   = tf.convert_to_tensor(self.w_srt, data_type)
-        
-        w_pde_update_rate = tf.convert_to_tensor(w_pde_update_rate, data_type)
-        
-        
-        self.ep_log         = []
-        
-        self.loss_log       = []
-        self.loss_data_log  = []
-        self.loss_div_log   = []
-        self.loss_mom_log   = []
-        self.loss_temp_log  = []
-        self.loss_srt_log   = []
-        
-        self.rmse_u_log     = []
-        self.rmse_v_log     = []
-        self.rmse_w_log     = []
-        
-        self.tv_u_log     = []
-        self.tv_v_log     = []
-        self.tv_w_log     = []
-        
-        self.tv_ue_log     = []
-        self.tv_ve_log     = []
-        self.tv_we_log     = []
-        
-        self.w_div_log = []
-        self.w_mom_log = []
-        self.w_temp_log = []
-        self.w_srt_log = []
-        
-        self.set_LHS_samples()
-        
-        # w_pde_update_rate   = 1e-4
-        w_div_final         = None#1e3
-        # w_data = tf.constant(1e-1, dtype=data_type)
-        
-        self.train_batch(X_data,
-                         epochs,
-                         w_data,
-                         w_div,
-                         w_mom,
-                         w_temp,
-                         w_srt,
-                         grad_update_steps=grad_upd_rate,
-                         w_pde_update_rate=w_pde_update_rate,
-                         filename=filename,
-                         w_div_final=w_div_final,
-                         t=t_val, x=x_val, y=y_val, z=z_val,
-                         u=u_val, v=v_val, w=w_val
-                         )
-        # self.save(filename, 0)
-        
-        #######Train in batches of 1h
-        trange = 3*60*60
-        
-        
-        # w_pde_update_rate = 1e-2
-        # w_data = tf.constant(1e-1, dtype=data_type)
-        # w_div = tf.constant(1e7, dtype=data_type)
-        
-        # w_div_final         = 1e9
-        # w_pde_update_rate   = 1e-2
-        # epochs              = 201
-        #
-        # for i in range(20):
-        #     ep = 1
-        #     tmin = self.lbi[0].numpy() - trange
-        #     while True:
-        #
-        #         tmin = tmin + trange
-        #         tmax = tmin + trange
-        #
-        #         if tmin > self.ubi[0]:
-        #             break
-        #
-        #         self.set_LHS_samples(tmin, tmax)
-        #
-        #         # ind = tf.where( (t>tmin) & (t<tmax))
-        #         # ini = ind[0,0]
-        #         # fin = ind[-1,0]
-        #         #
-        #         # X_subset = X_data[ini:fin+1,:]
-        #
-        #         self.train_batch(X_data,
-        #                          epochs,
-        #                          w_data,
-        #                          w_div,
-        #                          w_mom,
-        #                          w_temp,
-        #                          w_srt,
-        #                          grad_update_steps=grad_upd_rate,
-        #                          w_pde_update_rate=w_pde_update_rate,
-        #                          w_div_final=w_div_final,
-        #                          t=t_val, x=x_val, y=y_val, z=z_val,
-        #                          u=u_val, v=v_val, w=w_val
-        #                          )
-        #
-        #         self.save(filename, i*epochs + ep)
-        #         ep = ep + 1
-        
-        # self.set_LHS_samples()
-        #
-        # self.train_batch(X_data,
-        #                  5*epochs,
-        #                  w_data,
-        #                  w_div,
-        #                  w_mom,
-        #                  w_temp,
-        #                  w_srt,
-        #                  grad_update_steps=grad_upd_rate,
-        #                  w_pde_update_rate=w_pde_update_rate,
-        #                  t=t_val, x=x_val, y=y_val, z=z_val,
-        #                  u=u_val, v=v_val, w=w_val
-        #                  )
-    
-    def train_batch(self,
-                    X_data,
-                    epochs,
-                    w_data=1.0,
-                    w_div=1.0,
-                    w_mom=1.0,
-                    w_temp=1.0,
-                    w_srt=1.0,
-                    grad_update_steps=200,
-                    w_pde_update_rate=1e-4,
-                    filename=None,
-                    w_div_final=None,
-                    **kwargs
-                    ):
-        
-        t0 = time.time()
-        
-        calc_gradients = False
-        
-        ep_loss     = 0.
-        ep_loss_data = 0.
-        ep_loss_div = 0.
-        ep_loss_mom = 0.
-        ep_loss_temp = 0.
-        
-        ep_loss_u     = 0.
-        ep_loss_v     = 0.
-        ep_loss_w     = 0.
-            
-        # ep_grad      = 0.
-        ep_grad_data = 0.
-        ep_grad_div  = 0.
-        ep_grad_mom  = 0.
-        ep_grad_temp = 0.
-        
-        for ep in range(epochs):
-            
-            X_pde = self.gen_LHS_samples()
-            
-            # if ep % grad_update_steps == 0:
-            #     X_pde = self.adaptive_pde_sampling()
-                
-            # self.model.set_mask(ep, epochs)
-                
-                
-                # for d in range(self.depth):
-                #     self.alphas[d].assign(1.01*self.alphas[d])
-                
-            
-            print(".", end='', flush=True)
-            
-            losses, grads = self.train_epoch(X_data,
-                                             X_pde,
-                                             w_data=w_data,
-                                             w_div=w_div,
-                                             w_mom=w_mom,
-                                             w_temp=w_temp,
-                                             w_srt=w_srt,
-                                             calc_gradients=calc_gradients,
-                                             )
-            
-            if grads is not None:
-                #Update gradient values
-                # ep_grad         = grads[0]
-                ep_grad_data    = grads[1]
-                ep_grad_div     = grads[2]
-                ep_grad_mom     = grads[3]
-                ep_grad_temp    = grads[4]
-                # ep_grad_srt     = grads[5]
-                    
-            ep_loss         = losses[0]
-            ep_loss_data    = losses[1]
-            ep_loss_div     = losses[2]
-            ep_loss_mom     = losses[3]
-            ep_loss_temp    = losses[4]
-            ep_loss_srt     = losses[5]
-            
-            ep_loss_u = np.nan
-            ep_loss_v = np.nan
-            ep_loss_w = np.nan
-            
-            tv_u = np.nan
-            tv_v = np.nan
-            tv_w = np.nan
-            
-            tv_ue = np.nan
-            tv_ve = np.nan
-            tv_we = np.nan
-            
-            if ep % grad_update_steps == 1:
-                rmses = self.rmse(**kwargs)
-                
-                ep_loss_u = rmses[0].numpy()
-                ep_loss_v = rmses[1].numpy()
-                ep_loss_w = rmses[2].numpy()
-                
-                tv_u = rmses[3].numpy()
-                tv_v = rmses[4].numpy()
-                tv_w = rmses[5].numpy()
-                
-                tv_ue = rmses[6].numpy()
-                tv_ve = rmses[7].numpy()
-                tv_we = rmses[8].numpy()
-                
-                elps = time.time() - t0
-            
-                t0 = time.time()
-                
-                print("\nepoch: %d, elps: %ds" #, nu_scaling: %.2e, rho_scaling: %.2e" 
-                    % (ep, 
-                       elps,
-                       # self.nu_scaling,
-                       # self.rho_scaling,
-                       )
-                    )
-                
-                print("\t\t\ttotal \tdata \tdiv  \tmom  \tdiv_vort " )
-                 
-                 
-                print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e\t%.1e" 
-                    % (
-                       ep_loss,
-                       ep_loss_data,
-                       ep_loss_div,
-                       ep_loss_mom,
-                       ep_loss_temp,
-                       # ep_loss_srt
-                       )
-                    )
-                
-                print("\tweights: \t\t%.1e\t%.1e\t%.1e\t%.1e" 
-                    % (
-                       w_data,
-                       w_div,
-                       w_mom,
-                       w_temp,
-                       # w_srt
-                       )
-                    )
-                
-                print("\tgrads  : \t\t%.1e\t%.1e\t%.1e\t%.1e" 
-                    % (
-                       ep_grad_data,
-                       ep_grad_div,
-                       ep_grad_mom,
-                       ep_grad_temp,
-                       # ep_grad_srt
-                       )
-                    )
-                
-                print("\t\t\tu \t\tv \t\tw" )
-                
-                print("\tTV  : \t\t%.2e \t%.2e \t%.2e" 
-                    % (tv_u,
-                       tv_v,
-                       tv_w,
-                       )
-                    )
-                
-                print("\tTVe : \t\t%.2e \t%.2e \t%.2e" 
-                    % (tv_ue,
-                       tv_ve,
-                       tv_we,
-                       )
-                    )
-                
-                print("\trmse: \t\t%.2e \t%.2e \t%.2e" 
-                    % (ep_loss_u,
-                       ep_loss_v,
-                       ep_loss_w,
-                       )
-                    )
-            
-            #Save logs
-            self.ep_log.append(ep)
-            
-            self.loss_log.append(ep_loss.numpy())
-            self.loss_data_log.append(ep_loss_data.numpy())
-            
-            self.loss_div_log.append(ep_loss_div.numpy())
-            self.loss_mom_log.append(ep_loss_mom.numpy())
-            self.loss_temp_log.append(ep_loss_temp.numpy())
-            self.loss_srt_log.append(ep_loss_srt.numpy())
-            
-            self.w_div_log.append(w_div.numpy())
-            self.w_mom_log.append(w_mom.numpy())
-            self.w_temp_log.append(w_temp.numpy())
-            self.w_srt_log.append(w_srt.numpy())
-            
-            self.rmse_u_log.append(ep_loss_u)
-            self.rmse_v_log.append(ep_loss_v)
-            self.rmse_w_log.append(ep_loss_w)
-            
-            self.tv_u_log.append(tv_u)
-            self.tv_v_log.append(tv_v)
-            self.tv_w_log.append(tv_w)
-            
-            self.tv_ue_log.append(tv_ue)
-            self.tv_ve_log.append(tv_ve)
-            self.tv_we_log.append(tv_we)
-            
-            # w_pde_update_rate_ = np.exp(20*(ep/epochs - 1))
-            
-            w_pde_update_rate_ = w_pde_update_rate
-                
-            if ep < 200:
-                continue
-            
-            #Adaptive PDE weights
-            if w_div_final is not None:
-                w_div  = (1.0-w_pde_update_rate_)*w_div  + w_pde_update_rate_*w_div_final
-                w_mom  = w_div#*1e6 
-                w_temp = w_div#*1e6
-            else:
-                if ep_grad_div != 0:
-                    w_div  = (1.0-w_pde_update_rate_)*w_div  + w_pde_update_rate_*ep_grad_data/ep_grad_div
-                
-                if ep_grad_mom != 0:
-                    w_mom  = (1.0-w_pde_update_rate_)*w_mom  + w_pde_update_rate_*ep_grad_data/ep_grad_mom
-                
-                if ep_grad_temp != 0:
-                    w_temp = (1.0-w_pde_update_rate_)*w_temp + w_pde_update_rate_*ep_grad_data/ep_grad_temp
-            
-            # if ep_grad_srt != 0:
-            #     w_srt = (1.0-w_pde_update_rate_)*w_srt   + 1e-2*w_pde_update_rate_*ep_grad_data/ep_grad_srt
-
-            calc_gradients = False
-            if ep % grad_update_steps == 0:
-                calc_gradients = True
-                self.save(filename, ep)
-        
-        print("\n************************************************************")
-        print("*****************     MAIN PROGRAM END     *****************")
-        print("************************************************************")
-        print(">>>>> end time:", datetime.datetime.now())
         
     def invalid_mask(self, t, x, y, z):
         
@@ -2651,7 +2239,22 @@ class App:
         mask |= (z<self.lbi[1]) | (z>self.ubi[1])
         
         return(mask)
+    
+    def infer_from_df(self, df, filter_output=False):
         
+        X = self.convert_df2tensors(df)
+        
+        outputs = self.forward_pass(self.model, X[:,:4], training=False)
+        outputs = outputs.numpy()
+        
+        # if filter_output:
+        #     outputs[mask,:] = np.nan
+        #
+        # if return_xyz:
+        #     return (outputs, x, y, z)
+        
+        return (outputs)
+    
     def infer(self, t, lon=None, lat=None, alt=None, filter_output=True,
               x=None, y=None, z=None, return_xyz=False):
         
@@ -2813,12 +2416,44 @@ class App:
         return (Y)
     
     @tf.function
-    def rmse(self, t, z, x, y, u, v, w, sigma=tf.constant(1.0, dtype=data_type)):
+    def rmse(self, X, sigma=tf.constant(1.0, dtype=data_type)):
+        '''
+        X = [t, z, x, y, d, d_err, kx, ky, kz, u, v, w]
+        
+        d = u*k_x + w*k_z + n
+        
+        u = u_0 + u'
+        w = w_0
+        
+        || d - u_0*k_x - w_0*k_z - u'*k_x ||
+        
+        Inputs:
+            t   :        time coordinate . Dimension (N,1)
+            x
+            y
+            z
+            d   :      #Doppler. Dimension (N,1)
+            k   :      #Bragg coefficients. Dimension (N,3)
+            u    :
+            v    :
+            w    :
+        
+        
+        '''
+        # print("Tracing loss_data!")
+        # f       = X[:,4:5]
+        # f_err   = X[:,5:6]
+        # k       = X[:,6:9]
+        
+        u = X[:,9:10]
+        v = X[:,10:11]
+        w = X[:,11:12]
+        
         
         if tf.math.reduce_all(tf.math.is_nan(u)) == True:
             return (tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type))
             
-        outputs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=False)
+        outputs = self.forward_pass(self.model, X[:,:4], training=False)
         
         ue = outputs[:,0:1]
         ve = outputs[:,1:2]
@@ -2842,7 +2477,7 @@ class App:
         
         # op, op_a = tf.contrib.metrics.steraming_pearson_correlation(u, ue)
         
-        return (rmse_u,rmse_v,rmse_w, TV_u, TV_v, TV_w, TV_ue, TV_ve, TV_we)
+        return (rmse_u, rmse_v, rmse_w, TV_u, TV_v, TV_w, TV_ue, TV_ve, TV_we)
         
     def save(self, filename, log_index=None):
         
@@ -2892,7 +2527,7 @@ class App:
             fp['ub'] = self.ubi
             fp['mn'] = self.mn
             
-            fp['lon_ref'] = self.lon_ref
+            fp['df'] = self.lon_ref
             fp['lat_ref'] = self.lat_ref
             fp['alt_ref'] = self.alt_ref
             
@@ -3602,17 +3237,34 @@ class App:
         return
     
     def plot_solution(self, 
-                      t, x, y, z,
-                      u, v, w, d,
-                      u_nn, v_nn, w_nn, d_nn,
-                      P=None, P_nn=None,
-                      k_x=None, k_y=None, k_z=None,
+                      df,
                       figname_winds='./winds.png',
                       figname_errs='./errors.png',
                       figname_errs_k='./errors_k.png',
                       figname_pressure='./pressure.png',
                       alpha=0.2, bins=40,
                       norm=False):
+        
+        t = df["times"].values
+        x = df["lons"].values
+        y = df["lats"].values
+        z = df["heights"].values*1e-3
+        
+        k_x = df['braggs_x'].values                     #[N]
+        k_y = df['braggs_y'].values
+        k_z = df['braggs_z'].values
+        
+        u = df["u"].values
+        v = df["v"].values
+        w = df["w"].values
+        
+        u_nn = df["u_hyper"].values
+        v_nn = df["v_hyper"].values
+        w_nn = df["w_hyper"].values
+        
+        d = df["dops"].values
+        d_nn = -(u_nn*k_x + v_nn*k_y + w_nn*k_z)
+        
         
         if np.all(np.isnan(u)):
             return
@@ -3638,14 +3290,14 @@ class App:
         ys = [u_nn, v_nn, w_nn, d_nn]
         
         xlabels = [r'$u_{true}$', r'$v_{true}$', r'$w_{true}$', r'$Doppler_{true}$', r'$Pressure_{true}$']
-        ylabels = [r'$u_{PIML}$',     r'$v_{PIML}$',    r'$w_{PIML}$',    r'$Doppler_{PIML}$',  r'$Pressure_{PIML}$']
+        ylabels = [r'$u_{hyper}$',     r'$v_{hyper}$',    r'$w_{hyper}$',    r'$Doppler_{hyper}$',  r'$Pressure_{hyper}$']
         bins_list = [bins_u, bins_v, bins_w, bins_d]
         
-        if P_nn is not None:
-            bins_P = np.linspace(np.nanmin(P), np.nanmax(P), bins)
-            xs.append(P)
-            ys.append(P_nn)
-            bins_list.append(bins_P)
+        # if P_nn is not None:
+        #     bins_P = np.linspace(np.nanmin(P), np.nanmax(P), bins)
+        #     xs.append(P)
+        #     ys.append(P_nn)
+        #     bins_list.append(bins_P)
         
         nrows = 1
         ncols = len(xs)
@@ -3809,12 +3461,19 @@ class App:
         return
     
     def plot_statistics(self, 
-                        u, v, w,
-                        u_nn, v_nn, w_nn,
+                        df,
                         figname='./statistics.png',
                         bins=None,
                         **kwargs):
         
+        u = df["u"].values
+        v = df["v"].values
+        w = df["w"].values
+        
+        u_nn = df["u_hyper"].values
+        v_nn = df["v_hyper"].values
+        w_nn = df["w_hyper"].values
+                        
         nrows = 1
         if ~np.all(np.isnan(u)): nrows = 2
         

@@ -11,6 +11,39 @@ from pinn import hyper as pinn
 from utils.PhysicalParameters import MSIS
 from radar.smr.smr_file import filter_data, plot_spatial_sampling, plot_Doppler_sampling
 
+def get_filename_suffix(short_naming,
+                        ini_date, dt, noise_sigma, NS_type,
+                        activation, num_hidden_layers,
+                        num_neurons_per_layer, n_nodes,
+                        n_blocks, w_pde, w_srt, learning_rate,
+                        N_pde, laaf, w_init, w_pde_update_rate):
+    
+    if short_naming:
+        suffix = '%s' %ini_date.strftime('%Y%m%d')
+    else:
+        suffix = "%s_w%02dn%03.2f%sa%sl%02dn%03dd%03db%02dw%2.1ew%2.1elr%2.1em%2.1e_laaf%2.1e_%s_ur=%2.1e" %(
+                                                            ini_date.strftime('%Y%m%d'),
+                                                            dt,
+                                                            noise_sigma,
+                                                            NS_type,
+                                                            activation[:3],
+                                                            num_hidden_layers,
+                                                            num_neurons_per_layer,
+                                                            n_nodes,
+                                                            n_blocks,
+                                                            w_pde,
+                                                            w_srt,
+                                                            learning_rate,
+                                                            N_pde,
+                                                            laaf,
+                                                            # dropout,
+                                                            w_init[:2],
+                                                            # init_sigma,
+                                                            w_pde_update_rate,
+                                                            )
+        
+        return suffix
+    
 def train_hyper(df,
                  tini=0,
                  dt=24, #hours
@@ -55,37 +88,38 @@ def train_hyper(df,
     # Set data type
     np.random.seed(seed)
     
-    ini_date = datetime.utcfromtimestamp(df['times'].min())    
-    plot_spatial_sampling(df, path=rpath, suffix='prefilter_%s' %ini_date.strftime('%Y%m%d'),
-                        # vmin=0, vmax=500,
-                        )
+    #Plot original sampling
+    meteor_data.plot_sampling(path=rpath, suffix='prefilter')
     
-    df_filtered = filter_data(df,
-                     tini=tini, dt=dt,
-                     dlon=dlon, dlat=dlat, dh=dh,
-                     lon_center=lon_center,
-                      lat_center=lat_center,
-                      alt_center=alt_center,
-                      sevenfold=sevenfold)
+    meteor_data.filter(tini=tini, dt=dt,
+                       dlon=dlon, dlat=dlat, dh=dh,
+                       lon_center=lon_center,
+                       lat_center=lat_center,
+                       alt_center=alt_center,
+                       sevenfold=sevenfold)
     
-    df_training = df_filtered
-    df_test     = df_filtered#.sample(frac=0.01, random_state=0) #
+    #Plot filtered data
+    meteor_data.plot_sampling(path=rpath, suffix='postfilter')
+    meteor_data.plot_hist(path=rpath, suffix='postfilter')
     
-    # df_training = df_filtered.sample(frac=0.95, random_state=0)
-    # df_test     = df_filtered.drop(df_training.index)
+    df_training = meteor_data.df
+    df_testing  = df_training.sample(frac=0.05, random_state=0)
     
-    df_training.sort_index(inplace=True)
+    df_training.sort_index(inplace=True)    
     
-    ini_date = datetime.utcfromtimestamp(df_training['times'].min())
-    plot_spatial_sampling(df_training, path=rpath,
-                        suffix='postfilter_%s' %ini_date.strftime('%Y%m%d'),
-                        # vmin=0, vmax=100,
-                        )
+    ini_date = meteor_data.get_initial_date()
+    suffix = get_filename_suffix(short_naming,
+                                ini_date, dt, noise_sigma, NS_type,
+                                activation, num_hidden_layers,
+                                num_neurons_per_layer, n_nodes,
+                                n_blocks, w_pde, w_srt, learning_rate,
+                                N_pde, laaf, w_init, w_pde_update_rate
+                                )
     
-    plot_Doppler_sampling(df, df_filtered, rpath,
-                          suffix='postfilter_%s' %ini_date.strftime('%Y%m%d')
-                          )
-
+    ###########################
+    if filename_model is None:
+        filename_model = os.path.join(rpath, 'h%s.h5' %suffix) 
+    
     msis = None
     # try:
     #     msis = MSIS(ini_date,
@@ -96,190 +130,49 @@ def train_hyper(df,
     # except:
     #     msis = None
     
-    if short_naming:
-        suffix = '%s' %ini_date.strftime('%Y%m%d-%H%M%S')
-    else:
-        suffix = "%s_w%02dn%03.2f[%s]a%sl%02dn%03dd%03db%02dw%2.1ew%2.1elr%2.1em%2.1e_laaf%2.1e_%s_ur=%2.1e" %(
-                                                            ini_date.strftime('%Y%m%d'),
-                                                            dt,
-                                                            noise_sigma,
-                                                            NS_type,
-                                                            activation[:3],
-                                                            num_hidden_layers,
-                                                            num_neurons_per_layer,
-                                                            n_nodes,
-                                                            n_blocks,
-                                                            w_pde,
-                                                            w_srt,
-                                                            learning_rate,
-                                                            N_pde,
-                                                            laaf,
-                                                            # dropout,
-                                                            w_init[:2],
-                                                            # init_sigma,
-                                                            w_pde_update_rate,
-                                                            )
+    nn = pinn.App(
+                shape_in  = 4,
+                shape_out = num_outputs,
+                width   = num_neurons_per_layer,
+                depth   = num_hidden_layers,
+                nnodes  = n_nodes,
+                nblocks = n_blocks,
+                act     = activation,
+                w_init  = w_init,
+                msis    = msis,
+                NS_type = NS_type,
+                nn_type = nn_type,
+                laaf=laaf,
+            )
     
-    ###########################
-    #Traiing dataset
+    # with tf.device("/device:GPU:0"):
+    nn.train(df_training,
+             df_testing,
+             # t, x, y, z, u, v, w,
+             epochs     = nepochs,
+             filename   = filename_model,
+             w_pde_update_rate = w_pde_update_rate,
+             lr      = learning_rate,
+             w_data  = w_data,
+             w_div   = w_pde,
+             w_mom   = w_pde,
+             w_temp  = w_pde,
+             w_srt   = w_srt,
+             ns_pde  = N_pde,
+             # NS_type  = NS_type,
+             dropout  = dropout,
+             )
 
-    t = df_training['times'].values                          #[N]
+    nn.save(filename_model)
     
-    x = df_training['lons'].values                             #[N]
-    y = df_training['lats'].values                             #[N]
-    z = df_training['heights'].values                             #[N]
+    filename_model = os.path.join(rpath, 'h%s.keras' %suffix) 
+    nn.model.save(filename_model)
     
-    kx = df_training['braggs_x'].values                     #[N]
-    ky = df_training['braggs_y'].values
-    kz = df_training['braggs_z'].values
-    
-    k = np.stack([kx, ky, kz], axis=1)                      #[N,3]
-    
-    u = df_training['u'].values                              #[N]
-    v = df_training['v'].values                              #[N]
-    w = df_training['w'].values                              #[N]
-    
-    # T = df_training['T'].values                            #Kelvin
-    # rho = df_training['rho'].values                            #Kg/m3
-    # P = df_training['P'].values                              #Pascal <> N/m2
-    # rho_msis     = msis.get_rho(z*1e3)
-    # N   = msis.get_N(z*1e3)
-    
-    dops        = 2*np.pi*df_training['dops'].values
-    dop_errs    = 2*np.pi*df_training['dop_errs'].values
-    
-    dop_std     = np.std(dops)
-    noise_std   = 10.0#np.std(dop_errs)
-    
-    d = dops
-    
-    if noise_sigma < 0:
-        noise_std  = 1.0
-    elif noise_sigma > 0:
-        print("Adding synthetic noise ...")
-        noise = noise_sigma*dop_std*np.random.normal(0, 1, size=dops.shape[0])
-        d   = dops + noise    #[N]
-        noise_std   = np.std(noise)
-    
-    d_err = np.ones_like(dops)*noise_std
-    
-    print('*'*40)
-    print("Doppler std=", dop_std )
-    print("Noise std=", noise_std)
-    print('*'*40)
-    
-    ###########################
-    # df_test = df_training
-    
-    #Test dataset
-    t_test = df_test['times'].values                          #[N]
-    
-    x_test = df_test['lons'].values                             #[N]
-    y_test = df_test['lats'].values                             #[N]
-    z_test = df_test['heights'].values                             #[N]
-    
-    u_test = df_test['u'].values                              #[N]
-    v_test = df_test['v'].values                              #[N]
-    w_test = df_test['w'].values                              #[N]
-    
-    # P_test   = df_test['P'].values
-    # rho_test = df_test['rho'].values
-    
-    kx_test = df_test['braggs_x'].values                     #[N]
-    ky_test = df_test['braggs_y'].values
-    kz_test = df_test['braggs_z'].values
-    
-    d_test = 2*np.pi*df_test['dops'].values
-    
-    ###########################
-    if filename_model is None:
-        filename_model = 'model_%s.h5' %suffix #ini_date.strftime('%Y%m%d')
-        
-    # filename_mean = os.path.join(rpath, filename_model)
-    
-    suffix_mean = suffix #'%s_w%02d_n%03.1f' %(ini_date.strftime('%Y%m%d-%H%M%S'), dt, noise_sigma) # #
-    filename_mean = os.path.join(rpath, 'hyper%s.h5' %suffix_mean)
-    
-    if os.path.exists(filename_mean):
-    
-        # print('Loading %s' %filename_mean)
-        nn = pinn.restore(filename_mean)
-    
-    else:
-        # Initialize Neural Network model
-        nn = pinn.App(
-                        shape_in  = 4,
-                        shape_out = num_outputs,
-                        width   = num_neurons_per_layer,
-                        depth   = num_hidden_layers,
-                        nnodes  = n_nodes,
-                        nblocks = n_blocks,
-                        act     = activation,
-                        w_init  = w_init,
-                        msis    = msis,
-                        lon_ref  = (x.min() + x.max())/2,
-                        lat_ref  = (y.min() + y.max())/2,
-                        alt_ref  = (z.min() + z.max())/2,
-                        NS_type  = NS_type,
-                        nn_type = nn_type,
-                        laaf=laaf,
-                    )
-        
-        # with tf.device("/device:GPU:0"):
-        nn.train(t, x, y, z, d, k,
-                 t_test, x_test, y_test, z_test, u_test, v_test, w_test,
-                 # t, x, y, z, u, v, w,
-                 d_err      = d_err,
-                 epochs     = nepochs,
-                 filename   = filename_mean,
-                 w_pde_update_rate = w_pde_update_rate,
-                 lr      = learning_rate,
-                w_data  = w_data,
-                w_div   = w_pde,
-                w_mom   = w_pde,
-                w_temp  = w_pde,
-                w_srt   = w_srt,
-                ns_pde  = N_pde,
-                # NS_type  = NS_type,
-                dropout  = dropout,
-                 )
-    
-        nn.save(filename_mean)
         # nn.restore(filename_mean)
     
-    figname01 = os.path.join(rpath, 'loss_hist_%s.png' %suffix_mean)
+    figname01 = os.path.join(rpath, 'loss_%s.png' %suffix)
     
     nn.plot_loss_history(figname=figname01)
-    
-    ############################################################
-    #Traning points
-    figname02 = os.path.join(rpath, 'training_winds_%s.png' %suffix_mean)
-    figname03 = os.path.join(rpath, 'training_errors_%s.png' %suffix_mean)
-    figname04 = os.path.join(rpath, 'training_errors_k_%s.png' %suffix_mean)
-    figname05 = os.path.join(rpath, 'training_statistics_%s.png' %suffix_mean)
-    figname_P = os.path.join(rpath, 'training_pressure_%s.png' %suffix_mean)
-    
-    outputs = nn.infer(t, x, y, z)
-    
-    u_nn = outputs[:,0]
-    v_nn = outputs[:,1]
-    w_nn = outputs[:,2]
-    
-    d_nn = -(u_nn*kx + v_nn*ky + w_nn*kz)
-    
-    nn.plot_statistics(
-                    u, v, w,
-                    u_nn, v_nn, w_nn,
-                    figname=figname05)
-    
-    nn.plot_solution(t, x, y, z,
-                     u, v, w, d,
-                     u_nn, v_nn, w_nn, d_nn,
-                      k_x=kx, k_y=ky, k_z=kz,
-                     figname_winds=figname02,
-                     figname_errs=figname03,
-                     figname_errs_k=figname04,
-                     figname_pressure=figname_P)
     
     ############################################################
     #Validation points
@@ -290,29 +183,28 @@ def train_hyper(df,
     figname05 = os.path.join(rpath, 'testing_statistics_%s.png' %suffix)
     figname_P = os.path.join(rpath, 'testing_pressure_%s.png' %suffix)
     
-    outputs = nn.infer(t_test, x_test, y_test, z_test)
+    outputs = nn.infer_from_df(df_testing)
     
     u_nn = outputs[:,0]
     v_nn = outputs[:,1]
     w_nn = outputs[:,2]
     
-    d_nn = -(u_nn*kx_test + v_nn*ky_test + w_nn*kz_test)
+    df_testing["u_hyper"] = u_nn
+    df_testing["v_hyper"] = v_nn
+    df_testing["w_hyper"] = w_nn
     
-    nn.plot_statistics(
-                    u_test, v_test, w_test,
-                    u_nn, v_nn, w_nn,
-                    figname=figname05)
+    # d_nn = -(u_nn*kx_test + v_nn*ky_test + w_nn*kz_test)
     
-    nn.plot_solution(t_test, x_test, y_test, z_test,
-                     u_test, v_test, w_test, d_test,
-                     u_nn, v_nn, w_nn, d_nn,
-                    k_x=kx_test, k_y=ky_test, k_z=kz_test,
+    nn.plot_statistics(df_testing,
+                       figname=figname05)
+    
+    nn.plot_solution(df_testing,
                      figname_winds=figname02,
                      figname_errs=figname03,
                      figname_errs_k=figname04,
                      figname_pressure=figname_P)
     
-    return( filename_mean )
+    return( filename_model )
 
 if __name__ == '__main__':
     
@@ -339,17 +231,17 @@ if __name__ == '__main__':
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
     parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
     
-    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-3, help='PDE weight', type=float)
+    parser.add_argument('--pde-weight',         dest='w_pde', default=1e0, help='PDE weight', type=float)
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e0, help='Slope recovery time loss weight', type=float)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VV", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VP_div", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
     parser.add_argument('--architecture', dest='nn_type', default='respinn', help='')
-    parser.add_argument('--version',     dest='nn_version', default=3.60, type=float)
+    parser.add_argument('--version',     dest='nn_version', default=5.00, type=float)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     parser.add_argument('--laaf',        dest='nn_laaf', default=1, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
@@ -432,7 +324,7 @@ if __name__ == '__main__':
     sevenfold       = True
     batch_size      = None
     ##No synthetic noise
-    noise_sigma     = -1.0
+    noise_sigma     = 0.0
     
     if sevenfold:
         nn_version += 10
@@ -444,6 +336,7 @@ if __name__ == '__main__':
             dt              = 24
             
             path            = "../data/"
+            noise_sigma     = -1.0
             
         elif exp.upper()  == 'SIMONE2018':
             
@@ -605,8 +498,8 @@ if __name__ == '__main__':
     if not os.path.exists(rpath): os.mkdir(rpath)
     
     #Read meteor data in LLA coordinates
-    meteor_obj = SMRReader(path, realtime=realtime)
-    meteor_obj.set_spatial_center(lon_center=lon_center,
+    meteor_data = SMRReader(path, realtime=realtime)
+    meteor_data.set_spatial_center(lon_center=lon_center,
                                   lat_center=lat_center,
                                   alt_center=alt_center)
     
@@ -615,47 +508,47 @@ if __name__ == '__main__':
     
     while True:
     
-        info = meteor_obj.read_next_file(enu_coordinates=True)
+        info = meteor_data.read_next_file(enu_coordinates=True)
         
         if info != 1: break
         
-        train_hyper(meteor_obj.df,
-                             tini=tini,
-                            dt=dt,
-                            dlon=dlon,
-                            dlat=dlat,
-                            dh=dh,
-                            rpath=rpath,
-                            num_outputs=num_outputs,
-                            w_pde=w_pde,
-                            w_data=w_data,
-                            w_srt=w_srt,
-                            laaf=nn_laaf,
-                            learning_rate=learning_rate,
-                            noise_sigma=noise_sigma,
-                            nepochs=nepochs, 
-                            N_pde=N_pde,
-                            num_neurons_per_layer=neurons_per_layer,
-                            num_hidden_layers=hidden_layers,
-                            n_nodes=n_nodes,
-                            n_blocks=n_blocks,
-                            filename_model=filename_model,
-                            transfer_learning=transfer_learning,
-                            filename_model_tl=filename_model_tl,
-                            short_naming=short_naming,
-                            activation=nn_activation,
-                            init_sigma=nn_init_sigma,
-                            NS_type=NS_type,
-                            w_init=nn_w_init,
-                            lon_center=lon_center,
-                            lat_center=lat_center,
-                            alt_center=alt_center,
-                            batch_size=batch_size,
-                            dropout=nn_dropout,
-                            sevenfold=sevenfold,
-                            w_pde_update_rate=w_pde_update_rate,
-                            nn_type=nn_type,
-                            )
+        train_hyper(meteor_data,
+                    tini=tini,
+                    dt=dt,
+                    dlon=dlon,
+                    dlat=dlat,
+                    dh=dh,
+                    rpath=rpath,
+                    num_outputs=num_outputs,
+                    w_pde=w_pde,
+                    w_data=w_data,
+                    w_srt=w_srt,
+                    laaf=nn_laaf,
+                    learning_rate=learning_rate,
+                    noise_sigma=noise_sigma,
+                    nepochs=nepochs, 
+                    N_pde=N_pde,
+                    num_neurons_per_layer=neurons_per_layer,
+                    num_hidden_layers=hidden_layers,
+                    n_nodes=n_nodes,
+                    n_blocks=n_blocks,
+                    filename_model=filename_model,
+                    transfer_learning=transfer_learning,
+                    filename_model_tl=filename_model_tl,
+                    short_naming=short_naming,
+                    activation=nn_activation,
+                    init_sigma=nn_init_sigma,
+                    NS_type=NS_type,
+                    w_init=nn_w_init,
+                    lon_center=lon_center,
+                    lat_center=lat_center,
+                    alt_center=alt_center,
+                    batch_size=batch_size,
+                    dropout=nn_dropout,
+                    sevenfold=sevenfold,
+                    w_pde_update_rate=w_pde_update_rate,
+                    nn_type=nn_type,
+                    )
         
         # break
         # nn_init_sigma *= 2
