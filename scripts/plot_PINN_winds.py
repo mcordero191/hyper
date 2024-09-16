@@ -17,9 +17,11 @@ DTYPE='float32'
 import matplotlib.pyplot as plt
 # plt.rcParams['axes.facecolor'] = "#B0B0B0"
 
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.cm as cm
 import matplotlib.dates as mdates
+
 
 # from atmospheric_models.ICON import ICONReader
 from georeference.geo_coordinates import lla2enu, lla2xyh
@@ -49,6 +51,90 @@ def derivative(u):
     
     return(u_x, u_y, u_z)
 
+def save_daemodel(x, y, z, filename, vmin=-1, vmax=1, cmap='RdBu_r', rotation_angles=(-np.pi/2, np.pi, 0)):
+    
+    import matplotlib.colors as mcolors
+    # from trimesh import Trimesh
+    import trimesh
+    
+    x -= x.mean()
+    y -= y.mean()
+    
+    # Normalize Z values and apply colormap
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    cmap = plt.get_cmap(cmap)
+    colors = cmap(norm(z.ravel()))
+
+    # # Mask NaN values
+    # mask = ~np.isnan(z)
+    #
+    # # Apply mask to x, y, z
+    # x = x[mask]
+    # y = y[mask]
+    # z = z[mask]
+    #
+    # # Recreate a grid assuming mask results in a rectangular shape
+    # num_points = len(x)
+    # grid_size = 18  # Approximate grid size (assuming square grid)
+    #
+    # x = x.reshape(grid_size, -1)
+    # y = y.reshape(grid_size, -1)
+    # z = z.reshape(grid_size, -1)
+    
+    # Create vertices
+    vertices = np.column_stack((x.ravel(), y.ravel(), z.ravel()))
+    
+    # Create faces
+    rows, cols = x.shape  # Recalculate based on masked data
+    faces = []
+    for i in range(rows - 1):
+        for j in range(cols - 1):
+            v1 = i * cols + j
+            v2 = v1 + 1
+            v3 = v1 + cols
+            v4 = v3 + 1
+            if v1 in range(vertices.shape[0]) and v2 in range(vertices.shape[0]) and v3 in range(vertices.shape[0]) and v4 in range(vertices.shape[0]):
+                faces.append([v1, v2, v3])
+                faces.append([v2, v4, v3])
+    faces = np.array(faces)
+    
+    # Create the mesh
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+    # Apply scaling
+    # mesh.apply_scale(scale)
+
+    # Apply rotation
+    rotation_matrix = trimesh.transformations.euler_matrix(rotation_angles[0], rotation_angles[1], rotation_angles[2], 'sxyz')
+    mesh.apply_transform(rotation_matrix)
+    
+    # # Remove duplicate faces
+    # mesh.update_faces(mesh.unique_faces())
+    #
+    # # Remove degenerate faces (those with zero area)
+    # mesh.remove_degenerate_faces()
+    #
+    # # Fill any holes in the mesh
+    # mesh.fill_holes()
+    #
+    # # Merge close vertices to prevent overlapping
+    # mesh.merge_vertices()
+    #
+    # # Recompute normals to ensure correct shading
+    # mesh.rezero()  # Center the mesh if needed
+    # mesh.fix_normals()  # Recalculate normals
+
+    vertex_colors = colors[:, :3]
+    mesh.visual.vertex_colors = vertex_colors
+    
+    # Simplify the mesh, targeting a specific number of faces (e.g., 1000 faces)
+    # mesh = mesh.simplify_quadratic_decimation(1000)
+
+    # Export to a 3D file format
+    mesh.export(filename+".dae", scale=1.0, rotation_angles=(np.pi/2, 0, 0)) 
+    
+    # mesh.show()
+    
 def plot_field(lons, lats, alts,
                fields,
                fields_est=None,
@@ -84,7 +170,7 @@ def plot_field(lons, lats, alts,
         filename = os.path.join(path, "wind_field_%2.1f_%s.png" %(alts[zi], prefix) )
         
         fig = plt.figure(figsize=(5*nfields,5*nrows))
-        plt.suptitle(figtitle)
+        # plt.suptitle(figtitle)
         
         if df_sampling is not None:
             df_sampling_z = df_sampling[ np.abs(df_sampling['heights'] - alts[zi]) < 1.2 ]
@@ -93,7 +179,7 @@ def plot_field(lons, lats, alts,
             samp_lats = df_sampling_z['lats'].values
         
         for iplot in range(nfields):
-            ax = fig.add_subplot(nrows, nfields, iplot+1)#, projection='3d')
+            ax = fig.add_subplot(nrows, nfields, iplot+1, projection='3d')
         
             f = fields[iplot]
             vmin = vmins[iplot]
@@ -102,58 +188,75 @@ def plot_field(lons, lats, alts,
             if vmin is None: vmin = np.min(f[zi])
             if vmax is None: vmax = np.max(f[zi])
             
-            im = ax.pcolormesh(lons, lats, f[zi],
-                              cmap=cmap,
-                              vmin=vmin,
-                              vmax=vmax)
+            # im = ax.pcolormesh(lons, lats, f[zi],
+            #                   cmap=cmap,
+            #                   vmin=vmin,
+            #                   vmax=vmax)
             
-            # im = ax.plot_surface(LON, LAT, f[zi],
-            #                      cmap=cmap,
-            #                      vmin=vmin,
-            #                      vmax=vmax,
-            #                      alpha=alpha)
+            im = ax.plot_surface(LON, LAT, f[zi],
+                                 cmap=cmap,
+                                 vmin=vmin,
+                                 vmax=vmax,
+                                 alpha=alpha,
+                                 linewidth=1, 
+                                 antialiased=True,
+                                 rcount=100,
+                                 ccount=100,
+                                 )
+            
+            ax.set_zlim(2*vmin, 2*vmax)
+            
+            # ax.set_facecolor('white')
+            # ax.axis("off")
+            # ax.w_xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+            # ax.w_yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+            # ax.w_zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+            # ax.w_zaxis.line.set_visible(False)
+
+
             
             ax.set_xlabel(xlabel)
             ax.set_ylabel(ylabel)
-            ax.set_title('%s %2.1fkm' %(titles[iplot], alts[zi]) )
-            
-            # ax.set_zlim(vmin, vmax)
+            # ax.set_title('%s %2.1fkm' %(titles[iplot], alts[zi]) )
             
             # ax.plot(samp_lons, samp_lats, 'mx')
             if df_sampling is not None:
-                ax.scatter(samp_lons, samp_lats, samp_lats*0 + vmin, marker='x')
+                ax.scatter(samp_lons, samp_lats, samp_lats*0 + vmin, marker='x', color='k')
             
             # ax.set_xlim(-2,2)
             # ax.set_ylim(0,2)
             
-            plt.colorbar(im, ax=ax)
+            # divider = make_axes_locatable(ax)
+            # cax = divider.append_axes(position='right', size="5%", pad=0.05)
+
+            plt.colorbar(im, ax=ax, label="m/s", shrink=0.2, aspect=20*0.2)
             
             if nrows>1:
                 ax = fig.add_subplot(nrows, nfields, nfields+iplot+1)#, projection='3d')
         
                 f = fields_est[iplot]
                 #
-                im = ax.pcolormesh(lons, lats, f[zi],
-                                  cmap=cmap,
-                                  vmin=vmin,
-                                  vmax=vmax)
+                # im = ax.pcolormesh(lons, lats, f[zi],
+                #                   cmap=cmap,
+                #                   vmin=vmin,
+                #                   vmax=vmax)
                 
-                # im = ax.plot_surface(LON, LAT, f[zi],
-                #                  cmap=cmap,
-                #                  vmin=vmin,
-                #                  vmax=vmax,
-                #                  alpha=alpha)
+                im = ax.plot_surface(LON, LAT, f[zi],
+                                 cmap=cmap,
+                                 vmin=vmin,
+                                 vmax=vmax,
+                                 alpha=alpha)
+                ax.set_zlim(vmin, vmax)
                 
                 ax.set_xlabel(xlabel)
                 ax.set_ylabel(ylabel)
                 ax.set_title('%s_est %2.1f km' %(titles[iplot], alts[zi]) )
                 
-                # ax.set_zlim(vmin,vmax)
-                # ax.plot(samp_lons, samp_lats, 'mx')
+                # 
                 if df_sampling is not None: 
-                    ax.scatter(samp_lons, samp_lats, samp_lats*0 + vmin, marker='x')
+                    ax.scatter(samp_lons, samp_lats, samp_lats*0 + vmin, marker='x', color='k')
                 
-                plt.colorbar(im, ax=ax)
+                plt.colorbar(im, ax=ax, label="m/s")
             
             if nrows>2:
                 ax = fig.add_subplot(nrows, nfields, 2*nfields+iplot+1) #,projection='3d')
@@ -174,12 +277,20 @@ def plot_field(lons, lats, alts,
                 if df_sampling is not None:
                     ax.plot(samp_lons, samp_lats, 'mx')
                 
-                plt.colorbar(im, ax=ax)
-                
-            
+                plt.colorbar(im, ax=ax, label="m/s")
+        
         plt.tight_layout()
-        plt.savefig(filename)
+        
+        # for ii in range(0,360,10):
+        #     ax.view_init(elev=ii, azim=150)
+        #     plt.savefig(filename+"*%d.png" %ii, transparent=True, dpi=500)
+        
+        # ax.view_init(elev=10, azim=150)
+        
+        plt.savefig(filename, transparent=True, dpi=500)
         plt.close()
+        
+        save_daemodel(LON, LAT, f[zi], filename)
 
 def plot_heatmaps(lons, lats, alts,
                fields,
@@ -460,12 +571,12 @@ def plot_3d_maps(x3d, y3d, z1d,
         if cmap_list is not None:
             cmap = cmap_list[i]
         
-        if vmin_list[i] is not None:
+        if vmin_list is not None:
             vmin = vmin_list[i]
         else:
             vmin = np.nanmin(data)
             
-        if vmax_list[i] is not None:
+        if vmax_list is not None:
             vmax = vmax_list[i]
         else:
             vmax = np.nanmax(data)
@@ -776,7 +887,7 @@ def calc_xyz_mean_winds(nn, times, x_flat, y_flat, z_flat,
         
         t = np.zeros_like(x_flat) + time
         
-        outputs = nn.infer(t, x_flat, y_flat, z_flat)
+        outputs = nn.infer(t, x_flat, y_flat, z_flat, filter_output=False)
         
         u[:] = np.nan
         v[:] = np.nan
@@ -893,7 +1004,7 @@ def calc_mean_winds(x,
 def getting_and_plotting_winds(filename,
                                figpath,
                                tstep = None, #min
-                                xstep = 0.1, #degrees
+                                xstep = 0.4, #degrees
                                 ystep = 0.1, #degrees
                                 zstep = 2, #km
                                 xrange = 8, #degrees
@@ -925,6 +1036,7 @@ def getting_and_plotting_winds(filename,
     try:
         nn = pinn.restore(filename, log_index=log_file)
     except:
+        return
         nn = pinn.PINN()
         nn.restore(filename, log_index=log_file)
         
@@ -943,12 +1055,12 @@ def getting_and_plotting_winds(filename,
     if trange is not None: tmax = tmin+trange
     if tstep is None: tstep = (tmax - tmin)/(24*6)
     
-    if xrange is None: xrange = (x_ub - x_lb)/100e3
-    if yrange is None: yrange = (y_ub - y_lb)/100e3
+    if xrange is None: xrange = (x_ub - x_lb)/40e3
+    if yrange is None: yrange = (y_ub - y_lb)/90e3
     if zrange is None: zrange = (z_ub - z_lb)*1e-3
     
-    lon_ref = nn.lon_ref
-    lat_ref = nn.lat_ref
+    lon_ref = nn.lon_ref + 0.3
+    lat_ref = nn.lat_ref + 0.2
     alt_ref = nn.alt_ref
     
     xmin = lon_ref - xrange/2.
@@ -991,10 +1103,11 @@ def getting_and_plotting_winds(filename,
     dt = datetime.datetime.utcfromtimestamp(tmin)
     dt_str = dt.strftime('%Y%m%d')
     
+    
     if meteor_path is not None:
-        pattern = '*%s' %dt_str
-        meteor_sys = SMRReader(mpath, pattern=pattern)
+        meteor_sys = SMRReader(mpath)
         meteor_sys.read_next_file()
+        # meteor_sys.filter()
         df_meteor = meteor_sys.df
         
     
@@ -1111,7 +1224,7 @@ def getting_and_plotting_winds(filename,
             vort = v_x - u_y
             
         else:
-            outputs = nn.infer(t, x_flat, y_flat, z_flat)
+            outputs = nn.infer(t, x_flat, y_flat, z_flat, filter_output=True)
         
         u_flat = outputs[:,0]
         v_flat = outputs[:,1]
@@ -1153,16 +1266,30 @@ def getting_and_plotting_winds(filename,
             v -= v4h[idx,:,None,None]
             w -= w4h[idx,:,None,None]
         
+        df_meteor_t = None
+        if df_meteor is not None:
+            mask1 = np.abs(df_meteor['times'] - time) < 5*60
+            df_meteor_t = df_meteor[mask1]
+                
         if plot_fields:
+            # plot_field(x, y, z,
+            #            fields = [u, v, w],
+            #            titles=['u','v','w', 'P'],
+            #            figtitle='%s'%dt.strftime('%Y/%m/%d %H:%M:%S'),
+            #            vmins = vmins,
+            #            vmaxs = vmaxs,
+            #            prefix='field_%s'%dt.strftime('%Y%m%d_%H%M%S'),
+            #            path=figpath_3D)
+            
             plot_field(x, y, z,
-                       fields = [u, v, w],
-                       titles=['u','v','w', 'P'],
+                       fields = [w],
+                       titles=['w'],
                        figtitle='%s'%dt.strftime('%Y/%m/%d %H:%M:%S'),
-                       vmins = vmins,
-                       vmaxs = vmaxs,
+                       vmins = vmins[2:],
+                       vmaxs = vmaxs[2:],
                        prefix='field_%s'%dt.strftime('%Y%m%d_%H%M%S'),
-                       path=figpath_3D)
-        
+                       path=figpath_3D,
+                       df_sampling=df_meteor_t)
             
         if plot_vor_div:
             # figfile = os.path.join(figpath_3D, 'vordiv_map_%s.%s' %(dt.strftime('%Y%m%d_%H%M%S'), ext) )
@@ -1193,12 +1320,6 @@ def getting_and_plotting_winds(filename,
         
         if plot_wind_vectors:
             
-            df_meteor_t = None
-            if df_meteor is not None:
-                mask1 = np.abs(df_meteor['times'] - time) < 15*60
-                df_meteor_t = df_meteor[mask1]
-            
-            
             figfile = os.path.join(figpath_3D, 'wind_vec_%s.%s' %(dt.strftime('%Y%m%d_%H%M%S'), ext) )
             
             # u[0,:,:] = np.nanmean(u, axis=0)
@@ -1212,8 +1333,26 @@ def getting_and_plotting_winds(filename,
                          vmin_list=vmins,
                          vmax_list=vmaxs,
                          filename=figfile,
-                         scale=3000*vmaxs[0]/150,
+                         scale=3000*vmaxs[0]/400,
                          df_meteor=df_meteor_t)
+            
+            # figfile = os.path.join(figpath_3D, 'wind_map_%s.%s' %(dt.strftime('%Y%m%d_%H%M%S'), ext) )
+            #
+            # plot_3d_maps(X, Y, z,
+            #              [u,v,w], 
+            #              # title, 
+            #              # title_list, 
+            #              # vmin_list, 
+            #              # vmax_list, 
+            #              # xmin, 
+            #              # xmax, 
+            #              # ymin, 
+            #              # ymax, 
+            #              filename=figfile, 
+            #              # cmap_label, 
+            #              # cmap_list, 
+            #              # zdecimator,
+            #              )
             
             # figfile = os.path.join(figpath_3D, 'h_wind_vec_%s.%s' %(dt.strftime('%Y%m%d_%H%M%S'), ext) )
             #
@@ -1465,14 +1604,15 @@ def keograms(filename,
                 plot_mean=False,
                 log_file=None,
                 time_width=0*60*60,
-                time_width_mean=2*60*60,
+                time_width_mean=1*60*60,
                 h_width=0,
-                h_width_mean=2,
+                h_width_mean=1,
                 cmap='jet',
                 t0=1,
                 trange=None,#3*60*60,
                 histogram=False,
                 grads=False,
+                grad_titles = [r'Hor. div. [m/s/m]', r'Rel. vort. [m/s/m]', r'Div. [m/s/m]']
                 ):
     
     if not os.path.exists(figpath):
@@ -1495,11 +1635,10 @@ def keograms(filename,
     y_ub = nn.ub[3]
     z_ub = nn.ub[1]
     
-    
     if trange is not None: tmax = tmin+trange
     if tstep is None: tstep = (tmax - tmin)/(24*6)
     
-    if xrange is None: xrange = (x_ub - x_lb)/60e3
+    if xrange is None: xrange = (x_ub - x_lb)/40e3
     if yrange is None: yrange = (y_ub - y_lb)/90e3
     if zrange is None: zrange = (z_ub - z_lb)*1e-3
     
@@ -1521,6 +1660,23 @@ def keograms(filename,
     y       = np.arange(ymin, ymax, ystep)
     z       = np.arange(zmin, zmax, zstep)
     
+    if type == 'residuals':
+        
+        X, Y, Z = np.meshgrid(z, x, y, indexing='ij')
+        
+        shape = X.shape
+        
+        x_flat = X.flatten()
+        y_flat = Y.flatten()
+        z_flat = Z.flatten()
+        
+        mask = np.where(np.isfinite(X))
+        
+        u0, v0, w0 = calc_xyz_mean_winds(nn, times, x_flat, y_flat, z_flat, u_shape=shape, valid_mask=mask)
+        u0, v0, w0 = calc_mean_winds(times, x, u0, v0, w0,
+                                 x_width=time_width_mean,
+                                 y_width=h_width_mean )
+        
     if x0 is None: x0 = lon_ref
     if y0 is None: y0 = lat_ref
     if z0 is None: z0 = alt_ref
@@ -1529,9 +1685,13 @@ def keograms(filename,
     y0       = np.atleast_1d(y0)
     z0       = np.atleast_1d(z0)
     
+    idx_x0 = np.argmin(np.abs(x-x0))
+    idx_y0 = np.argmin(np.abs(y-y0))
+    idx_z0 = np.argmin(np.abs(z-z0))
+    
     dt = datetime.datetime.utcfromtimestamp(times[0])
     dt_str = dt.strftime('%Y%m%d') #_%H%M%S')
-    
+        
     #X
     T, X, Y, Z = np.meshgrid(times, x, y0, z0, indexing='ij')
     shape = T.shape
@@ -1560,13 +1720,13 @@ def keograms(filename,
                                  y_width=0)
     
     if type == 'residuals':
-        u0, v0, w0 = calc_mean_winds(times, x, u, v, w,
-                                 x_width=time_width_mean,
-                                 y_width=0 )
+        # u0, v0, w0 = calc_mean_winds(times, x, u, v, w,
+        #                          x_width=time_width_mean,
+        #                          y_width=0 )
         
-        u -= u0
-        v -= v0
-        w -= w0
+        u -= u0[:,None,idx_z0]
+        v -= v0[:,None,idx_z0]
+        w -= w0[:,None,idx_z0]
     
     figfile_mean = os.path.join(figpath, 'keo_x_%s_%2.1f_%2.1f.%s' %(dt_str, y0[0], z0[0], ext) )
     
@@ -1600,6 +1760,7 @@ def keograms(filename,
         
         div = u_x + v_y
         vor = v_x - u_y
+        w_z = div + w_z
         
         div = div.reshape(shape)
         vor = vor.reshape(shape)
@@ -1624,7 +1785,7 @@ def keograms(filename,
         
         figfile = os.path.join(figpath, 'keo_x_grad_%s_%2.1f_%2.1f.%s' %(dt_str, y0[0], z0[0], ext) )
         
-        grad_titles = [r'Hor. div.', r'Rel. vort.', r'$w_z$']
+        
         plot_mean_winds(times, x, div, vor, w_z,
                                 titles=grad_titles,
                                 figfile=figfile,
@@ -1665,13 +1826,13 @@ def keograms(filename,
                                  y_width=0)
     
     if type == 'residuals':
-        u0, v0, w0 = calc_mean_winds(times, y, u, v, w,
-                                 x_width=time_width_mean,
-                                 y_width=0)
+        # u0, v0, w0 = calc_mean_winds(times, y, u, v, w,
+        #                          x_width=time_width_mean,
+        #                          y_width=0)
         
-        u -= u0
-        v -= v0
-        w -= w0
+        u -= u0[:,None,idx_z0]
+        v -= v0[:,None,idx_z0]
+        w -= w0[:,None,idx_z0]
         
     plot_mean_winds(times, y, u, v, w,
                             figfile=figfile_mean,
@@ -1705,6 +1866,7 @@ def keograms(filename,
         
         div = u_x + v_y
         vor = v_x - u_y
+        w_z = div + w_z
         
         div = div.reshape(shape)
         vor = vor.reshape(shape)
@@ -1769,9 +1931,9 @@ def keograms(filename,
                                  y_width=h_width)
     
     if type == 'residuals':
-        u0, v0, w0 = calc_mean_winds(times, z, u, v, w,
-                                 x_width=time_width_mean,
-                                 y_width=h_width_mean)
+        # u0, v0, w0 = calc_mean_winds(times, z, u, v, w,
+        #                          x_width=time_width_mean,
+        #                          y_width=h_width_mean)
         
         u -= u0
         v -= v0
@@ -1809,6 +1971,7 @@ def keograms(filename,
         
         div = u_x + v_y
         vor = v_x - u_y
+        w_z = div + w_z
         
         div = div.reshape(shape)
         vor = vor.reshape(shape)
@@ -1904,7 +2067,7 @@ def mean_winds(filename,
     if trange is not None: tmax = tmin+trange
     if tstep is None: tstep = (tmax - tmin)/(24*6)
     
-    if xrange is None: xrange = (x_ub - x_lb)/60e3
+    if xrange is None: xrange = (x_ub - x_lb)/40e3
     if yrange is None: yrange = (y_ub - y_lb)/90e3
     if zrange is None: zrange = (z_ub - z_lb)*1e-3
     
@@ -2059,24 +2222,26 @@ if __name__ == '__main__':
     
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Germany", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Argentina/", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Argentina/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Norway/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Condor/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/JRO/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Piura/", help='Data path')
-    parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/NewMexico/", help='Data path')
+    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/NewMexico/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/", help='Data path')
     
     parser.add_argument('-m', '--model', dest='model', default=None, help='neural network model')
-    parser.add_argument('-s', '--subfolder', dest='subfolder', default="nnRESPINN_3.52", help='subfolder where the neural network model is stored')
+    parser.add_argument('-s', '--subfolder', dest='subfolder', default="nnRESPINN_15.11", help='subfolder where the neural network model is stored')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
-    parser.add_argument('-t', '--type', dest='type', default='total', help='plot type. Either "residuals" or "full" wind')
-    parser.add_argument('-l', '--log-file', dest='log_file', default=4500, help='select the i-th weights file from the log folder')
+    parser.add_argument('-t', '--type', dest='type', default='wind', help='plot type. Either "residuals" or "full" wind')
+    parser.add_argument('-l', '--log-file', dest='log_file', default=None, help='select the i-th weights file from the log folder')
+    
+    # parser.add_argument('--meteor-path', dest='mpath', default=None, help='Data path')
     
     # parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90', help='Data path')
     # parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91/', help='Data path')
-    # parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/', help='Data path')
-    parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/NewMexico/EclipseOct', help='Data path')
+    parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/', help='Data path')
+    
     
     args = parser.parse_args()
     
@@ -2087,8 +2252,8 @@ if __name__ == '__main__':
     type = args.type
     log_file = args.log_file
     
-    xrange = None
-    yrange = None
+    xrange = 12
+    yrange = 4
     
     cmap = 'seismic'
     
@@ -2098,13 +2263,13 @@ if __name__ == '__main__':
     # t0 = 16*60*60
     # trange = 1.5*60*60
     
-    time_width_mean = 2*60*60
-    h_width_mean = 2
+    time_width_mean = 1*60*60
+    h_width_mean = 1
     
     # vmins = np.array([-100, -100, -10, -1.0, -1.0, -0.1, -1.0, -1.0, -0.1, -25, -25, -5])
     
-    vmins = np.array([-100, -100, -10, -4.0e-4, -4.0e-4, -4e-4, -4.0e-4, -4.0e-4, -4e-4, -2e-3, -2e-3, -4e-4])
-    # vmins = np.array([-50, -50, -5, -2.0e-3, -2.0e-3, -2e-3, -2.0e-3, -2.0e-3, -2e-3, -25e-3, -25e-3, -2e-3])
+    vmins = np.array([-100, -100, -5, -4.0e-4, -4.0e-4, -4e-4, -4.0e-4, -4.0e-4, -4e-4, -2e-3, -2e-3, -2e-3])
+    # vmins = np.array([-20, -20, -1, -2.0e-3, -2.0e-3, -2e-3, -2.0e-3, -2.0e-3, -2e-3, -25e-3, -25e-3, -2e-3])
     # vmins = 0.1*np.array([-80, -80, -5, -1.0e-3, -1.0e-3, -1e-3, -1.0e-3, -1.0e-3, -1e-3, -30e-3, -30e-3, -1e-3])
      #[ 150,  150,  10,  0.4,  0.4,  0.04,  0.4,  0.4,  0.04,  25,  25,  2.5]
     
@@ -2116,12 +2281,12 @@ if __name__ == '__main__':
     path_PINN = os.path.join(path, "winds", args.subfolder)
     
     if model_name is None:
-        models = glob.glob1(path_PINN, '*model*[!s].h5')
+        models = glob.glob1(path_PINN, 'h*[!s].h5')
         models = sorted(models)
     else:
         models = [  model_name ]
             
-    for model in models[1:]:
+    for model in models[:]:
         
         id_name = model[-11:-3]
         filename = os.path.join(path_PINN, model)
@@ -2134,12 +2299,12 @@ if __name__ == '__main__':
         if not os.path.exists(figpath):
             os.mkdir(figpath)
             
-        figpath = os.path.join(figpath, '%s' %model[5:-3])
+        figpath = os.path.join(figpath, '%s' %model[:-3])
         
         if not os.path.exists(figpath):
             os.mkdir(figpath)
             
-        figpath_type = os.path.join(figpath, '%s_%02d_%s' %(type, t0/3600,log_file) ) #+os.path.splitext(model_name)[0])
+        figpath_type = os.path.join(figpath, '%s_%s_%02d' %(type,log_file, t0/3600) ) #+os.path.splitext(model_name)[0])
         
         
         # 69.45 N, 15.83 E, around 90 km
@@ -2177,23 +2342,25 @@ if __name__ == '__main__':
                  cmap=cmap,
                  t0=t0,
                  trange=trange,
+                 #MAARSY
+                # x0=16.04,
+                # y0=69.25,
+                # y0=70,
                 # x0=-106.5,
                 # y0=33.5,
-                # x0=16.04,
-                # y0=69.3,
                 # x0=17.5,
                 # y0=70,
                 # z0=85.0,
                 ##Vortex,
                 # x0=15.75,
                 # y0=69.45,
+                # y0=70.35,
+                # x0=14.25,
                 histogram=False,
-                grads=False,
+                # grads=True,
                )
         
-        # wind_at_samples(filename, figpath_type, df_meteor=df_meteor)
-        #
-        # continue
+        continue
         
         mean_winds(filename, figpath_type,
                    ext=ext,
@@ -2206,7 +2373,7 @@ if __name__ == '__main__':
                     tstep=15*60,
                     # xmin=-30,
                     # ymin=-30,
-                    xstep=1.5,
+                    xstep=1.0,
                     ystep=1.0,
                     zstep=0.5,
                     # zmin=84,
@@ -2219,23 +2386,23 @@ if __name__ == '__main__':
                     h_width_mean=h_width_mean,
                     time_width_mean=time_width_mean,
                    )
-        
-        continue
+        #
+        # continue
             
         getting_and_plotting_winds(filename, figpath_type, ext=ext,
                                     type=type,
                                     plot_mean=False,
                                     plot_fields=False,
-                                    plot_vor_div=True,
+                                    plot_vor_div=False,
                                     plot_wind_vectors=True,
-                                    save=False,
+                                    save=True,
                                     # xmin=-30,
                                     # ymin=-30,
                                     xrange=xrange,
                                     yrange=yrange,
-                                    zstep=2,
-                                    zrange=18,
-                                    zmin=80,
+                                    zstep=1,
+                                    zrange=6,
+                                    zmin=83,
                                     log_file=log_file,
                                     vmins=vmins,
                                     vmaxs=vmaxs,

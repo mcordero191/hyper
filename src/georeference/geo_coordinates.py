@@ -36,6 +36,19 @@ b_a = one_f;
 rad2deg = 180.0/np.pi
 deg2rad = np.pi/180.0
 
+
+def lat2km(lat, lat_ref=0):
+    
+    d = (lat-lat_ref)*np.sin(np.pi/180.0)*a
+    
+    return(d)
+
+def lon2km(lon, lat, lon_ref=0):
+
+    d = (lon-lon_ref)*np.pi/180.0*np.cos(np.pi*lat/180.0)*a
+    
+    return(d)
+
 def getMatrixRotation(latitude, longitude):
     """
     Inputs:

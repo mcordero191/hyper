@@ -368,7 +368,7 @@ class DNSReader(object):
         
         self.radar_wavelength = radar_wavelength
     
-    def set_meteor_spatial_center(self, lat_ref, lon_ref, alt_ref):
+    def set_meteor_spatial_center(self, lon_ref, lat_ref, alt_ref):
         
         #Convert enu to LLA
         self.lat_ref = lat_ref
@@ -403,23 +403,23 @@ class DNSReader(object):
             
             if info != 1: return None
         
-        ix, iy, iz = self.__grid_indices(*meteor_lla_loc)
+        iz, iy, ix = self.__grid_indices(*meteor_lla_loc)
         
         if (ix is None):
             return(None)
         
-        new_meteor_lla_loc = self.lat_grid[ix, iy, iz], self.lon_grid[ix, iy, iz], self.alt_grid[ix, iy, iz]
+        new_meteor_lla_loc = self.lat_grid[iz, iy, ix], self.lon_grid[iz, iy, ix], self.alt_grid[iz, iy, ix]
         
         bragg = self.__get_bragg_vector( new_meteor_lla_loc, rx_lla_loc, tx_lla_loc)
         
-        u = self.data['u'][ix, iy, iz]
-        v = self.data['v'][ix, iy, iz]
-        w = self.data['w'][ix, iy, iz]
+        u = self.data['u'][iz, iy, ix]
+        v = self.data['v'][iz, iy, ix]
+        w = self.data['w'][iz, iy, ix]
         
-        T = self.data['T'][ix, iy, iz]
-        # P = self.data['P'][ix, iy, iz]
-        # rho = self.data['rho'][ix, iy, iz]
-        # tke = self.data['tke'][ix, iy, iz]
+        T = self.data['T'][iz, iy, ix]
+        # P = self.data['P'][iz, iy, ix]
+        # rho = self.data['rho'][iz, iy, ix]
+        # tke = self.data['tke'][iz, iy, ix]
         
         doppler = (-1.0/(2*np.pi))*np.dot( [u,v,w], bragg )
         

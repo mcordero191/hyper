@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 import tensorflow as tf
+import keras
 
 data_type     = tf.float32
 # tf.keras.backend.set_floatx('float64')
@@ -30,10 +31,11 @@ time_base = 1.468e9
 from georeference.geo_coordinates import lla2xyh
 from utils.histograms import ax_2dhist
 from utils.plotting import epoch2num
-from pinn.nn_architectures import iPINN, rPINN, resPINN, sPINN, DeepONet, DeepONetOpt, DeepONetOri,\
-    MultiNet, DeepMultiNet
+from pinn.fc_pinn import genericPINN, resPINN
+from pinn.spinn import sPINN
+from pinn.deeponet import DeepONet
     
-from pinn.bfgs import LBFGS
+# from pinn.bfgs import LBFGS
 
 class App:
     
@@ -51,7 +53,8 @@ class App:
                 init_sigma = 1.0,
                 # lr      = 1e-3,
                 # opt     = "Adam",
-                laaf    = 0,
+                laaf        = 0,
+                dropout     = 0,
                 # w_data  = 1.,
                 # w_div   = 1e0,
                 # w_mom   = 1e0,
@@ -59,8 +62,7 @@ class App:
                 # w_srt   = 1.0,
                 # ns_pde  = 10000,
                 NS_type     = 'VP',             #Velocity-Vorticity (VV) or Velocity-Pressure (VP) form
-                # dropout     = True,
-                r_seed  = 1234,
+                r_seed      = 1234,
                 f_scl_in    = "minmax",                   #Input feature scaling
                 f_scl_out   = 1,                          #Output scaling
                 msis        = None,
@@ -110,7 +112,7 @@ class App:
         self.f_scl_in   = f_scl_in
                 
         self.laaf       = laaf
-        # self.dropout    = dropout
+        self.dropout    = dropout
         self.init_sigma = init_sigma
         
         # self.w_data  = w_data
@@ -134,6 +136,7 @@ class App:
         
         self.residual_layer = residual_layer
         
+        self._time_base     = time_base
         self.__ini_pde      = True
         
         # dataset
@@ -150,7 +153,7 @@ class App:
         self.ubi = None
         self.mn = None
         
-        self.X_pde = None
+        self._X_pde = None
         
         self.lon_ref    = lon_ref
         self.lat_ref    = lat_ref
@@ -159,23 +162,23 @@ class App:
         # hiddens_shape = (self.depth-1) * [self.width]
         
         # build
-        if self.nn_type == 'rpinn':            
-            nn = rPINN( self.shape_out,
+        if self.nn_type == 'gpinn':            
+            nn = genericPINN( self.shape_out,
                               self.width,
                               self.depth,
                               activation  = act,
                               add_nu     = add_nu,
                               kernel_initializer = w_init
                             )
-        
-        elif self.nn_type == 'ipinn':            
-            nn = iPINN( self.shape_out,
-                              self.width,
-                              self.depth,
-                              activation  = act,
-                              add_nu     = add_nu,
-                              kernel_initializer = w_init
-                            )    
+        #
+        # elif self.nn_type == 'ipinn':            
+        #     nn = iPINN( self.shape_out,
+        #                       self.width,
+        #                       self.depth,
+        #                       activation  = act,
+        #                       add_nu     = add_nu,
+        #                       kernel_initializer = w_init
+                            # )    
         elif self.nn_type == 'respinn':            
             nn = resPINN( self.shape_out,
                               self.width,
@@ -184,7 +187,10 @@ class App:
                               add_nu     = add_nu,
                               kernel_initializer = w_init,
                               laaf = laaf,
+                              dropout=dropout,
+                              stddev=init_sigma,
                             )    
+            
         elif self.nn_type == 'spinn':            
             nn = sPINN( self.shape_out,
                               self.width,
@@ -204,50 +210,55 @@ class App:
                           kernel_initializer = w_init,
                           add_nu = add_nu,
                           )
-        elif self.nn_type == 'deeponetori':
-            nn = DeepONetOri(self.shape_out,
-                          self.width,
-                          self.depth,
-                          self.nnodes,
-                          activation  = act,
-                          kernel_initializer = w_init,
-                          add_nu = add_nu,
-                          )
-        elif self.nn_type == 'deeponetopt':
-            nn = DeepONetOpt(self.shape_out,
-                          self.width,
-                          self.depth,
-                          self.nnodes,
-                          activation  = act,
-                          kernel_initializer = w_init,
-                          add_nu = add_nu,
-                          )
-        elif self.nn_type == 'multinet':
-            nn = MultiNet(self.shape_out,
-                          self.width,
-                          self.depth,
-                          self.nnodes,
-                          activation  = act,
-                          kernel_initializer = w_init,
-                          add_nu = add_nu,
-                          residual_layer = residual_layer,
-                          )
-        elif self.nn_type == 'deepmultinet':
-            nn = DeepMultiNet(self.shape_out,
-                              n_neurons=self.width,
-                              n_layers =self.depth,
-                              n_filters=self.nnodes,
-                              n_blocks=self.nblocks,
-                              activation  = act,
-                              kernel_initializer = w_init,
-                              add_nu = add_nu,
-                              )
+        # elif self.nn_type == 'deeponetori':
+        #     nn = DeepONetOri(self.shape_out,
+        #                   self.width,
+        #                   self.depth,
+        #                   self.nnodes,
+        #                   activation  = act,
+        #                   kernel_initializer = w_init,
+        #                   add_nu = add_nu,
+        #                   )
+        # elif self.nn_type == 'deeponetopt':
+        #     nn = DeepONetOpt(self.shape_out,
+        #                   self.width,
+        #                   self.depth,
+        #                   self.nnodes,
+        #                   activation  = act,
+        #                   kernel_initializer = w_init,
+        #                   add_nu = add_nu,
+        #                   )
+        # elif self.nn_type == 'multinet':
+        #     nn = MultiNet(self.shape_out,
+        #                   self.width,
+        #                   self.depth,
+        #                   self.nnodes,
+        #                   activation  = act,
+        #                   kernel_initializer = w_init,
+        #                   add_nu = add_nu,
+        #                   residual_layer = residual_layer,
+        #                   )
+        # elif self.nn_type == 'deepmultinet':
+        #     nn = DeepMultiNet(self.shape_out,
+        #                       n_neurons=self.width,
+        #                       n_layers =self.depth,
+        #                       n_filters=self.nnodes,
+        #                       n_blocks=self.nblocks,
+        #                       activation  = act,
+        #                       kernel_initializer = w_init,
+        #                       add_nu = add_nu,
+        #                       )
             
         else:
             raise ValueError('nn_type not recognized')
         
-        model = nn.build_graph( (self.shape_in,) )
-        nn.summary()
+        # dummy_input = tf.random.normal((1, shape_in))
+        # _ = nn(dummy_input)
+
+        model = nn.build_graph( self.shape_in )
+        model.summary(expand_nested=True)
+        
+        nn.summary(expand_nested=True)
         
         self.model = nn
         
@@ -257,22 +268,25 @@ class App:
         print("************************************************************")
         print(">>>>> start time:", datetime.datetime.now())
         print(">>>>> configuration;")
+        print("         nn_type      :", self.nn_type)
         print("         Navier-Stokes:", self.NS_type)
         # print("         n_pde_samples:", self.N_pde)
-        print("         random seed  :", self.r_seed)
-        print("         data type    :", data_type)
-        print("         activation   :", self.act)
-        print("         weight init  :", self.w_init)
-        print("         bias   init  :", self.b_init)
-        print("         laaf         :", self.laaf)
-        # print("         learning rate:", self.lr)
-        # print("         optimizer    :", self.opt)
         print("         width        :", self.width)
         print("         depth        :", self.depth)
-        print("         nn_type      :", self.nn_type)
+        print("         activation   :", self.act)
+        
+        print("         laaf         :", self.laaf)
+        print("         dropout      :", self.dropout)
+        # print("         learning rate:", self.lr)
+        # print("         optimizer    :", self.opt)
+        
+        
         # print("         total parms  :", n_total_parms)
         print("         feature scaling :", self.f_scl_in)
-        
+        print("         random seed  :", self.r_seed)
+        print("         data type    :", data_type)
+        print("         weight init  :", self.w_init)
+        print("         bias   init  :", self.b_init)
 
     def random_seed(self, seed = 1234):
         
@@ -287,23 +301,23 @@ class App:
         #                                                           [lr,0.33*lr,0.1*lr])
         
         if opt == "SGD":
-            optimizer = tf.keras.optimizers.SGD(
+            optimizer = keras.optimizers.SGD(
                 learning_rate = lr, momentum = 0.0, nesterov = False
                 )
         elif opt == "RMSprop":
-            optimizer = tf.keras.optimizers.RMSprop(
+            optimizer = keras.optimizers.RMSprop(
                 learning_rate = lr, rho = 0.9, momentum = 0.0, centered = False
                 )
         elif opt == "Adam":
-            optimizer = tf.keras.optimizers.Adam(
+            optimizer = keras.optimizers.Adam(
                 learning_rate = lr, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False
                 )
         elif opt == "Adamax":
-            optimizer = tf.keras.optimizers.Adamax(
+            optimizer = keras.optimizers.Adamax(
                 learning_rate = lr, beta_1 = 0.9, beta_2 = 0.999
                 )
         elif opt == "Nadam":
-            optimizer = tf.keras.optimizers.Nadam(
+            optimizer = keras.optimizers.Nadam(
                 learning_rate = lr, beta_1 = 0.9, beta_2 = 0.999
                 )
         else:
@@ -331,42 +345,21 @@ class App:
         return(mean_grad)
     
     @tf.function
-    def forward_pass(self, model, X, training=False, return_all=False):
+    def forward_pass(self, model, X, training=True, return_all=False,
+                     # freq_scaling=5.0,#tf.constant([10.0, 4.0, 4.0, 4.0]), #100min, 20km, 100km, 100km
+                     ):
         
         # print("Tracing model!") 
         
         z = 2. * (X - self.lbi) / (self.ubi - self.lbi)  - 1.
+        
+        # z = tf.multiply(z, tf.constant(2*np.pi)*freq_scaling)
         
         u = model(z, training=training)
         
         # print("Finish tracing model!")
         
         return(u)
-    
-    # @tf.function
-    def pde_div_mean(self, model, t, z, x, y, nu, rho, rho_ratio, N):
-        
-        with tf.GradientTape(persistent = False, watch_accessed_variables=False) as tp:
-            tp.watch(z)
-            
-            u, ux, uy = self.forward_pass(model, tf.concat([t, z, x, y], axis=1), return_all=True)
-            
-            # u = uvw[:,0:1]
-            # v = uvw[:,1:2]
-            w = u[:,2:3]
-        
-        u_x = ux[:,0:1]
-        v_y = uy[:,1:2]
-        
-        # w_x = ux[:,2:3]
-        # w_y = uy[:,2:3]
-        
-        w_z = tp.gradient(w, z)
-        
-        div     = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
-        junk     = tf.constant(0.0, dtype=data_type)
-            
-        return(div, junk, junk, junk, junk, junk)
     
     def pde_div(self, model, t, z, x, y, nu, rho, rho_ratio, N):
         
@@ -465,7 +458,7 @@ class App:
         #Potential temperature
         junk = tf.constant(0.0, dtype=data_type)
             
-        return(div, junk, mom_x, mom_y, junk, junk)
+        return(div, junk, mom_x, mom_y, junk, w)
     
     # @tf.function
     def pde_div_mom_temp(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -578,7 +571,7 @@ class App:
         
         junk = tf.constant(0.0, dtype=data_type)
         
-        return(div, temp, mom_x, mom_y, mom_z, junk)
+        return(div, temp, mom_x, mom_y, mom_z, w)
     
     # @tf.function
     def pde_vorticity_3O_div(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -639,15 +632,15 @@ class App:
         #
         #
         # u_xx = tpS.gradient(u_x, x)
-        # u_yy = tpS.gradient(u_y, y)
-        # u_zz = tpS.gradient(u_z, z)
+        # u_xy = tpS.gradient(u_y, x)
+        # u_xz = tpS.gradient(u_z, x)
         #
-        # v_xx = tpS.gradient(v_x, x)
+        # v_xy = tpS.gradient(v_x, y)
         # v_yy = tpS.gradient(v_y, y)
-        # v_zz = tpS.gradient(v_z, z)
+        # v_yz = tpS.gradient(v_z, y)
         #
-        # w_xx = tpS.gradient(w_x, x)
-        # w_yy = tpS.gradient(w_y, y)
+        # w_xz = tpS.gradient(w_x, z)
+        # w_yz = tpS.gradient(w_y, z)
         # w_zz = tpS.gradient(w_z, z)
         
         ############################
@@ -657,15 +650,20 @@ class App:
         #Divergence
         div = eq_continuity(u_x, v_y, w_z)#, w=w, rho_ratio=rho_ratio)
 
-        div_w = 1e6*eq_continuity(omegax_x, omegay_y, omegaz_z)
+        div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        
+        # d_x, d_y, d_z = grad_div(u_xx, v_xy, w_xz, u_xy, v_yy, w_yz, u_xz, v_yz, w_zz)
         
         # poi_x     = eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
         # poi_y     = eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
         # poi_z     = eq_poisson(w_xx, w_yy, w_zz, omegay_x, omegax_y)
         
         junk = tf.constant(0.0, dtype=data_type)
+        d_x = junk
+        d_y = junk
+        d_z = junk
         
-        return(div, div_w, junk, junk, junk, junk)
+        return(div, div_w, d_x, d_y, d_z, w)
     
     # @tf.function
     def pde_vorticity_3O_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -679,7 +677,7 @@ class App:
             
             tpS.watch(x)
             tpS.watch(y)
-            # tpS.watch(z)
+            tpS.watch(z)
                 
             with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tp:
                 
@@ -722,17 +720,19 @@ class App:
         
         #### Divergence ###############
         
-        # # omegax_x = tpS.gradient(omegax, x)
+        # omegax_x = tpS.gradient(omegax, x)
+        # omegay_y = tpS.gradient(omegay, y)
+        # omegaz_z = tpS.gradient(omegaz, z)
+        
         # omegax_y = tpS.gradient(omegax, y)
         # omegax_z = tpS.gradient(omegax, z)
         #
         # omegay_x = tpS.gradient(omegay, x)
-        # # omegay_y = tpS.gradient(omegay, y)
+        
         # omegay_z = tpS.gradient(omegay, z)
         #
         # omegaz_x = tpS.gradient(omegaz, x)
         # omegaz_y = tpS.gradient(omegaz, y)
-        # # omegaz_z = tpS.gradient(omegaz, z)
         
         # u_xx = tpS.gradient(u_x, x)
         # u_yy = tpS.gradient(u_y, y)
@@ -762,16 +762,16 @@ class App:
         #Divergence
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
         
-        div_w = junk#eq_continuity(omegax_x, omegay_y, omegaz_z)
+        # div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
         
-        poi_x     = junk#eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
-        poi_y     = junk#eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
-        poi_z     = junk#eq_poisson(w_xx, w_yy, w_zz, omegay_x, omegax_y)
+        # poi_x     = eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
+        # poi_y     = eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
+        # poi_z     = eq_poisson(w_xx, w_yy, w_zz, omegay_x, omegax_y)
         
         ## Rotational formulation
         mom_z   = eq_vorticity_RF_F(omegaz_t, Fy_x, Fx_y)
         
-        return(div, mom_z, poi_x, poi_y, poi_z, junk)
+        return(div, junk, junk, junk, mom_z, w)
 
     # @tf.function
     def pde_vorticity_3O(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -825,6 +825,7 @@ class App:
             
             omegaz_x = tpS.gradient(omegaz, x)
             omegaz_y = tpS.gradient(omegaz, y)
+            # omegaz_z = tpS.gradient(omegaz, z)
             
             a   = w*omegay - v*omegaz
             b   = u*omegaz - w*omegax
@@ -853,6 +854,17 @@ class App:
             del tpS
         
         ###############################
+        ####Laplacian formulation #####
+        ###############################
+        # a_y =   tpS2.gradient(a, y)
+        # b_x =   tpS2.gradient(b, x)
+        #
+        # omegaz_xx = tpS2.gradient(omegaz_x, x)
+        # omegaz_yy = tpS2.gradient(omegaz_y, y)
+        # omegaz_zz = tpS2.gradient(omegaz_z, z)
+        
+        
+        ###############################
         ####Rotational formulation #####
         ###############################
         Fx_y =   tpS2.gradient(Fx, y)
@@ -860,21 +872,21 @@ class App:
         
         del tpS2
         
-        #Divergence
-        div = eq_continuity(u_x, v_y, w_z)#, w=w, rho_ratio=rho_ratio)
-        
-        # div_w = 1e9*eq_continuity(omegax_x, omegay_y, omegaz_z)
+        ## Laplacian formulation
+        # mom_z   = eq_vorticity_LF(omegaz_t, b_x, a_y, omegaz_xx, omegaz_yy, omegaz_zz, nu=nu)
         
         ## Rotational formulation
-        mom_z   = eq_vorticity_RF_F(omegaz_t,
-                                  Fy_x, Fx_y,
-                                  tf.constant(0.0, dtype=data_type),
-                                  tf.constant(0.0, dtype=data_type),
-                                  )
+        mom_z   = eq_vorticity_RF_F(omegaz_t,  Fy_x, Fx_y)
+        
+        #Dv = 0: Divergence
+        div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
+        
+        #Dw = 0
+        # div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
         
         junk = tf.constant(0.0, dtype=data_type)
         
-        return(div, junk, junk, junk, mom_z, junk)
+        return(div, junk, junk, junk, mom_z, w)
 
     # @tf.function
     def pde_vorticity_3O_hydrostatic(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -955,9 +967,9 @@ class App:
                 v_y = tpS.gradient(v, y)
                 w_z = tpS.gradient(w, z)
                 
-                # omegax_x = tpS.gradient(omegax, x)
-                # omegay_y = tpS.gradient(omegay, y)
-                # omegaz_z = tpS.gradient(omegaz, z)
+                omegax_x = tpS.gradient(omegax, x)
+                omegay_y = tpS.gradient(omegay, y)
+                omegaz_z = tpS.gradient(omegaz, z)
                 
                 ###############################
                 # u_xx = tpS.gradient(u_x, x)
@@ -1023,8 +1035,8 @@ class App:
         del tpS2
         
         #Divergence
-        div = eq_continuity(u_x, v_y, w_z)#, w=w, rho_ratio=rho_ratio)
-        # div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
+        div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
         
         # poi_x   = eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
         # poi_y   = eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
@@ -1057,11 +1069,11 @@ class App:
         #                          tf.constant(0.0, dtype=data_type))
         
         ## Rotational formulation
-        mom_x   = 1e-2*eq_vorticity_RF_F(omegax_t,
+        mom_x   = 1e-3*eq_vorticity_RF_F(omegax_t,
                                     Fz_y, Fy_z,
                                     )
         
-        mom_y   = 1e-2*eq_vorticity_RF_F(omegay_t,
+        mom_y   = 1e-3*eq_vorticity_RF_F(omegay_t,
                                     Fx_z, Fz_x,
                                     )
         
@@ -1084,7 +1096,7 @@ class App:
         
         # print("Finish tracing pde hydro!")
         
-        return(div, junk, mom_x, mom_y, mom_z, junk)
+        return(div, div_w, mom_x, mom_y, mom_z, w)
     
     # @tf.function
     def pde_vorticity_3O_hydro_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -1139,9 +1151,9 @@ class App:
         v_y = tpS.gradient(v, y)
         w_z = tpS.gradient(w, z)
         
-        # omegax_x    = tpS.gradient(omegax, x)
-        # omegay_y    = tpS.gradient(omegay, y)
-        # omegaz_z    = tpS.gradient(omegaz, z)
+        omegax_x    = tpS.gradient(omegax, x)
+        omegay_y    = tpS.gradient(omegay, y)
+        omegaz_z    = tpS.gradient(omegaz, z)
         
         ############################
         omegax_t    = tpS.gradient(omegax, t)
@@ -1163,7 +1175,7 @@ class App:
         
         #Divergence
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
-        # div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
         
         # poi_x   = eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
         # poi_y   = eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
@@ -1196,11 +1208,11 @@ class App:
         #                          tf.constant(0.0, dtype=data_type))
         
         ## Rotational formulation
-        mom_x   = 1e-1*eq_vorticity_RF_F(omegax_t,
+        mom_x   = 1e-3*eq_vorticity_RF_F(omegax_t,
                                     Fz_y, Fy_z,
                                     )
         
-        mom_y   = 1e-1*eq_vorticity_RF_F(omegay_t,
+        mom_y   = 1e-3*eq_vorticity_RF_F(omegay_t,
                                     Fx_z, Fz_x,
                                     )
         
@@ -1221,7 +1233,7 @@ class App:
         # thermal     = heat + theta_zero
         junk = tf.constant(0.0, dtype=data_type)
         
-        return(div, junk, mom_x, mom_y, mom_z, junk)
+        return(div, div_w, mom_x, mom_y, mom_z, w)
     
     # @tf.function
     def pde_vorticity_4O_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -1601,7 +1613,7 @@ class App:
         
         self.pde_func = func
         
-    # @tf.function
+    @tf.function
     def pde(self, model, X):
         '''
         X = [t, z, x, y, nu, rho, rho_ratio, N]
@@ -1619,14 +1631,20 @@ class App:
         
         # t, z, x, y, nu, rho, rho_ratio, N = tf.split(X, num_or_size_splits=8, axis=1)
         
-        nu_scaling = self.model.scale.nu
-        nu          = nu*nu_scaling #scaling
+        nu_scaling = self.model.nu
+        nu         = nu/(nu_scaling+1e-6) #scaling
         
-        output = self.pde_func(model, t, z, x, y, nu, rho, rho_ratio, N)
+        div, div_vor, mom_x, mom_y, mom_z, temp = self.pde_func(model, t, z, x, y, nu, rho, rho_ratio, N)
+        
+        div     = tf.constant(2**10, dtype=data_type)*div       #2**10 <> 1.0e3
+        div_vor = tf.constant(2**20, dtype=data_type)*div_vor
+        mom_x   = tf.constant(2**20, dtype=data_type)*mom_x     #2**20 <> 1.0e6
+        mom_y   = tf.constant(2**20, dtype=data_type)*mom_y
+        mom_z   = tf.constant(2**20, dtype=data_type)*mom_z
         
         # print("Finish tracing pde!")
         
-        return output
+        return (div, div_vor, mom_x, mom_y, mom_z, temp)
     
     # @tf.function
     def loss_pde(self, model, X):
@@ -1642,13 +1660,13 @@ class App:
         loss_div        = tf.reduce_mean(tf.square(outputs[0]))
         loss_div_vor    = tf.reduce_mean(tf.square(outputs[1]))
         loss_mom        = tf.reduce_mean(tf.square(outputs[2])) + tf.reduce_mean(tf.square(outputs[3])) + tf.reduce_mean(tf.square(outputs[4]))
-        loss_temp       = tf.reduce_mean(tf.square(outputs[5]))  #Zero mean temperature changes
+        # loss_w          = 1e0/tf.reduce_mean( tf.square(outputs[5]) + 1.0 )  #Non zero vertical wind
         
-        # loss_srt = tf.constant(0.0, dtype=data_type)
+        loss_w = tf.constant(0.0, dtype=data_type)
         
         # print("Finish tracing loss_pde!")
         
-        return (loss_div, loss_mom, loss_div_vor, loss_temp)
+        return (loss_div, loss_div_vor, loss_mom, loss_w)
     
     # @tf.function
     def loss_data(self, model, X):
@@ -1674,17 +1692,79 @@ class App:
         '''
         # print("Tracing loss_data!")
         
-        f       = X[:,4:5]
-        f_err   = X[:,5:6]
+        f       = tf.constant(2*np.pi)*X[:,4:5]
+        f_err   = tf.constant(2*np.pi)*X[:,5:6]
         k       = X[:,6:9]
         
         #Standard
         u0 = self.forward_pass(model, X[:,0:4], training=True)
         
-        df0 = tf.constant(2*np.pi)*f  + tf.reduce_sum(u0*k, axis=1, keepdims=True)
+        df0 = f  + tf.reduce_sum(u0*k, axis=1, keepdims=True)
         
-        loss = tf.square(tf.reduce_mean(tf.abs(df0/f_err)))
-        # loss = tf.reduce_mean(tf.square(df0/f_err))
+        # loss = tf.square(tf.reduce_mean(tf.abs(df0/f_err)))
+        loss = tf.reduce_mean(tf.square(df0/f_err))
+        
+        return (loss)
+    
+    def loss_w(self, model, X):
+        '''
+        X = [t, z, x, y, d, d_err, kx, ky, kz]
+        
+        d = u*k_x + w*k_z + n
+        
+        u = u_0 + u'
+        w = w_0
+        
+        || d - u_0*k_x - w_0*k_z - u'*k_x ||
+        
+        Inputs:
+            t   :        time coordinate . Dimension (N,1)
+            x
+            y
+            z
+            d   :      #Doppler. Dimension (N,1)
+            k   :      #Bragg coefficients. Dimension (N,3)
+        
+        
+        '''
+        
+        t = X[:,0:1]
+        z = X[:,1:2]
+        x = X[:,2:3]
+        y = X[:,3:4]
+        
+        with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tp:
+            tp.watch(t)
+            # tp.watch(x)
+            # tp.watch(y)
+            tp.watch(z)
+            
+            outs = self.forward_pass(model, tf.concat([t, z, x, y], axis=1))
+            
+            # u = outs[:,0:1]
+            # v = outs[:,1:2]
+            w = outs[:,2:3]
+        
+        # w_x = tp.gradient(w, x)
+        # w_y = tp.gradient(w, y)
+        w_z = tp.gradient(w, z)
+        w_t = tp.gradient(w, t)
+        
+        del tp
+        
+        #Normalize gradients
+        loss = 1.0/tf.reduce_mean( tf.square(w_t) ) + 1e-12/tf.reduce_mean( tf.square(w_z) )
+        
+        #Standard
+        # outs = self.forward_pass(model, X[:,0:4], training=True)
+        
+        # u = outs[:,0:1]
+        # v = outs[:,1:2]
+        # w = outs[:,2:3]
+        
+        # loss = tf.constant(1.0)/tf.reduce_mean( tf.abs(w) )
+        # loss_mean = 1e-2*tf.square( tf.reduce_mean( w ) )
+        
         
         return (loss)
     
@@ -1706,81 +1786,58 @@ class App:
     # @tf.function
     def loss_glb(self, 
                  model,
-                X_data,
-                X_pde,
-                w_data, w_pde, w_srt,
+                 X_data,
+                 X_pde,
+                 w_data = tf.constant(1.0),
+                 w_pde  = tf.constant(1.0),
+                 w_srt  = tf.constant(1.0),
+                 w_vertical = tf.constant(1e0),
                 ):
         
         # print("Tracing loss_glb!") 
         
         loss_data = self.loss_data(model, X_data)
         
-        loss_div, loss_mom, loss_div_vor, _ = self.loss_pde(model, X_pde)
+        loss_div, loss_div_vor, loss_mom, loss_w = self.loss_pde(model, X_pde)
         
-        loss_pde = loss_div + loss_mom +loss_div_vor
+        #Scaling losses based on gradients magnitudes
+        loss_pde = loss_div + loss_div_vor + loss_mom
         
         loss_srt = self.loss_slope_recovery_term()
         
-        # loss_total = tf.square(w_data)*loss_data + tf.square(w_div)*loss_div + tf.square(w_mom)*loss_mom + tf.square(w_temp)*loss_div_vor + tf.square(w_srt)*loss_srt
-        
-        loss_total = w_data*loss_data + w_pde*loss_pde + w_srt*loss_srt
-        
-        
-        # print("Finish tracing loss_glb!") 
-        
-        return loss_total, loss_data, loss_pde, loss_srt
-    
-    @tf.function
-    def loss_glb_lbfgs(self, 
-                 model,
-                X_data,
-                X_pde,
-                w_data, w_pde, w_srt,
-                ):
-        
-        # print("Tracing loss_glb!") 
-        
-        loss_data = self.loss_data(model, X_data)
-        
-        loss_div, loss_mom, loss_div_vor, _ = self.loss_pde(model, X_pde)
-        
-        loss_pde = loss_div + loss_mom +loss_div_vor
-        
-        loss_srt = tf.constant(0.0)
+        # loss_w  = self.loss_w(model, X_pde)
         
         # loss_total = tf.square(w_data)*loss_data + tf.square(w_div)*loss_div + tf.square(w_mom)*loss_mom + tf.square(w_temp)*loss_div_vor + tf.square(w_srt)*loss_srt
         
-        loss_total = w_data*loss_data + w_pde*loss_pde + w_srt*loss_srt
-        
+        loss_total = w_data*loss_data + w_pde*loss_pde + w_srt*loss_srt + w_vertical*loss_w
         
         # print("Finish tracing loss_glb!") 
         
-        return loss_total
+        return loss_total, loss_data, loss_pde, loss_mom
     
     @tf.function
-    def grad_desc(self, *args):
-        # print("\nTracing grad_desc!") 
+    def train_step(self, *args, **kwargs):
         
-        # print("Tracing Grad_desc!!") 
+        
         trainable_variables = self.model.trainable_variables
         
         with tf.GradientTape(persistent=False) as tp:
             
-            losses = self.loss_glb(*args)
+            losses = self.loss_glb(*args, **kwargs)
         
             loss_total  = losses[0]
             
-        grad        = tp.gradient(loss_total, trainable_variables)
+        gradients = tp.gradient(loss_total, trainable_variables)
         
-        # del tp
-        self.optimizer.apply_gradients(zip(grad, trainable_variables))
-        
-        # print("Finish tracing grad_desc!") 
+        # Clip the gradients to prevent them from exploding or vanishing
+        # gradients = [tf.clip_by_norm(grad, clip_norm=1.0) for grad in gradients]
+    
+        self.optimizer.apply_gradients(zip(gradients, trainable_variables))
         
         return losses
     
     @tf.function
-    def grad_desc_plus(self, *args):
+    def adaptive_pde_weights(self, *args, **kwargs):
         
         # print("\nTracing grad_desc_plus!") 
         
@@ -1789,11 +1846,11 @@ class App:
         
         with tf.GradientTape(persistent=True) as tp:
             
-            losses = self.loss_glb(*args)
+            losses = self.loss_glb(*args, **kwargs)
         
             loss_total, loss_data, loss_pde, _ = losses
         
-        grad      = tp.gradient(loss_total, trainable_params)
+        # grad      = tp.gradient(loss_total, trainable_params)
         
         grad_data = tp.gradient(loss_data, trainable_params)
         grad_pde  = tp.gradient(loss_pde, trainable_params)
@@ -1803,103 +1860,23 @@ class App:
         
         del tp
         
-        self.optimizer.apply_gradients(zip(grad, trainable_params))
+        # self.optimizer.apply_gradients(zip(grad, trainable_params))
         
-        grad_mean      = self.mean_grads(grad)
+        #grad_mean      = self.mean_grads(grad)
         grad_data_mean = self.mean_grads(grad_data)
         grad_pde_mean  = self.mean_grads(grad_pde)
         # grad_mom_mean  = self.mean_grads(grad_mom)
         # grad_temp_mean = self.mean_grads(grad_temp)
-        grad_srt_mean  = tf.constant(0.0, dtype=data_type) #self.mean_grads(grad_srt)
+        #grad_srt_mean  = tf.constant(0.0, dtype=data_type) #self.mean_grads(grad_srt)
         
-        grads  = [grad_mean, grad_data_mean,  grad_pde_mean, grad_srt_mean]
+        #grads  = [grad_mean, grad_data_mean,  grad_pde_mean, grad_srt_mean]
+        
+        w_pde = grad_data_mean/grad_pde_mean
         
         # print("Finish tracing grad_desc_plus!") 
         
-        return losses, grads
+        return w_pde, grad_data_mean, grad_pde_mean
     
-    def train_epoch(self,
-                  X_data,
-                  X_pde,
-                  w_data=tf.constant(1.0),
-                  w_pde=tf.constant(1e4),
-                  # w_mom=tf.constant(1e1),
-                  # w_temp=tf.constant(1e4),
-                  w_srt=tf.constant(1e3),
-                  calc_gradients=False
-                  ):
-        
-        #Calculate only losses, no grads (faster)
-        losses = self.grad_desc(self.model,
-                                X_data,
-                                X_pde,
-                                w_data, w_pde, w_srt
-                                )
-        
-        grads = None
-        
-        if calc_gradients:
-            #Calculate losses and losses and gradients
-            losses, grads = self.grad_desc_plus( self.model,X_data,
-                                                 X_pde,
-                                                 w_data, w_pde, w_srt
-                                                 )
-            
-            ### grads  = [grad_mean, grad_data_mean,  grad_div_mean, grad_mom_mean, grad_temp_mean, grad_srt_mean]
-            # grads  = [1.0, 1e0,  1e-3, 1e-3, 1e-3, 1e-3]
-            
-        return(losses, grads)
-    
-    def convert_df2tensors(self, df, update_ref=False):    
-        
-        ###########################
-        #Traiing dataset
-    
-        t = df['times'].values  - time_base                 #[N]
-        
-        lon = df['lons'].values                             #[N]
-        lat = df['lats'].values                             #[N]
-        alt = df['heights'].values                          #[N]
-        
-        kx = df['braggs_x'].values                     #[N]
-        ky = df['braggs_y'].values
-        kz = df['braggs_z'].values
-        
-        u = df['u'].values                              #[N]
-        v = df['v'].values                              #[N]
-        w = df['w'].values                              #[N]
-        
-        dops        = df['dops'].values
-        dop_errs    = np.ones_like(dops) #df['dop_errs'].values
-        
-        k = np.stack([kx, ky, kz], axis=1)                      #[N,3]
-        
-        if update_ref:
-            self.lon_ref    = lon.mean()
-            self.lat_ref    = lat.mean()
-            self.alt_ref    = alt.mean()
-        
-        # Training dataset
-        x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
-        
-        t = tf.convert_to_tensor(t.reshape(-1,1), data_type)
-        x = tf.convert_to_tensor(x.reshape(-1,1), data_type)
-        y = tf.convert_to_tensor(y.reshape(-1,1), data_type)
-        z = tf.convert_to_tensor(z.reshape(-1,1), data_type)
-        
-        d  = tf.convert_to_tensor(dops.reshape(-1,1), data_type)
-        k  = tf.convert_to_tensor(k.reshape(-1,3), data_type)
-        
-        d_err  = tf.convert_to_tensor(dop_errs.reshape(-1,1), data_type)
-        
-        u = tf.convert_to_tensor(u.reshape(-1,1), data_type)
-        v = tf.convert_to_tensor(v.reshape(-1,1), data_type)
-        w = tf.convert_to_tensor(w.reshape(-1,1), data_type)
-        
-        X  = tf.concat([t, z, x, y, d, d_err, k, u, v, w], axis=1)
-        
-        return(X)
-        
     def train(self,
               df_training,
               df_testing,
@@ -1909,7 +1886,7 @@ class App:
               print_rate    = 200,
               saving_rate   = 500,
               resampling_rate = 200,
-              grad_upd_rate = 200,
+              grad_upd_rate = 10,
               filename = None,
               w_pde_update_rate = 1e-4,
               tmin=None,
@@ -1922,8 +1899,8 @@ class App:
               w_temp  = 1e0,
               w_srt   = 1.0,
               ns_pde  = 10000,
+              sampling_method="adaptive",
               # NS_type     = 'VP',             #Velocity-Vorticity (VV) or Velocity-Pressure (VP) form
-              dropout     = True,
               ):
             
         print("\n>>>>> training setting;")
@@ -1933,7 +1910,6 @@ class App:
         
         self.lr      = lr
         self.opt     = opt
-        self.dropout = dropout
         
         self.w_data  = w_data
         self.w_div   = w_div
@@ -1949,7 +1925,7 @@ class App:
         self.optimizer = self.opt_(self.lr, self.opt, epochs)
         
         # Training dataset
-        X_data  = self.convert_df2tensors(df_training, update_ref=True)
+        X_data  = self.convert_df2tensors(df_training)
         X_testing = self.convert_df2tensors(df_testing)
         
         lb = tf.reduce_min (X_data, axis = 0)[:4]
@@ -1973,7 +1949,7 @@ class App:
         
         ep_loss     = 0.
         ep_loss_data = 0.
-        ep_loss_div = 0.
+        ep_loss_pde = 0.
         ep_loss_mom = 0.
         ep_loss_temp = 0.
         
@@ -1983,9 +1959,9 @@ class App:
             
         # ep_grad      = 0.
         ep_grad_data = 0.
-        ep_grad_div  = 0.
-        ep_grad_mom  = 0.
-        ep_grad_temp = 0.
+        ep_grad_pde  = 0.
+        # ep_grad_mom  = 0.
+        # ep_grad_temp = 0.
         # ep_grad_srt  = 0.
         
         # min_loss    = 1e10
@@ -2017,44 +1993,33 @@ class App:
         self.w_srt_log = []
         
         self._select_pde_function(self.NS_type)
-        self._set_LHS_samples()
-        # self.set_Chebyshev_samples()
+        self.select_PDE_sampling(method=sampling_method, N=ns_pde)
         
         t0 = time.time()
         
-        calc_gradients = False
+        w_pde_max = 1e4
         
         for ep in range(epochs):
             
-            X_pde = self.gen_LHS_samples()
-            # X_pde = self.gen_Chebyshev_samples()
+            X_pde = self.gen_PDE_samples(ep)
             
             print(".", end='', flush=True)
             
-            losses, grads = self.train_epoch(X_data,
-                                             X_pde,
-                                             w_data=w_data,
-                                             w_pde=w_div,
-                                             # w_mom=w_mom,
-                                             # w_temp=w_temp,
-                                             w_srt=w_srt,
-                                             calc_gradients=calc_gradients,
-                                             )
+            self.model.update_mask(epochs)
             
-            if grads is not None:
-                #Update gradient values
-                # ep_grad         = grads[0]
-                ep_grad_data    = grads[1]
-                ep_grad_div     = grads[2]
-                ep_grad_mom     = grads[2]
-                ep_grad_temp    = grads[2]
-                # ep_grad_srt     = grads[3]
+            losses = self.train_step(self.model,
+                                     X_data,
+                                     X_pde,
+                                     w_data=w_data,
+                                     w_pde=w_div,
+                                     w_srt=w_srt,
+                                     )
                     
             ep_loss         = losses[0]
             ep_loss_data    = losses[1]
-            ep_loss_div     = losses[2]
-            ep_loss_mom     = losses[2]
-            ep_loss_temp    = losses[2]
+            ep_loss_pde     = losses[2]
+            ep_loss_mom     = losses[3]
+            ep_loss_temp    = losses[3]
             ep_loss_srt     = losses[3]
             
             ep_loss_u = np.nan
@@ -2096,17 +2061,17 @@ class App:
                        )
                     )
                 
-                print("\t\t\ttotal \tdata \tPDE  \tSRT " )
+                print("\t\t\ttotal \tdata \tPDE  \tMom " )
                  
                  
                 print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e" 
                     % (
                        ep_loss,
                        ep_loss_data,
-                       ep_loss_div,
-                       # ep_loss_mom,
+                       ep_loss_pde,
+                       ep_loss_mom,
                        # ep_loss_temp,
-                        ep_loss_srt
+                        # ep_loss_srt
                        )
                     )
                 
@@ -2123,7 +2088,7 @@ class App:
                 print("\tgrads  : \t\t%.1e\t%.1e" #\t%.1e\t%.1e" 
                     % (
                        ep_grad_data,
-                       ep_grad_div,
+                       ep_grad_pde,
                        # ep_grad_mom,
                        # ep_grad_temp,
                        # ep_grad_srt
@@ -2159,7 +2124,7 @@ class App:
             self.loss_log.append(ep_loss.numpy())
             self.loss_data_log.append(ep_loss_data.numpy())
             
-            self.loss_div_log.append(ep_loss_div.numpy())
+            self.loss_div_log.append(ep_loss_pde.numpy())
             self.loss_mom_log.append(ep_loss_mom.numpy())
             self.loss_temp_log.append(ep_loss_temp.numpy())
             self.loss_srt_log.append(ep_loss_srt.numpy())
@@ -2181,16 +2146,25 @@ class App:
             self.tv_ve_log.append(tv_ve)
             self.tv_we_log.append(tv_we)
             
-            # w_pde_update_rate_ = np.exp(20*(ep/epochs - 1))
+            if ep % saving_rate == 0:
+                self.save(filename, ep)
             
-            alpha = w_pde_update_rate
+            # if ep < 200 -1:
+            #     continue
+            
+            #Compute PDE weight adaptively
+            # if ep % grad_upd_rate == 0:
+            #     w_pde_max, ep_grad_data, ep_grad_pde = self.adaptive_pde_weights(self.model,
+            #                                                                  X_data,
+            #                                                                  X_pde,
+            #                                                                  w_data=w_data,
+            #                                                                  w_pde=w_div,
+            #                                                                  w_srt=w_srt,
+            #                                                                  )
                 
-            if ep < 500 -1:
-                continue
-            
-            #Adaptive PDE weights
-            if ep_grad_div != 0:
-                w_div  = (1.0-alpha)*w_div  + alpha*max(ep_grad_data/ep_grad_div, w_div)
+            #Update w_pde
+            if w_pde_max != 0:
+                w_div  = (1.0-w_pde_update_rate)*w_div  + w_pde_update_rate*max(w_pde_max, w_div)
             
             # if ep_grad_mom != 0:
             #     # w_mom  = w_div*1e4 
@@ -2202,14 +2176,6 @@ class App:
             
             # if ep_grad_srt != 0:
             #     w_srt = (1.0-w_pde_update_rate_)*w_srt   + 1e-2*w_pde_update_rate_*ep_grad_data/ep_grad_srt
-                    
-            if ep % saving_rate == 0:
-                
-                self.save(filename, ep)
-
-            calc_gradients = False
-            if ep % grad_upd_rate == 0:
-                calc_gradients = True
             
             if ep_loss < tol:
                 print(">>>>> program terminating with the loss converging to its tolerance.")
@@ -2219,7 +2185,65 @@ class App:
         print("*****************     MAIN PROGRAM END     *****************")
         print("************************************************************")
         print(">>>>> end time:", datetime.datetime.now())
+    
         
+    def convert_df2tensors(self, df, update_ref=True):    
+        
+        ###########################
+        #Traiing dataset
+    
+        t = df['times'].values                              #[N]
+        
+        lon = df['lons'].values                             #[N]
+        lat = df['lats'].values                             #[N]
+        alt = df['heights'].values                          #[N]
+        
+        kx = df['braggs_x'].values                     #[N]
+        ky = df['braggs_y'].values
+        kz = df['braggs_z'].values
+        
+        u = df['u'].values                              #[N]
+        v = df['v'].values                              #[N]
+        w = df['w'].values                              #[N]
+        
+        dops        = df['dops'].values
+        dop_errs    = df['dop_errs'].values
+        
+        k = np.stack([kx, ky, kz], axis=1)                      #[N,3]
+        
+        if update_ref:
+            self.lon_ref    = lon.mean()
+            self.lat_ref    = lat.mean()
+            self.alt_ref    = alt.mean()
+            
+            # ini_dt = datetime.datetime.fromtimestamp(t[0], datetime.timezone.utc)
+            # ini_dt = ini_dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            # self._time_base = ini_dt.timestamp()
+        
+        #vUse local time reference
+        t = t - self._time_base
+        
+        # Convert lon, lat, alt, to x,y, z
+        x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
+        
+        t = tf.convert_to_tensor(t.reshape(-1,1), data_type)
+        x = tf.convert_to_tensor(x.reshape(-1,1), data_type)
+        y = tf.convert_to_tensor(y.reshape(-1,1), data_type)
+        z = tf.convert_to_tensor(z.reshape(-1,1), data_type)
+        
+        d  = tf.convert_to_tensor(dops.reshape(-1,1), data_type)
+        k  = tf.convert_to_tensor(k.reshape(-1,3), data_type)
+        
+        d_err  = tf.convert_to_tensor(dop_errs.reshape(-1,1), data_type)
+        
+        u = tf.convert_to_tensor(u.reshape(-1,1), data_type)
+        v = tf.convert_to_tensor(v.reshape(-1,1), data_type)
+        w = tf.convert_to_tensor(w.reshape(-1,1), data_type)
+        
+        X  = tf.concat([t, z, x, y, d, d_err, k, u, v, w], axis=1)
+        
+        return(X)
+    
     def invalid_mask(self, t, x, y, z):
         
         x0 = (self.ubi[2] +  self.lbi[2])/2.0
@@ -2230,8 +2254,8 @@ class App:
         ry = (self.ubi[3] -  self.lbi[3])/2.0
         # rz = (self.ubi[1] -  self.lbi[1])/2.0
         
-        cond = np.sqrt( ((x-x0)/rx)**2 + ((y-y0)/ry)**2)# + ((z-z0)/rz)**2 )
-        mask = (cond > 1.0)
+        r = np.sqrt( ((x-x0)/rx)**2 + ((y-y0)/ry)**2)# + ((z-z0)/rz)**2 )
+        mask = (r > 1.0)
         
         mask |= (t<self.lbi[0]) | (t>self.ubi[0])
         # mask |= (x<self.lbi[2]) | (x>self.ubi[2])
@@ -2258,7 +2282,7 @@ class App:
     def infer(self, t, lon=None, lat=None, alt=None, filter_output=True,
               x=None, y=None, z=None, return_xyz=False):
         
-        t = t - time_base
+        t = t - self._time_base
         
         if (x is None) or (y is None) or (z is None):
             x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
@@ -2294,7 +2318,7 @@ class App:
     def infer_gradients(self, t, lon=None, lat=None, alt=None, filter_output=True,
                         x=None, y=None, z=None):
         
-        t = t - time_base
+        t = t - self._time_base
         
         if (x is None) or (y is None) or (z is None):
             x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
@@ -2355,7 +2379,7 @@ class App:
     def infer_2nd_gradients(self, t, lon=None, lat=None, alt=None, return_numpy=True,
                         x=None, y=None, z=None):
         
-        t = t - time_base
+        t = t - self._time_base
         
         if (x is None) or (y is None) or (z is None):
             x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
@@ -2509,6 +2533,7 @@ class App:
             fp['f_scl_in'] = self.f_scl_in    # "minmax"
             
             fp['laaf'] = self.laaf
+            fp['dropout'] = self.dropout
             
             fp['lr'] = self.lr
             fp['ini_w_data'] = self.w_data
@@ -2527,7 +2552,7 @@ class App:
             fp['ub'] = self.ubi
             fp['mn'] = self.mn
             
-            fp['df'] = self.lon_ref
+            fp['lon_ref'] = self.lon_ref
             fp['lat_ref'] = self.lat_ref
             fp['alt_ref'] = self.alt_ref
             
@@ -2558,199 +2583,10 @@ class App:
             fp['w_Ph3_log'] = self.w_temp_log
             fp['w_Ph4_log'] = self.w_srt_log
             
-            fp['dropout'] = self.dropout
-            
             fp['residual_layer'] = self.residual_layer
-            
-            
-            # fp['nu_scaling'] = self.nu_scaling
-            # fp['rho_scaling'] = self.rho_scaling
             
             if self.ext_forcing is not None:
                 fp['ext_forcing']  = self.ext_forcing
-    
-            
-            # for k in range(self.nblocks):
-            #
-            #     g = fp.create_group('block_%02d' %k)
-            #
-            #     g_weights = g.create_group('weights')
-            #     g_biases = g.create_group('biases')
-            #     g_alphas = g.create_group('alphas')
-            #
-            #     block_nn   = self.blocks[k]
-            #
-            #     for i, w in enumerate(block_nn['weights']):
-            #         g_weights['w%03d' %i]  = w
-            #
-            #     for i, b in enumerate(block_nn['biases']):
-            #         g_biases['b%03d' %i]  = b
-            #
-            #     for i, a in enumerate(block_nn['alphas']):
-            #         g_alphas['a%03d' %i]  = a
-            
-    
-    # def restore(self, filename, log_index=None):
-    #
-    #     file_weights = get_log_file(filename, log_index)
-    #
-    #     keys_float  = ['lr',
-    #                    # 'ini_w_data', 'ini_w_Ph1', 'ini_w_Ph2', 'ini_w_Ph3', 'ini_w_Ph4',
-    #                    # 'f_scl_out',
-    #                    'lb', 'ub', 'mn',
-    #                    'lon_ref', 'lat_ref', 'alt_ref',
-    #                    ]
-    #
-    #     keys_int    = ['shape_in', 'shape_out',
-    #                    'width', 'depth',
-    #                    'nnodes',
-    #                    'ns_pde', 'r_seed',
-    #                    'laaf',
-    #                    'dropout',
-    #                     'residual_layer',
-    #
-    #                    ]
-    #
-    #     keys_str    = ['act', 'opt', 'f_scl_in', 'nn_type']
-    #
-    #     kwargs = {}
-    #
-    #     print("Opening NN file: %s ..." %filename)
-    #
-    #     with h5py.File(filename,'r') as fp:
-    #
-    #         for key in keys_float:
-    #             kwargs[key] = fp[key][()]
-    #
-    #         for key in keys_int:
-    #
-    #             if key not in fp.keys():
-    #                     continue
-    #
-    #             kwargs[key] = int(fp[key][()])
-    #
-    #         for key in keys_str:
-    #             try:
-    #                 kwargs[key] = fp[key][()].decode('utf-8')
-    #             except:
-    #                 continue
-    #
-    #         ext_forcing = None
-    #         if 'ext_forcing' in fp.keys():
-    #             ext_forcing = fp['ext_forcing'][()]
-    #
-    #         self.loss_log = fp['loss_log'][()]
-    #         self.loss_data_log = fp['loss_data_log'][()]
-    #
-    #         self.loss_div_log = fp['loss_Ph1_log'][()]
-    #         self.loss_mom_log = fp['loss_Ph2_log'][()]
-    #         self.loss_temp_log = fp['loss_Ph3_log'][()]
-    #         self.loss_srt_log = fp['loss_Ph4_log'][()]
-    #
-    #         self.w_div_log = fp['w_Ph1_log'][()]
-    #         self.w_mom_log = fp['w_Ph2_log'][()]
-    #         self.w_temp_log = fp['w_Ph3_log'][()]
-    #         self.w_srt_log = fp['w_Ph4_log'][()]
-    #
-    #         try:
-    #             self.rmse_u_log = fp['rmse_u_log'][()]
-    #             self.rmse_v_log = fp['rmse_v_log'][()]
-    #             self.rmse_w_log = fp['rmse_w_log'][()]
-    #
-    #             self.tv_u_log = fp['tv_u_log'][()]
-    #             self.tv_v_log = fp['tv_v_log'][()]
-    #             self.tv_w_log = fp['tv_w_log'][()]
-    #
-    #             self.tv_ue_log = fp['tv_ue_log'][()]
-    #             self.tv_ve_log = fp['tv_ve_log'][()]
-    #             self.tv_we_log = fp['tv_we_log'][()]
-    #
-    #         except:
-    #             nan_array = np.array(self.w_div_log) + np.nan
-    #             self.rmse_u_log = nan_array
-    #             self.rmse_v_log = nan_array
-    #             self.rmse_w_log = nan_array
-    #
-    #             self.tv_u_log = nan_array
-    #             self.tv_v_log = nan_array
-    #             self.tv_w_log = nan_array
-    #
-    #             self.tv_ue_log = nan_array
-    #             self.tv_ve_log = nan_array
-    #             self.tv_we_log = nan_array
-    #
-    #         self.ep_log = fp['ep_log'][()]
-    #
-    #         # nblocks = kwargs['nblocks']
-    #         #
-    #         # blocks = []
-    #         # for i in range(nblocks):
-    #         #     g = fp['block_%02d' %i]
-    #         #
-    #         #     g_weights = g['weights']
-    #         #     g_biases = g['biases']
-    #         #     g_alphas = g['alphas']
-    #         #
-    #         #     weights = []
-    #         #     for key in g_weights.keys():
-    #         #         weights.append( g_weights[key][()] )
-    #         #
-    #         #     biases = []
-    #         #     for key in g_biases.keys():
-    #         #         biases.append( g_biases[key][()] )
-    #         #
-    #         #     alphas = []
-    #         #     for key in g_alphas.keys():
-    #         #         alphas.append( g_alphas[key][()] )
-    #         #
-    #
-    #             # block = {}
-    #             # block['weights'] = weights
-    #             # block['biases'] = biases
-    #             # block['alphas'] = alphas              
-    #             #
-    #             # blocks.append(block)
-    #
-    #     # nn_type = 'uni'
-    #     # if weights[1].shape[0] != weights[1].shape[1]:
-    #     #     nn_type = 'non_uni'
-    #     #
-    #     # kwargs['nn_type'] = nn_type
-    #
-    #     self.__init__(**kwargs)
-    #
-    #     print("\nLoading weight file: %s ..." %file_weights)
-    #     self.model.load_weights(file_weights)#, by_name=True, skip_mismatch=True)
-    #
-    #     # for k in range(self.nblocks):
-    #     #
-    #     #     block_file = blocks[k]
-    #     #     block_nn   = self.blocks[k]
-    #     #
-    #     #     for i, w in enumerate(block_file['weights']):
-    #     #         block_nn['weights'][i].assign(w)
-    #     #
-    #     #     for i, b in enumerate(block_file['biases']):
-    #     #         block_nn['biases'][i].assign(b)
-    #     #
-    #     #     for i, a in enumerate(block_file['alphas']):
-    #     #         try:
-    #     #             block_nn['alphas'][i].assign(a)
-    #     #         except AttributeError:
-    #     #             continue
-    #
-    #     if self.ext_forcing is not None:
-    #         self.ext_forcing.assign(ext_forcing)
-    #
-    #     #ext_force 
-    #     self.lbi = tf.convert_to_tensor(kwargs['lb'], dtype = data_type)
-    #     self.ubi = tf.convert_to_tensor(kwargs['ub'], dtype = data_type)
-    #     self.mn = tf.convert_to_tensor(kwargs['mn'], dtype = data_type)
-    #
-    #     print("         lower bounds    :", self.lbi.numpy())
-    #     print("         upper bounds    :", self.ubi.numpy())
-    #
-    #     return
     
     @tf.function
     def discontinuity(self, X):
@@ -2797,14 +2633,37 @@ class App:
         
         return(d_total)
     
-    def _set_LHS_samples(self, tmin=None, tmax=None, mult=1.0):
+    def select_PDE_sampling(self, method="random", **kwargs):
+        """
+        Select between "purely random", "Latin Hypercude (LHS), "equidistant", or Adaptive sampling.
+        """
+        
+        method = method.lower()
+        
+        if method == "random":
+            self._set_random_sampling(**kwargs)
+            self.gen_PDE_samples = self._gen_random_samples
+        elif method == "lhs":
+            self._set_LH_sampling(**kwargs)
+            self.gen_PDE_samples = self._gen_LH_samples
+        elif method == "equidistant":
+            self._set_equidistant_sampling(**kwargs)
+            self.gen_PDE_samples = self._gen_equidistat_samples
+        elif method == "adaptive":
+            self._set_LH_sampling(**kwargs)
+            self.gen_PDE_samples = self._gen_adaptive_samples
+        else:
+            raise ValueError("The selected method=%s is not valid" %method)
+    
+    def _set_random_sampling(self, N):
         
         """
         Raissi et al 2019. JCP
+        Leiteritz and Pfluger 2021 
         """
         
-        if tmin is None: tmin = self.lbi[0].numpy()
-        if tmax is None: tmax = self.ubi[0].numpy()
+        tmin = self.lbi[0].numpy()
+        tmax = self.ubi[0].numpy()
         
         xmin = self.lbi[2].numpy()
         xmax = self.ubi[2].numpy()
@@ -2815,135 +2674,179 @@ class App:
         zmin = self.lbi[1].numpy()
         zmax = self.ubi[1].numpy()
         
-        dx = 50e3*mult
-        dy = 50e3*mult
-        dz = 5e3*mult
-        dt = 60*60*mult
-        
-        #Set number of intervals
-        Nx  = int( (xmax-xmin)/dx )
-        Ny  = int( (ymax-ymin)/dy )
-        Nz  = int( (zmax-zmin)/dz )
-        Nt  = int( (tmax-tmin)/dt ) #A sample every 15min
-        
-        x0 = (np.arange(Nx, dtype=np.float32) - (Nx-1.0)/2.0)*dx + (xmax+xmin)/2.0
-        y0 = (np.arange(Ny, dtype=np.float32) - (Ny-1.0)/2.0)*dy + (ymax+ymin)/2.0
-        z0 = (np.arange(Nz, dtype=np.float32) - (Nz-1.0)/2.0)*dz + (zmax+zmin)/2.0
-        t0 = (np.arange(Nt, dtype=np.float32) - (Nt-1.0)/2.0)*dt + (tmax+tmin)/2.0
-        
-        # T0, Z0, X0, Y0 = np.meshgrid(t0, z0, x0, y0, indexing='ij')
-        
-        # mask = self._invalid_volumen(T0, X0, Y0, Z0)
-        # valid = ~mask
-        
-        self.lhs_dx = dx
-        self.lhs_dy = dy
-        self.lhs_dz = dz
-        self.lhs_dt = dt
-        
-        self.lhs_x0 = x0 #X0[valid]
-        self.lhs_y0 = y0 #Y0[valid]
-        self.lhs_z0 = z0 #Z0[valid]
-        self.lhs_t0 = t0 #T0[valid]
-        
-        self.lhs_nx = Nx
-        self.lhs_ny = Ny
-        self.lhs_nz = Nz
-        self.lhs_nt = Nt
-        
-        self.pde_xc = (xmax+xmin)/2.0
-        self.pde_yc = (ymax+ymin)/2.0
-        self.pde_zc = (zmax+zmin)/2.0
-        self.pde_tc = (tmax+tmin)/2.0
+        #Set mean and width
+        self.pde_x0 = (xmax+xmin)/2.0
+        self.pde_y0 = (ymax+ymin)/2.0
+        self.pde_z0 = (zmax+zmin)/2.0
+        self.pde_t0 = (tmax+tmin)/2.0
         
         self.pde_xw = (xmax-xmin)/2.0
         self.pde_yw = (ymax-ymin)/2.0
         self.pde_zw = (zmax-zmin)/2.0
         self.pde_tw = (tmax-tmin)/2.0
         
-        self.lhs_N = len(self.lhs_x0)
+        self.pde_N = N
         
         # print("\nNumber of collocation points (t,x,y,z): [%d, %d, %d, %d] = %d" %(Nt, Nx, Ny, Nz, Nt*Nx*Ny*Nz) )
         print("Time range: %e s - %e s = %e min" %(tmin, tmax, (tmax-tmin)/60.0) )
         
-    def gen_LHS_samples(self):
+    def _gen_random_samples(self, *args):
         
         """
         Raissi et al 2019. JCP
+        Leiteritz and Pfluger 2021 
         """
         
-        shape = (self.lhs_nt, self.lhs_nz, self.lhs_nx, self.lhs_ny)
+        shape = (self.pde_N, 1)
+        
+        rng = np.random.default_rng()
         
         ###Draw uniformly sampled collocation points
-        # delta   = np.random.uniform(-0.5, 0.5, size=self.N_pde)
-        # x       = self.lhs_x0 + delta*self.lhs_dx
-        #
-        # delta   = np.random.uniform(-0.5, 0.5, size=self.N_pde)
-        # y       = self.lhs_y0 + delta*self.lhs_dy
-        #
-        # delta   = np.random.uniform(-0.5, 0.5, size=self.N_pde)
-        # z       = self.lhs_z0 + delta*self.lhs_dz
-        #
-        # delta   = np.random.uniform(-0.5, 0.5, size=self.N_pde)
-        # t       = self.lhs_t0 + delta*self.lhs_dt
+        points   = rng.uniform(-1.0, 1.0, size=shape)
+        x = self.pde_xw*points + self.pde_x0
         
-        delta   = np.random.uniform(-1.0, 1.0, size=self.N_pde)
-        x = self.pde_xw*delta + self.pde_xc
+        points   = rng.uniform(-1.0, 1.0, size=shape)
+        y = self.pde_yw*points + self.pde_y0
         
-        delta   = np.random.uniform(-1.0, 1.0, size=self.N_pde)
-        y = self.pde_yw*delta + self.pde_yc
+        points   = rng.uniform(-1.0, 1.0, size=shape)
+        z = self.pde_zw*points + self.pde_z0
         
-        delta   = np.random.uniform(-1.0, 1.0, size=self.N_pde)
-        z = self.pde_zw*delta + self.pde_zc
+        points   = rng.uniform(-1.0, 1.0, size=shape)
+        t = self.pde_tw*points + self.pde_t0
         
-        delta   = np.random.uniform(-1.0, 1.0, size=self.N_pde)
-        t = self.pde_tw*delta + self.pde_tc
+        zeros = tf.constant(0.0, shape=(self.N_pde,1))
+        ones = tf.constant(1.0, shape=(self.N_pde,1))
         
-        # ind4d = np.unravel_index(idx, shape)
+        N       = ones
+        nu      = 1e1*ones
+        rho     = ones
+        rho_ratio   = zeros
         
-        # idx = np.random.choice(self.lhs_N, size=self.N_pde, replace=False)
-        # t = self.lhs_t0[idx]
-        # z = self.lhs_z0[idx]
-        # x = self.lhs_x0[idx]
-        # y = self.lhs_y0[idx]
+        if self.msis is not None:
+            
+            N       = self.msis.get_N(z)
+            # nu      = self.msis.get_nu(z)
+            rho     = self.msis.get_rho(z)
+            rho_z   = self.msis.get_rho_z(z)
+            rho_ratio = rho_z/rho
+        
+            N       = tf.convert_to_tensor(N.reshape(-1,1), dtype=data_type)
+            # nu      = tf.convert_to_tensor(nu.reshape(-1,1), dtype=data_type)
+            rho     = tf.convert_to_tensor(rho.reshape(-1,1), dtype=data_type)
+            rho_z   = tf.convert_to_tensor(rho_z.reshape(-1,1), dtype=data_type)
+            rho_ratio = tf.convert_to_tensor(rho_ratio.reshape(-1,1), dtype=data_type)
+            
+        X = tf.concat(
+                      [t, z,
+                       x, y,
+                       nu, rho, rho_ratio, N,
+                       ],
+                       axis=1)
+        
+        return(X)
+    
+    def _set_LH_sampling(self, N):
+        
+        """
+        Raissi et al 2019. JCP
+        Leiteritz and Pfluger 2021 
+        """
+        
+        tmin = self.lbi[0].numpy()
+        tmax = self.ubi[0].numpy()
+        
+        xmin = self.lbi[2].numpy()
+        xmax = self.ubi[2].numpy()
+        
+        ymin = self.lbi[3].numpy()
+        ymax = self.ubi[3].numpy()
+        
+        zmin = self.lbi[1].numpy()
+        zmax = self.ubi[1].numpy()
+        
+        #Define grid resolution
+        dx = 1e3   #meters
+        dy = 1e3
+        dz = 0.1e3
+        dt = 5*60  #seconds
+        
+        x = np.arange(xmin, xmax+dx, dx, dtype=np.float32)
+        y = np.arange(ymin, ymax+dx, dy, dtype=np.float32)
+        z = np.arange(zmin, zmax+dx, dz, dtype=np.float32)
+        t = np.arange(tmin, tmax+dx, dt, dtype=np.float32)
+        
+        self.pde_dx = dx
+        self.pde_dy = dy
+        self.pde_dz = dz
+        self.pde_dt = dt
+        
+        self.pde_x = x #X0[valid]
+        self.pde_y = y #Y0[valid]
+        self.pde_z = z #Z0[valid]
+        self.pde_t = t #T0[valid]
+        
+        self.pde_shape  = (len(t), len(x), len(y), len(z))
+        self.pde_Nt     = np.prod(self.pde_shape)
+        self.pde_N      = N
+        
+        # print("\nNumber of collocation points (t,x,y,z): [%d, %d, %d, %d] = %d" %(Nt, Nx, Ny, Nz, Nt*Nx*Ny*Nz) )
+        print("Time range: %e s - %e s = %e min" %(tmin, tmax, (tmax-tmin)/60.0) )
+        
+    def _gen_LH_samples(self, *args):
+        
+        """
+        Raissi et al 2019. JCP
+        Leiteritz and Pfluger 2021 
+        """
+        
+        # idx = np.random.choice(self.pde_Nt, size=self.pde_N, replace=False)
+        
+        rng = np.random.default_rng()
+        idx = rng.choice(self.pde_Nt, size=self.pde_N, replace=False)
+
+        t_idx, x_idx, y_idx, z_idx = np.unravel_index(idx, self.pde_shape)
+        
+        t = self.pde_t[t_idx]
+        x = self.pde_x[x_idx]
+        y = self.pde_y[y_idx]
+        z = self.pde_z[z_idx]
         
         t = t.reshape(-1,1)
         x = x.reshape(-1,1)
         y = y.reshape(-1,1)
         z = z.reshape(-1,1)
         
-        if self.msis is None:
-            # zeros = tf.zeros_like(z)
-            zeros = tf.constant(0.0, shape=(self.N_pde,1))
-            ones = tf.constant(1.0, shape=(self.N_pde,1))
+        zeros = tf.constant(0.0, shape=(self.pde_N,1))
+        ones = tf.constant(1.0, shape=(self.pde_N,1))
+        
+        N       = ones
+        nu      = 1e1*ones
+        rho     = ones
+        rho_ratio   = zeros
+        
+        if self.msis is not None:
             
-            N       = ones
-            nu      = 100*ones
-            rho     = ones
-            rho_z   = zeros
-            rho_ratio   = zeros
-        else:
             N       = self.msis.get_N(z)
-            nu      = self.msis.get_nu(z)
+            # nu      = self.msis.get_nu(z)
             rho     = self.msis.get_rho(z)
             rho_z   = self.msis.get_rho_z(z)
             rho_ratio = rho_z/rho
         
             N       = tf.convert_to_tensor(N.reshape(-1,1), dtype=data_type)
-            nu      = tf.convert_to_tensor(nu.reshape(-1,1), dtype=data_type)
+            # nu      = tf.convert_to_tensor(nu.reshape(-1,1), dtype=data_type)
             rho     = tf.convert_to_tensor(rho.reshape(-1,1), dtype=data_type)
             rho_z   = tf.convert_to_tensor(rho_z.reshape(-1,1), dtype=data_type)
             rho_ratio = tf.convert_to_tensor(rho_ratio.reshape(-1,1), dtype=data_type)
+            
+        X = tf.concat((t, z,
+                       x, y,
+                       nu, rho, rho_ratio, N,
+                       ),
+                       axis=1)
         
-        X_pde = tf.concat((t, z,
-                           x, y,
-                           nu, rho, rho_ratio, N,
-                           ),
-                           axis=1)
-        
-        return(X_pde)
+        return(X)
 
-    def set_Chebyshev_samples(self, tmin=None, tmax=None, mult=1.0):
+    def _set_Chebyshev_sampling(self, tmin=None, tmax=None, mult=1.0):
         
         """
         Raissi et al 2019. JCP
@@ -3016,7 +2919,7 @@ class App:
         # print("\nNumber of collocation points (t,x,y,z): [%d, %d, %d, %d] = %d" %(Nt, Nx, Ny, Nz, Nt*Nx*Ny*Nz) )
         print("Time range: %e s - %e s = %e min" %(tmin, tmax, (tmax-tmin)/60.0) )
         
-    def gen_Chebyshev_samples(self):
+    def _gen_Chebyshev_samples(self, *args):
         
         """
         Raissi et al 2019. JCP
@@ -3068,39 +2971,46 @@ class App:
         
         return(X_pde)
     
-    def adaptive_pde_sampling(self):
+    def _gen_adaptive_samples(self, iteration, *args):
         
-        #Replace 10% of the points with sampling points with high losses
         
-        print('r', end='')
+        if (self._X_pde is not None) and (iteration % 10 != 0):
+            return self._X_pde
+        
+        print("r", end="")
         
         # new_X_pde = self.gen_random_samples(self.N_pde)
-        new_X_pde = self.gen_LHS_samples()
+        X_pde = self._gen_LH_samples()
         
-        if self.X_pde is None:
-            self.X_pde = new_X_pde
-            return(new_X_pde)
+        outputs = self.pde(self.model, X_pde)
         
-        weights = [self.w_div, self.w_mom, self.w_temp, self.w_temp, self.w_temp, self.w_srt]
+        loss_div        = tf.square(outputs[0])
+        loss_div_vor    = tf.square(outputs[1])
+        loss_mom        = tf.square(outputs[2]) + tf.square(outputs[3]) + tf.square(outputs[4]) 
         
-        losses = self.pde(new_X_pde)
-        loss_next = 0
-        for i in range(6):
-            loss_next += tf.square(losses[i])*weights[i]
-            
-        losses = self.pde(self.X_pde)
-        loss_current = 0
-        for i in range(6):
-            loss_current += tf.square(losses[i])*weights[i]
+        loss_pde = loss_div + loss_div_vor + loss_mom
+        
+        if self._X_pde is None:
+            self._X_pde      = X_pde
+            self._X_pde_loss = loss_pde
+            return(X_pde)
+        
+        # outputs = self.pde(self.model, self._X_pde)
+        #
+        # loss_div        = tf.square(outputs[0])
+        # loss_div_vor    = tf.square(outputs[1])
+        # loss_mom        = tf.square(outputs[2]) + tf.square(outputs[3]) + tf.square(outputs[4]) 
+        #
+        # loss_current_points = loss_div + loss_div_vor + loss_mom
         
         #Keep the sample points with higher losses
-        X_pde = tf.where(loss_next > loss_current, new_X_pde, self.X_pde)
-    
-        # self.plot_pde_samples(self.t_pde, self.x_pde, self.y_pde, self.z_pde)
+        X    = tf.where(loss_pde > self._X_pde_loss, X_pde, self._X_pde)
+        loss = tf.where(loss_pde > self._X_pde_loss, loss_pde, self._X_pde_loss)
         
-        self.X_pde = X_pde
+        self._X_pde      = X
+        self._X_pde_loss = loss
         
-        return(X_pde)
+        return(X)
     
     def plot_pde_samples(self, t, x, y, z):
         
@@ -3158,7 +3068,7 @@ class App:
         total = np.array(total, dtype=np.float64)*scale_tot
         data = np.array(data, dtype=np.float64)*scale_tot
         div = np.array(self.loss_div_log, dtype=np.float64)*scale_div_
-        mom = np.array(self.loss_mom_log, dtype=np.float64)*scale_mom_
+        mom = np.array(self.loss_srt_log, dtype=np.float64)*scale_mom_
         vor = np.array(self.loss_temp_log, dtype=np.float64)*scale_vor_
         
         tv_u_log = np.array(self.tv_u_log)
@@ -3178,19 +3088,19 @@ class App:
         ax.semilogy(epochs, data, '--', label=r'$\mathcal{L}_d$ x %1g' %scale_tot, alpha=0.5, color='r')
         
         ax.semilogy(epochs, div, '--', label=r'$\mathcal{R}_{pde}$ x %1g' %scale_div, alpha=0.5, color='b')
-        # ax.semilogy(epochs, mom, '--', label=r'$\mathcal{R}_{mom}$ x %1g' %scale_mom, alpha=0.5, color='g')
+        ax.semilogy(epochs, mom, '--', label=r'$\mathcal{R}_{mom}$ x %1g' %scale_mom, alpha=0.5, color='g')
         # ax.semilogy(epochs, vor, '--', label=r'$\mathcal{R}_{vor}$ x %1g' %scale_vor, alpha=0.5, color='y')
         
         mask = np.isfinite(self.rmse_u_log)
         if np.any( mask ):
             
-            ax.semilogy(epochs[mask], tv_u_log[mask],'r-.', label=r'$TV_{u}$', alpha=0.5)
-            ax.semilogy(epochs[mask], tv_v_log[mask],'g-.', label=r'$TV_{v}$', alpha=0.5)
-            ax.semilogy(epochs[mask], tv_w_log[mask],'b-.', label=r'$TV_{w}$', alpha=0.5)
-            
-            ax.semilogy(epochs[mask], tv_ue_log[mask],'r>', label=r'$TV_{ue}$', alpha=0.5)
-            ax.semilogy(epochs[mask], tv_ve_log[mask],'g>', label=r'$TV_{ve}$', alpha=0.5)
-            ax.semilogy(epochs[mask], tv_we_log[mask],'b>', label=r'$TV_{we}$', alpha=0.5)
+            # ax.semilogy(epochs[mask], tv_u_log[mask],'r-.', label=r'$TV_{u}$', alpha=0.5)
+            # ax.semilogy(epochs[mask], tv_v_log[mask],'g-.', label=r'$TV_{v}$', alpha=0.5)
+            # ax.semilogy(epochs[mask], tv_w_log[mask],'b-.', label=r'$TV_{w}$', alpha=0.5)
+            #
+            # ax.semilogy(epochs[mask], tv_ue_log[mask],'r>', label=r'$TV_{ue}$', alpha=0.5)
+            # ax.semilogy(epochs[mask], tv_ve_log[mask],'g>', label=r'$TV_{ve}$', alpha=0.5)
+            # ax.semilogy(epochs[mask], tv_we_log[mask],'b>', label=r'$TV_{we}$', alpha=0.5)
             
             ax.semilogy(epochs[mask], rmse_ue_log[mask],'rs', label=r'$RMSE_{u}$', alpha=0.5)
             ax.semilogy(epochs[mask], rmse_ve_log[mask],'gs', label=r'$RMSE_{v}$', alpha=0.5)
@@ -3202,7 +3112,7 @@ class App:
         ax.set_ylabel('RMSE')
         ax.set_title('(a) Training loss')
         
-        ax.set_ylim(1e-2,1e3)
+        ax.set_ylim(1e-1,1e2)
         ax.grid(True, which='major', linestyle='-')
         ax.grid(True, which='minor', linestyle=(0, (1, 10)))
         ax.legend()
@@ -3319,13 +3229,16 @@ class App:
             axX  = plt.subplot2grid( (nrows*10-1,ncols*10-1), (i*10,j*10),          colspan=8 )
             axY  = plt.subplot2grid( (nrows*10-1,ncols*10-1), (i*10+1,(j+1)*10-2),  rowspan=8 )
             
-            ax_2dhist([axXY,axX,axY],
-                      parm_x, parm_y,
-                      bins=bins_,
-                      labelX=xlabel,
-                      labelY=ylabel,
-                      norm=False)
-            
+            try:
+                ax_2dhist([axXY,axX,axY],
+                          parm_x, parm_y,
+                          bins=bins_,
+                          labelX=xlabel,
+                          labelY=ylabel,
+                          norm=False,
+                          log_scale=True)
+            except:
+                pass
             # axXY.label_outer()
         
         fig.subplots_adjust(0.05, 0.1, 0.98, 0.98,
@@ -3455,8 +3368,7 @@ class App:
                             wspace=0.1, hspace=0.1)
         
         plt.savefig(figname_errs_k)
-        plt.close()
-        
+        plt.close("all")
         
         return
     
@@ -3556,7 +3468,7 @@ class App:
         
         p = X[:,:4].numpy()
         
-        t = p[:,0] + time_base
+        t = p[:,0] + self._time_base
         x = p[:,2]*1e-3
         y = p[:,3]*1e-3
         z = p[:,1]*1e-3
@@ -3611,13 +3523,13 @@ class App:
     
     def get_lb(self):
         
-        lb = self.lbi + tf.constant([time_base, 0, 0, 0])
+        lb = self.lbi + tf.constant([self._time_base, 0, 0, 0])
         
         return(lb.numpy())
     
     def get_ub(self):
         
-        lb = self.ubi + tf.constant([time_base, 0, 0, 0])
+        lb = self.ubi + tf.constant([self._time_base, 0, 0, 0])
         
         return(lb.numpy())
     
@@ -3636,11 +3548,23 @@ def eq_continuity(u_x, v_y, w_z, w=tf.constant(0., dtype=data_type), rho_ratio=t
                         = rho_z / rho
     """
     #Scale (1e-2): u_x = w_z = 10/10e3 m/s/ m
-    y = 1e3*(rho_ratio*w + u_x + v_y + w_z)
+    y = rho_ratio*w + u_x + v_y + w_z
     # y = u_x + v_y + w_z
     
     return(y)
 
+def grad_div(u_xx, v_xy, w_xz,
+             u_xy, v_yy, w_yz,
+             u_xz, v_yz, w_zz
+             ):
+    
+    d_x = u_xx + v_xy + w_xz
+    d_y = u_xy + v_yy + w_yz
+    d_z = u_xz + v_yz + w_zz
+    
+    return(d_x, d_y, d_z)
+    
+    
 # def eq_continuity_full(u_x, v_y, w_z, u, v, w, rho, rho_t, rho_x, rho_y, rho_z):
 #     """
 #     Mass continuity equation in 3D for an incomprensible flow
@@ -3744,14 +3668,16 @@ def eq_temperature(u, v, w,
     return(y)
 
 def eq_vorticity_LF(omega_t,
+                    b_x, a_y,
                     omega_xx, omega_yy, omega_zz,
-                    nxwxu_k_j, nxwxu_j_k,
                     theta_j = tf.constant(1.0, dtype=data_type),
                     nu  = tf.constant(0.0, dtype=data_type),
                     N   = tf.constant(0.0, dtype=data_type),
                    ):
     """
     Vorticity equation using the Laplacian formulation 
+    
+    Bhaumik and Sengupta (2015). A new velocity–vorticity formulation for direct numerical simulation of 3D transitional and turbulent flows.
     
     Inputs:
         omega_i    :    partial derivative of the vorticity (omega) respect to i
@@ -3761,19 +3687,21 @@ def eq_vorticity_LF(omega_t,
         theta_j    :    partial derivative of Temperature (theta) respect to j
     """
     #Scale (1e0): u = 100 m/s, u_x = 10*1e-3 m/s/km, u_z = 100*1e-3 m/s/km
-    y = 1e5*(omega_t + nxwxu_k_j - nxwxu_j_k - nu*(omega_xx + omega_yy + omega_zz) + N*theta_j)
+    y = omega_t + b_x - a_y - nu*(omega_xx + omega_yy + omega_zz) + N*theta_j
     
     return(y)
 
 def eq_vorticity_RF(omega_t,
-                    nxnxw_k_j, nxnxw_j_k,
-                    nxwxu_k_j, nxwxu_j_k,
+                    q_x, p_y,
+                    b_x, a_y,
                     theta_j = tf.constant(1.0, dtype=data_type),
                     nu  = tf.constant(0.0, dtype=data_type),
                     N   = tf.constant(0.0, dtype=data_type),
                    ):
     """
     Vorticity equation using the Rotational formulation. Assuming Div omega = 0
+    
+    Bhaumik and Sengupta (2015). A new velocity–vorticity formulation for direct numerical simulation of 3D transitional and turbulent flows.
     
     Inputs:
         omega_i    :    partial derivative of the vorticity (omega) respect to i
@@ -3785,7 +3713,7 @@ def eq_vorticity_RF(omega_t,
         
     """
     #Scale (1e0): u = 100 m/s, u_x = 10*1e-3 m/s/km, u_z = 100*1e-3 m/s/km
-    y = 1e5*(omega_t + nxwxu_k_j - nxwxu_j_k + nu*(nxnxw_k_j - nxnxw_j_k) + N*theta_j)
+    y = omega_t + b_x - a_y + nu*(q_x - p_y) + N*theta_j
     
     return(y)
 
@@ -3796,6 +3724,8 @@ def eq_vorticity_RF_F(omega_t, F_k_j, F_j_k,
     """
     Vorticity equation using the Rotational formulation. Assuming Div omega = 0
     
+    Meitz and Fasel (2000). A Compact-Difference Scheme for the Navier–Stokes Equations in Vorticity–Velocity Formulation
+    
     Inputs:
         omega_i    :    partial derivative of the vorticity (omega) respect to i
         k_j        :    derivative if the k component of (Nabla x omega x u) respect to j
@@ -3806,7 +3736,7 @@ def eq_vorticity_RF_F(omega_t, F_k_j, F_j_k,
         
     """
     #Scale (1e0): u = 100 m/s, u_x = 10*1e-3 m/s/km, u_z = 100*1e-3 m/s/km
-    y = 1e5*(omega_t + F_k_j - F_j_k + N*theta_j)
+    y = omega_t + F_k_j - F_j_k + N*theta_j
     
     return(y)
 
@@ -3829,7 +3759,7 @@ def eq_poisson(ui_xx, ui_yy, ui_zz,
         f_x    :    external force in the x direction
     """
     #Scale (1e0): u = 100 m/s, u_x = 10*1e-3 m/s/km, u_z = 100*1e-3 m/s/km
-    y = 1e6*(ui_xx + ui_yy + ui_zz + omegaz_y - omegay_z)
+    y = ui_xx + ui_yy + ui_zz + omegaz_y - omegay_z
     
     return(y)
 

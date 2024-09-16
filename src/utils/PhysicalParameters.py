@@ -85,7 +85,7 @@ def get_msis_parms(times, alt, glat, glon, derivative=False, altitude_mean=False
         T        :    temperature (K) [ntimes, nalts, nlats, nlots]
         nu       :    viscosity (m2/s) [ntimes, nalts, nlats, nlots]
         
-        rho_z    :    if derivative is True, returns the derivative of density respect to altitud.
+        rho_z    :    if derivative is True, returns the derivative of density respect to altitude.
                       (kg/m3/m)
     """
     
@@ -96,7 +96,7 @@ def get_msis_parms(times, alt, glat, glon, derivative=False, altitude_mean=False
         return(rho, nu)
     
     rho_z = np.empty_like(rho) + np.nan
-    rho_z[:,1:] = 1e3*(rho[:,1:] - rho[:,:-1])/(alt[1:] - alt[:-1])[None,:]
+    rho_z[:,1:] = 1e-3*(rho[:,1:] - rho[:,:-1])/(alt[1:] - alt[:-1])[None,:]
     
     if not altitude_mean:
         return(rho, rho_z, nu)
@@ -107,24 +107,58 @@ def get_msis_parms(times, alt, glat, glon, derivative=False, altitude_mean=False
     
     return(rho, rho_z, nu)
 
-def plot_and_save(times, alt, rho, nu, T, figfile, cmap='jet'):
+def plot_and_save(times, alt, rho, rho_z, nu, T,
+                  figfile="./test.png", cmap='jet'):
     
-    plt.subplot(311)
+    _, axs = plt.subplots(1, 5, sharey="row", figsize=(12,3))
     
-    plt.title('Density')
-    plt.pcolormesh(times, alt, np.log10(rho).T, cmap=cmap)
-    plt.colorbar(label='log10 (kg/m3)')
+    ax = axs[0]
+    ax.set_title('Density')
+    # im = ax.pcolormesh(times, alt, np.log10(rho).T, cmap=cmap)
+    # plt.colorbar(im, ax=ax, label='log10 (kg/m3)')
+    ax.plot(rho, alt, "o--")
+    ax.set_ylabel("Altitude (km)")
+    ax.set_xlabel(r"$\rho$ (kg/m3)")
+    ax.set_xscale('log')
     
-    plt.subplot(312)
+    ax = axs[1]
+    ax.set_title('Change of density in z')
+    # im = ax.pcolormesh(times, alt, np.log10(rho_z).T, cmap=cmap)
+    # plt.colorbar(im, ax=ax, label='log10 (kg/m3)')
+    ax.plot(-rho_z, alt, "o--")
+    ax.set_ylabel("Altitude (km)")
+    ax.set_xlabel(r"$-\rho_z$ (kg/m3/m)")
+    ax.set_xscale('log')
     
-    plt.title('Kinematic viscosity')
-    plt.pcolormesh(times, alt, np.log10(nu).T, cmap=cmap)
-    plt.colorbar(label='log10 (m2/s)')
-    plt.subplot(313)
+    ax = axs[2]
+    ax.set_title(r'Ratio of $\rho$ and $\rho_z$')
+    # im = ax.pcolormesh(times, alt, np.log10(rho_z).T, cmap=cmap)
+    # plt.colorbar(im, ax=ax, label='log10 (kg/m3)')
+    ax.plot(-rho_z/rho, alt, "o--")
+    ax.set_ylabel("Altitude (km)")
+    ax.set_xlabel(r"$-\rho_z/\rho$ (1/m)")
+    ax.set_xscale('log')
     
-    plt.title('Temperature')
-    plt.pcolormesh(times, alt, T.T, cmap=cmap)
-    plt.colorbar(label='K')
+    ax = axs[3]
+    ax.set_title('Kinematic viscosity')
+    # im = ax.pcolormesh(times, alt, np.log10(nu).T, cmap=cmap)
+    # plt.colorbar(im, ax=ax, label='log10 (m2/s)')
+    ax.plot(nu, alt, "o--")
+    ax.set_ylabel("Altitude (km)")
+    ax.set_xlabel(r"$\nu$ (m2/s)")
+    ax.set_xscale('log')
+    
+    ax = axs[4]
+    ax.set_title('Temperature')
+    # im = ax.pcolormesh(times, alt, T.T, cmap=cmap)
+    # plt.colorbar(im, ax=ax, label='K')
+    ax.plot(T, alt, "o--")
+    ax.set_ylabel("Altitude (km)")
+    ax.set_xlabel(r"T ($ˆ\circ$K)")
+    
+    for ax in axs:
+        ax.grid(True)
+        ax.label_outer()
     
     plt.tight_layout()
     plt.savefig(figfile)
@@ -133,7 +167,7 @@ def plot_and_save(times, alt, rho, nu, T, figfile, cmap='jet'):
     
 def get_msis_mean_values(dt, alt, glat, glon,
                          derivative=True,
-                         altitude_mean=True,
+                         time_average=True,
                          time_range=24,
                          plot_values=False,
                          figfile='./msis_values.png'):
@@ -167,18 +201,25 @@ def get_msis_mean_values(dt, alt, glat, glon,
         return(rho, nu)
     
     rho_z = np.empty_like(rho) + np.nan
-    rho_z[:,1:] = 1e-3*(rho[:,1:] - rho[:,:-1])/(alt[1:] - alt[:-1])[None,:]
     
-    if plot_values:
-        plot_and_save(times, alt, rho, nu, T, figfile=figfile)
+    dz = 1e3*(alt[1:] - alt[:-1])
+    drho = rho[:,1:] - rho[:,:-1]
+    
+    rho_z[:,1:] = drho/dz[None,:]
         
-    if not altitude_mean:
+    if not time_average:
         return(rho, rho_z, nu)
     
-    rho = np.mean(rho, axis=0)
-    rho_z = np.nanmean(rho_z, axis=0)
-    nu = np.mean(nu, axis=0)
+    rho     = np.mean(rho, axis=0)
+    rho_z   = np.nanmean(rho_z, axis=0)
+    nu      = np.mean(nu, axis=0)
+    T       = np.mean(T, axis=0)
     
+    if plot_values:
+        plot_and_save(times, alt, rho, rho_z, nu, T,
+                      figfile=figfile)
+        
+        
     return(rho, rho_z, nu)
 
 def read_msis(filename=file_density):
@@ -418,7 +459,7 @@ class MSIS():
                                              self.glat, 
                                              self.glon,
                                              derivative=True,
-                                             altitude_mean=True,
+                                             time_average=True,
                                              time_range=self.time_range,
                                              plot_values=plot_values)
         

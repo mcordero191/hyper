@@ -47,7 +47,7 @@ def _plot_3d_vector(x, y,
 
     
     im = None
-    im = ax.pcolormesh(x, y, w, cmap=cmap, vmin=wmin, vmax=wmax, alpha=0.3)
+    im = ax.pcolormesh(x, y, w, cmap=cmap, vmin=wmin, vmax=wmax)#, alpha=0.3)
     # im = ax.contourf(x,y,w_masked, cmap=cmap, vmin=wmin, vmax=wmax)#, alpha=0.3)
     
     # im = ax.imshow(w, interpolation='Gaussian',
@@ -72,9 +72,9 @@ def _plot_3d_vector(x, y,
     
     alpha = 0.5
     
-    ax.scatter(14.25, 70.35, marker='+', s=15, c='m', alpha=alpha, label='VORTEX: DWNLEG') #MAARSY        
-    ax.scatter(15.75, 69.45, marker='o', s=15, c='m', alpha=alpha, label='VORTEX: UPLEG') #MAARSY
-    ax.scatter(16.04, 69.30, marker='*', s=15, c='r', alpha=alpha, label='MAARSY') #MAARSY
+    # ax.scatter(14.25, 70.35, marker='+', s=15, c='m', alpha=alpha, label='VORTEX: DWNLEG') #MAARSY        
+    # ax.scatter(15.75, 69.45, marker='o', s=15, c='m', alpha=alpha, label='VORTEX: UPLEG') #MAARSY
+    ax.scatter(16.04, 69.30, marker='*', s=20, c='r', alpha=alpha, label='MAARSY') #MAARSY
     
     ax.set(xlabel='Longitude', ylabel ='Latitude')
     
@@ -279,7 +279,7 @@ def plot_mean_winds_grads(t, h, ug,
     plt.close()
     
 def plot_mean_winds(t, h, u, v, w,
-                    figfile='./test.png',
+                    figfile=None,
                     vmins=None,
                     vmaxs=None,
                     cmap='seismic',
@@ -315,11 +315,14 @@ def plot_mean_winds(t, h, u, v, w,
     axs = []
     images = {}
     
+    bbox = dict(boxstyle='round', fc='blanchedalmond', ec='orange', alpha=0.5)
+    
     _ = plt.figure(figsize=(8,6))
     
     for i in range(3):
         
         data = us[i]
+        std = np.nanstd(data)
         
         if vmins is not None: vmin = vmins[i]
         if vmaxs is not None: vmax = vmaxs[i]
@@ -343,6 +346,12 @@ def plot_mean_winds(t, h, u, v, w,
         # ax.xaxis.set_ticklabels([])
         
         ax.grid(True, linestyle='--')
+        
+        
+        ax.text(0.85, 0.85, "std=%3.2f" %std,
+                bbox=bbox,
+                transform=ax.transAxes
+                )
         
         axs.append(ax)
         
@@ -392,19 +401,27 @@ def plot_mean_winds(t, h, u, v, w,
         ax.label_outer()
     
     for i, im in images.items():
-        plt.colorbar(im, ax=axs[i])
+        plt.colorbar(im, ax=axs[i], label='m/s')
         
-    plt.tight_layout(h_pad=0.2, rect=[0.02,0.0,1.0,0.99])
+    plt.tight_layout(
+                     pad=0.1, 
+                     rect=[0.02,0.0,1.0,1.0]
+                     )
     
-    # axs[-1].annotate('@mu',
-    #                  xy = (1.03, -0.2),
-    #                  xycoords='axes fraction',
-    #                  ha='left',
-    #                  va="top",
-    #                  fontsize=8,
-    #                  weight='bold')
+    axs[-1].annotate('@jmu',
+                     xy = (1.05, -0.2),
+                     xycoords='axes fraction',
+                     ha='left',
+                     va="top",
+                     fontsize=8,
+                     alpha=0.5,
+                     weight='bold')
     
-    plt.savefig(figfile)
+    if figfile is None:
+        plt.show()
+    else:
+        plt.savefig(figfile)
+        
     plt.close()
     
 
@@ -553,8 +570,6 @@ def plot_field(lons, lats, alts,
             
             if mask is not None:
                 v[mask] = np.nan
-            
-            
             
             im = ax.pcolormesh(lons, lats, v,
                               cmap=cmap,

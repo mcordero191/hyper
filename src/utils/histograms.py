@@ -87,7 +87,10 @@ def ax_2dhist(axs,
                 bins=100,
                 labelX='X',
                 labelY='Y',
-                norm=False):
+                norm=False,
+                log_scale=False,
+                cmap="jet",
+                ):
 
     # vectorize image data.
     x_data = X.ravel()
@@ -142,9 +145,14 @@ def ax_2dhist(axs,
         # my = np.nanmean(Hy)
         # Hy = np.where(np.isfinite(Hy), Hy/Hy[:,None], Hy/my)
         H  = H/Hy[:,None] #Rescale again
-        
-    axHist2d.imshow(H.T, interpolation=None, aspect='auto', cmap='Spectral_r')
+    
+    if log_scale:
+        H = np.log10(H)
+    
+    axHist2d.imshow(H.T, interpolation=None, aspect='auto', cmap=cmap)
     axHist2d.set_ylim( [ axHist2d.get_ylim()[1], axHist2d.get_ylim()[0] ] )
+    
+    axHist2d.grid(True)
     
     # set titles
     axHist2d.set_xlabel(labelX)#, fontsize=16)
@@ -153,7 +161,7 @@ def ax_2dhist(axs,
     f_indx = interp1d(xedges, np.arange(xedges.shape[0]), bounds_error=False, fill_value="extrapolate")
     f_indy = interp1d(yedges, np.arange(yedges.shape[0]), bounds_error=False, fill_value="extrapolate")
     
-    axHist2d.plot(f_indx(yedges[:]), np.arange(yedges.shape[0]), '--', color='#FFFFFF', alpha=0.5, linewidth=2)
+    axHist2d.plot(f_indx(yedges[:]), np.arange(yedges.shape[0]), '--', color='#000000', alpha=0.5, linewidth=3)
     
     min_vx = xedges.min()
     max_vx = xedges.max()
@@ -198,7 +206,7 @@ def ax_2dhist(axs,
     
     if axHistx is not None:
         # make histograms for x and y seperately.
-        axHistx.hist(x, bins=xedges, facecolor='#FF0000', alpha=0.5, edgecolor='None' )
+        axHistx.hist(x, bins=xedges, facecolor='#0000AA', alpha=0.5, edgecolor='None' )
         
         # set axes
         axHistx.set_xlim( [xedges.min(), xedges.max()] )
@@ -220,7 +228,7 @@ def ax_2dhist(axs,
     
     if axHisty is not None:
         
-        axHisty.hist(y, bins=yedges, facecolor='#FF0000', alpha=0.5, orientation='horizontal', edgecolor='None')
+        axHisty.hist(y, bins=yedges, facecolor='#0000AA', alpha=0.5, orientation='horizontal', edgecolor='None')
         
         axHisty.set_ylim( [yedges.min(), yedges.max()] )
         

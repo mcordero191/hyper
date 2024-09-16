@@ -53,13 +53,13 @@ def hierarchical_cluster(X, cmap='nipy_spectral', alpha=0.1):
     
     ### DBSCAN
     # define the model
-    model = DBSCAN(eps=0.1, min_samples=40)
+    model = DBSCAN(eps=0.1, min_samples=20)
     # fit model and predict clusters
     cluster_labels = model.fit_predict(X)
     
     outliers = np.where(cluster_labels == -1, True, False)
     
-    if np.count_nonzero(outliers) < 0.01*npoints:
+    if np.count_nonzero(outliers) < 0.05*npoints:
         valid = ~outliers
     else:
         valid = (outliers | True)

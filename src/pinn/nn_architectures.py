@@ -14,6 +14,67 @@ version       = 5.00
 keras.saving.get_custom_objects().clear()
 
 @keras.saving.register_keras_serializable(package="hyper")
+class DropoutLayer(tf.keras.layers.Layer):
+    
+    def __init__(self, n=5000):
+        
+        super().__init__()
+    
+        self.n = tf.Variable(1.0*n, trainable=False)
+        self.i = tf.Variable(0.0, trainable=False)
+        
+    def build(self, input_shape):
+    
+        in_dim = input_shape[-1]
+        
+        self.in_dim = in_dim
+        
+        self.a = self.add_weight(
+            shape=(self.in_dim,),
+            initializer='zeros',
+            trainable=False,
+        )
+        
+    def update_mask(self, n):
+        """
+        unmask the i/m % of neuros
+        """
+        #Some are completely deactivated. v214
+        # wcut = tf.constant(1.0)*i/n + tf.constant(0.)
+        # s    = 10*( tf.linspace(1.0, 0.0, self.in_dim) + wcut - 1.0 )
+        
+        #all w's  activated but with low weights. v213
+        # wcut = tf.constant(1.0)*i/n + tf.constant(0.2)
+        # s = ( tf.linspace(1.0, -1.0, self.in_dim) + 2*wcut )
+        
+        #v250
+        # wcut = tf.constant(1.25)*i/n + tf.constant(0.05)
+        # s    = 5*( tf.linspace(1.0, 0.0, self.in_dim) + wcut - 1.0 )
+        
+        #v260: high slope
+        wcut = tf.constant(1.1)*self.i/n + tf.constant(0.1)
+        s    = 20*(tf.linspace(1.0, 0.0, self.in_dim) + wcut - 1.0)
+        
+        a = tf.where(s > 1.0, 1.0, s)
+        a = tf.where(a < 0.0, 0.0, a)
+        
+        a = a/tf.reduce_mean(a)
+        
+        self.a.assign(a)
+        
+        self.i.assign_add(1.0)
+        
+    def call(self, inputs):
+        
+        u = tf.multiply(inputs, self.a)
+        
+        return u
+        
+    def get_config(self):
+        
+        return {"in_dim": self.in_dim}
+    
+@keras.saving.register_keras_serializable(package="hyper")
 class DeepEmbedding(tf.keras.layers.Layer):
 
     def __init__(self,
@@ -403,11 +464,15 @@ class Embedding(tf.keras.layers.Layer):
         if stddev is not None:
             kernel_initializer = tf.keras.initializers.RandomNormal(0.0, stddev)
         
+        # bias_initializer = 'GlorotNormal'
+        bias_initializer = tf.keras.initializers.RandomNormal(0.0, np.pi/12)
+        
         self.n_neurons = n_neurons
         
         self.layer0 = tf.keras.layers.Dense(n_neurons,
                                       activation = activation,
                                       kernel_initializer = kernel_initializer,
+                                      bias_initializer=bias_initializer,
                                       )
         
         # self.layer1 = tf.keras.layers.Dense(n_neurons,
@@ -425,13 +490,13 @@ class Embedding(tf.keras.layers.Layer):
     def call(self, inputs, alpha=tf.constant(1.0) ):
         '''
         '''
+        #Scaling factor when GlorotNormal distribution is used
+        #otherwise the frequency components are too small
+        inputs = tf.constant(10*np.pi)*inputs
+        
         x0 = alpha*self.layer0(inputs)
         # x1 = self.layer1(inputs)
         # x2 = self.layer2(inputs)
-        
-        #version >= 2.05
-        
-        # x0 = tf.constant(2*np.pi)*x0
         
         #Fearures
         sinx = tf.sin(x0)
@@ -545,275 +610,6 @@ class NNKernel(tf.keras.layers.Layer):
         x = tf.reshape(x, shape=[shape[0], shape[1], -1])
         
         return(x)
-    
-@keras.saving.register_keras_serializable(package="hyper")
-class FourierLayer(tf.keras.layers.Layer):
-
-    def __init__(self,
-                 n_nodes,
-                 kernel_initializer='HeUniform',
-                 **kwargs
-                 ):
-        
-        super().__init__(**kwargs)
-        
-        self.n_nodes = n_nodes
-        self.kernel_initializer = kernel_initializer
-    
-    def get_config(self):
-        
-        return {"n_nodes": self.n_nodes,
-                "kernel_initializer": self.kernel_initializer,
-                }
-    
-    def build(self, input_shape):
-        
-        nd = input_shape[-1]
-        
-        self.w = self.add_weight(
-            shape=(nd, self.n_nodes),
-            initializer=self.kernel_initializer,
-        )
-        
-        self.b = self.add_weight(
-            shape=(1,self.n_nodes),
-            initializer='zeros',
-        )
-        
-        self.built = True
-        
-    def call(self, inputs):
-        '''
-        Inputs: [npoints, nd]
-        
-        Outputs: [npoints, n_nodes*5]
-        '''
-        nd = inputs.shape[1]
-        
-        pi = tf.constant(np.pi)
-        
-        if version < 4:
-            pi = tf.constant(1.0)
-            
-        kx = tf.matmul(inputs, self.w) + self.b
-        
-        sin_x = tf.sin(pi*kx)
-        cos_x = tf.cos(pi*kx)
-        
-        x = tf.concat([sin_x, cos_x], axis=1)
-        
-        return(x)
-
-@keras.saving.register_keras_serializable(package="hyper")
-class FeatureLayer(tf.keras.layers.Layer):
-
-    def __init__(self,
-                n_nodes,
-                 kernel_initializer='HeUniform',
-                 **kwargs
-                 ):
-        
-        super().__init__(**kwargs)
-        
-        self.n_nodes = n_nodes
-        self.kernel_initializer = kernel_initializer
-    
-    def get_config(self):
-        
-        return {"n_nodes": self.n_nodes,
-                "kernel_initializer": self.kernel_initializer,
-                }
-    
-    def build(self, input_shape):
-        
-        nd = input_shape[-1]
-        
-        self.w0 = self.add_weight(
-            shape=(nd, self.n_nodes),
-            initializer=self.kernel_initializer,
-        )
-        
-        self.b0 = self.add_weight(
-            shape=(1,self.n_nodes),
-            initializer='zeros',
-        )
-        
-        # self.w1 = self.add_weight(
-        #     shape=(nd, self.n_nodes),
-        #     initializer=self.kernel_initializer,
-        # )
-        #
-        # self.b1 = self.add_weight(
-        #     shape=(1,self.n_nodes),
-        #     initializer='zeros',
-        # )
-        #
-        # self.w2 = self.add_weight(
-        #     shape=(nd, self.n_nodes),
-        #     initializer=self.kernel_initializer,
-        # )
-        #
-        # self.b2 = self.add_weight(
-        #     shape=(1,self.n_nodes),
-        #     initializer='zeros',
-        # )
-        
-        # self.w3 = self.add_weight(
-        #     shape=(nd, self.n_nodes),
-        #     initializer=self.kernel_initializer,
-        # )
-        #
-        # self.b3 = self.add_weight(
-        #     shape=(1,self.n_nodes),
-        #     initializer='zeros',
-        # )
-        
-        self.built = True
-        
-    def call(self, inputs):
-        '''
-        Inputs: [npoints, nd]
-        
-        Outputs: [npoints, n_nodes*5]
-        '''
-        # nd = inputs.shape[1]
-        
-        # pi = tf.constant(np.pi)
-        
-        kx0 = tf.matmul(inputs, self.w0) + self.b0
-        # kx1 = tf.matmul(inputs, self.w1) + self.b1
-        # kx2 = tf.matmul(inputs, self.w2) + self.b2
-        # kx3 = tf.matmul(inputs, self.w3) + self.b3
-        
-        # kx0 = pi*kx0
-        # kx1 = pi*kx1
-        # kx2 = pi*kx2
-        
-        sin_x = tf.sin(kx0)
-        cos_x = tf.cos(kx0)
-        # sincos_x = tf.sin(kx1)*tf.cos(kx2)
-        #
-        # sin_2x = tf.sin(2*kx0)
-        # cos_2x = tf.cos(2*kx0)
-        # sincos_2x = tf.sin(2*kx1)*tf.cos(2*kx2)
-        #
-        # sin_3x = tf.sin(4*kx0)
-        # cos_3x = tf.cos(4*kx0)
-        # sincos_3x = tf.sin(4*kx1)*tf.cos(4*kx2)
-        #
-        # sin_4x = tf.sin(8*kx0)
-        # cos_4x = tf.cos(8*kx0)
-        # sincos_4x = tf.sin(8*kx1)*tf.cos(8*kx2)
-        
-        # exp_x = tf.sin(-kx3**2)
-        
-        x = tf.concat([sin_x,  cos_x, 
-                       # sincos_x,
-                        # sin_2x, cos_2x, sincos_2x,
-                        # sin_3x, cos_3x, sincos_3x,
-                        # sin_4x, cos_4x, sincos_4x,
-                        # exp_x,
-                       ],
-                       axis=1)
-        
-        return(x)
-
-@keras.saving.register_keras_serializable(package="hyper")
-class FourierKernel(tf.keras.layers.Layer):
-
-    def __init__(self,
-                 n_outputs=3,
-                 n_layers=3,
-                 n_kernel=10,
-                 kernel_initializer = 'LecunNormal',
-                 activation  = "sine", #'LeakyReLU',
-                 **kwargs
-                 ):
-        
-        super().__init__(**kwargs)
-        
-        if activation == 'sine':
-            activation = tf.sin
-        elif activation == 'tanh':
-            activation = tf.tanh
-        elif activation == 'swish':
-            activation = tf.keras.activations.swish
-        else:
-            raise ValueError
-        
-        self.n_kernel = n_kernel
-        self.n_layers = n_layers
-        self.n_outputs = n_outputs
-        self.kernel_initializer = kernel_initializer
-        self.activation = activation
-        
-        layers = []
-        
-        # layer = FourierLayer(n_kernel,
-        #                      kernel_initializer=kernel_initializer)
-        
-        layer = FeatureLayer(n_kernel,
-                              kernel_initializer=kernel_initializer)
-        
-        layers.append(layer)
-            
-        for _ in range(n_layers-2):
-            layer = tf.keras.layers.Dense(n_kernel,
-                                          activation=None,
-                                          kernel_initializer=kernel_initializer,
-                                          )
-            
-            layers.append(layer)
-        
-        self.inner_layers = layers
-        
-        self.linear_layer = tf.keras.layers.Dense(n_outputs,
-                                      activation=None,
-                                      kernel_initializer=kernel_initializer,
-                                      )
-        
-        
-        
-    def get_config(self):
-        
-        return {"n_outputs": self.n_outputs,
-                "n_kernel": self.n_kernel,
-                "n_layers": self.n_layers,
-                "kernel_initializer": self.kernel_initializer,
-                "activation": self.activation,
-                }
-        
-    def call(self, inputs, training=False):
-        '''
-        Inputs [npoints, nnodes, nd]
-        
-        Outputs [npoints, nnodes, noutputs] 
-        '''
-        
-        shape = inputs.shape
-        
-        x = tf.reshape(inputs, shape=[-1, shape[2]])
-        
-        for layer in self.inner_layers[:2]:
-            x = layer(x)
-            x = self.activation(x)
-            
-        x0 = x
-        
-        for i, layer in enumerate(self.inner_layers[2:]):
-            
-            x = layer(x)
-            
-            if (i % 3) == 0:
-                x = x + x0
-                
-            x = self.activation(x)
-        
-        x = self.linear_layer(x)
-        
-        x = tf.reshape(x, shape=[-1, shape[1]*self.n_outputs])
-        
-        return(x)
 
 @keras.saving.register_keras_serializable(package="hyper")
 class Densenet(tf.keras.layers.Layer):
@@ -918,13 +714,15 @@ class LaafLayer(tf.keras.layers.Layer):
 class Linear(tf.keras.layers.Layer):
 
     def __init__(self,
-                 noutputs = 1.0,
-                 kernel_initializer = 'LecunNormal',
+                 noutputs = 1,
+                 kernel_initializer = 'GlorotNormal',
+                 constraint = None,
                  **kwargs
                  ):
         
-        super().__init__(**kwargs)
+        super().__init__()
         self.kernel_initializer = kernel_initializer
+        self.constraint = constraint
         self.noutputs = noutputs
         
     def build(self, input_shape):
@@ -934,15 +732,16 @@ class Linear(tf.keras.layers.Layer):
         
         self.w = self.add_weight(
             shape=(nnodes, self.noutputs),
-            initializer=self.kernel_initializer,
+            initializer = self.kernel_initializer,
+            constraint = self.constraint, 
             trainable=True,
         )
         
-        self.b = self.add_weight(
-            shape=(1, self.noutputs),
-            initializer='zeros',
-            trainable=True
-        )
+        # self.b = self.add_weight(
+        #     shape=(1, self.noutputs),
+        #     initializer='zeros',
+        #     trainable=True
+        # )
         
         # self.built = True
         
@@ -955,7 +754,7 @@ class Linear(tf.keras.layers.Layer):
         # npoints, nnodes, nd = inputs.shape
         
         
-        u = tf.matmul(inputs, self.w) + self.b
+        u = tf.matmul(inputs, self.w)# + self.b
         u = alpha*u
         
         return(u)
@@ -1032,14 +831,14 @@ class Scaler(tf.keras.layers.Layer):
     
     def __init__(self,
                  values=[10.,10.,1.],
-                 add_nu = False,
+                 # add_nu = False,
                  **kwargs
                  ):
         
         super().__init__(**kwargs)
         
         self.values = values
-        self.add_nu = add_nu
+        # self.add_nu = add_nu
         self.scaling = tf.constant(self.values, name='output_scaling', dtype=data_type)
         
     def build(self, input_shape):
@@ -1058,11 +857,11 @@ class Scaler(tf.keras.layers.Layer):
             trainable=True,
         )
         
-        self.nu = self.add_weight(name='Nu',
-                        shape = (1,),
-                        initializer = 'ones',
-                        trainable = self.add_nu,
-                        constraint = tf.keras.constraints.NonNeg())
+        # self.nu = self.add_weight(name='Nu',
+        #                 shape = (1,),
+        #                 initializer = 'ones',
+        #                 trainable = self.add_nu,
+        #                 constraint = tf.keras.constraints.NonNeg())
         
         
         
@@ -1196,208 +995,8 @@ class rPINN(tf.keras.Model):
         x = tf.keras.layers.Input(shape=in_shape)
         
         return tf.keras.Model(inputs=[x], outputs=self.call(x))
-    
-class sPINN(tf.keras.Model):
 
-    def __init__(self,
-                 n_outputs, #3
-                 n_kernel,
-                 n_layers,
-                 n_nodes,
-                 kernel_initializer = 'LecunNormal',
-                 values = [1e0,1e0,1e-1],
-                 activation    = 'sine',
-                 trainable=True,
-                 dropout=True,
-                 add_nu=False,
-                 **kwargs
-                 ):
-        
-        super().__init__(**kwargs)
-        
-        # if activation == 'sine':
-        #     activation = tf.sin
-        # elif activation == 'tanh':
-        #     activation = tf.tanh
-        # elif activation == 'swish':
-        #     activation = tf.keras.activations.swish
-        # else:
-        #     raise ValueError
-        
-        self.n_outputs  = n_outputs
-        self.n_nodes = n_nodes
-        self.n_kernel = n_kernel
-        self.n_layers = n_layers
-        self.activation      = activation
-        
-        self.add_nu     = add_nu
-        
-        self.emb    = Shift(n_nodes=n_nodes)
-        
-        # self.kernel = NNKernel(n_outputs=n_outputs,
-        #                        n_layers=n_layers,
-        #                        n_kernel=n_kernel,
-        #                        activation=activation)
-        
-        self.u_kernel = FourierKernel(n_outputs=1,
-                                   n_layers=n_layers,
-                                   n_kernel=n_kernel,
-                                   activation=activation,
-                                   kernel_initializer=kernel_initializer)
-        
-        self.v_kernel = FourierKernel(n_outputs=1,
-                                   n_layers=n_layers,
-                                   n_kernel=n_kernel,
-                                   activation=activation,
-                                   kernel_initializer=kernel_initializer)
-        
-        self.w_kernel = FourierKernel(n_outputs=1,
-                                   n_layers=n_layers,
-                                   n_kernel=n_kernel,
-                                   activation=activation,
-                                   kernel_initializer=kernel_initializer)
-        
-        self.u_linear = Linear(kernel_initializer='zeros')
-        
-        self.v_linear = Linear(kernel_initializer='zeros')
-        
-        self.w_linear = Linear(kernel_initializer='zeros')
-        
-        self.stack = StackLayer()
-        
-       
 
-        self.scale = Scaler(values, add_nu=add_nu)
-        
-    
-    def call(self, inputs, **kwargs):
-        '''
-        inputs    :    [batch_size, dimensions] 
-                        d0    :    time
-                        d1    :    altitude
-                        d2    :    x
-                        d3    :    y
-        '''
-        
-        #e = tf.einsum('ij,jk->ik', m0, m1)
-        x   = self.emb(inputs, **kwargs)
-        
-        u   = self.u_kernel(x, **kwargs)
-        v   = self.v_kernel(x, **kwargs)
-        w   = self.w_kernel(x, **kwargs)
-        
-        u = self.u_linear(u)
-        v = self.v_linear(v)
-        w = self.w_linear(w)
-        
-        uvw = self.stack(u,v,w, axis=1)
-        
-        # uvw   = self.linear(uvw, **kwargs)
-        
-        uvw  = self.scale(uvw)
-        
-        return(uvw)
-    
-    def build_graph(self, in_shape):
-        
-        x = tf.keras.layers.Input(shape=in_shape)
-        
-        return tf.keras.Model(inputs=[x], outputs=self.call(x))
-    
-class resPINN(tf.keras.Model):
-
-    def __init__(self,
-                 n_outs,
-                 n_neurons,
-                 n_layers,
-                 kernel_initializer = 'LecunNormal',
-                 values = [1e0,1e0,1e-1],
-                 activation    = 'sine',
-                 add_nu=False,
-                 laaf=1,
-                 ):
-                 
-        super().__init__()
-        
-            
-        self.n_out      = n_outs
-        self.n_neurons  = n_neurons
-        self.n_layers   = n_layers
-        
-        self.add_nu     = add_nu
-        
-        # if activation == 'sine':
-        #     self.activation = tf.sin
-        # elif activation == 'tanh':
-        #     self.activation = tf.tanh
-        # elif activation == 'swish':
-        #     self.activation = tf.keras.activations.swish
-        # else:
-        #     self.activation  = tf.keras.activations.linear
-            
-        self.emb = Embedding(n_neurons=n_neurons, kernel_initializer=kernel_initializer)
-        
-        # self._linear = Densenet(n_neurons=n_outs, n_layers=1, activation=None, name='linear', kernel_initializer=kernel_initializer)
-        
-        layers = []
-        for _ in range(n_layers):
-            layer = LaafLayer(n_neurons,
-                              activation=activation,
-                              kernel_initializer=kernel_initializer,
-                              )
-            layers.append(layer)
-        
-        self.laaf_layers = layers
-        
-        if laaf:
-            self.alphas = self.add_weight(
-                            name="alphas",
-                            shape=(n_layers+1, ),
-                            initializer="ones",
-                            # constraint = tf.keras.constraints.NonNeg(),
-                            trainable=True,   
-                        )
-        else:
-            self.alphas = tf.ones( (n_layers+1, ) )
-        
-        self.linear = Linear(n_outs, kernel_initializer=kernel_initializer)
-        
-        self.scale = Scaler(values, add_nu=add_nu)
-        
-    def call(self, inputs):
-        '''
-        inputs    :    [batch_size, dimensions] 
-                        d0    :    time
-                        d1    :    altitude
-                        d2    :    x
-                        d3    :    y
-        '''
-        
-        #e = tf.einsum('ij,jk->ik', m0, m1)
-        
-        u = self.emb(inputs, self.alphas[0])
-        
-        u = self.laaf_layers[0](u, self.alphas[1])
-        
-        output = u
-        
-        for i in range(1,self.n_layers):
-            u = self.laaf_layers[i](u, self.alphas[i+1])
-            
-            output = output + u
-        
-        output = self.linear(output)#, alpha=self.alphas[i+2])
-        
-        output = self.scale(output)
-        
-        return(output)
-    
-    def build_graph(self, in_shape):
-        
-        x = tf.keras.layers.Input(shape=in_shape)
-        
-        return tf.keras.Model(inputs=[x], outputs=self.call(x))
-    
 class DeepONetOri(tf.keras.Model):
 
     def __init__(self,
@@ -1787,3 +1386,314 @@ class MultiNet(tf.keras.Model):
         
         return tf.keras.Model(inputs=[x], outputs=self.call(x))
     
+    
+class BaseClass(tf.keras.Model):
+    
+    def __init__(self,
+                 add_nu=False,
+                 **kwargs
+                 ):
+                 
+        super().__init__()
+        
+        self.nu = self.add_weight(name='Nu',
+                        shape = (1,),
+                        initializer = 'ones',
+                        trainable = add_nu,
+                        constraint = tf.keras.constraints.NonNeg())
+    
+                
+    def call(self, inputs):
+        '''
+        inputs    :    [batch_size, dimensions] 
+                                    d0    :    time
+                                    d1    :    altitude
+                                    d2    :    x
+                                    d3    :    y
+        '''
+        
+        raise NotImplementedError("This is a base class")
+    
+    def build_graph(self, in_shape):
+        
+        x = tf.keras.layers.Input(shape=in_shape)
+        
+        return tf.keras.Model(inputs=[x], outputs=self.call(x))
+
+    def update_mask(self, *args):
+        
+        pass
+    
+class FCNClass(BaseClass):
+
+    def __init__(self,
+                 n_outs,
+                 n_neurons,
+                 n_layers,
+                 kernel_initializer = 'GlorotNormal',
+                 values = [1e0,1e0,1e0],
+                 activation    = 'sine',
+                 add_nu=False,
+                 laaf=0,
+                 dropout=0,
+                 **kwargs
+                 ):
+                 
+        super().__init__(add_nu=add_nu, **kwargs)
+        
+        self.n_out      = n_outs
+        self.n_neurons  = n_neurons
+        self.n_layers   = n_layers
+        
+        self.dropout    = dropout
+        
+        self.i          = 0
+            
+        self.emb = Embedding(n_neurons=n_neurons, kernel_initializer=kernel_initializer)
+        
+        layers = []
+        for _ in range(n_layers):
+            layer = LaafLayer(n_neurons,
+                              activation=activation,
+                              kernel_initializer=kernel_initializer,
+                              )
+            layers.append(layer)
+        
+        self.laaf_layers = layers
+        
+        if laaf:
+            self.alphas = self.add_weight(
+                            name="alphas",
+                            shape=(n_layers, ),
+                            initializer="ones",
+                            # constraint = tf.keras.constraints.NonNeg(),
+                            trainable=True,   
+                        )
+        else:
+            self.alphas = tf.ones( (n_layers, ) )
+        
+        
+        if self.dropout:
+            
+            layers = []
+            for _ in range(n_layers+1):
+                
+                drop_layer = DropoutLayer()
+                layers.append(drop_layer)
+            
+            self.dropout_layers = layers
+            
+        self.linear_layers = None
+        
+        self.scale = Scaler(values)
+    
+    def update_mask(self, n):
+    
+        if self.dropout:
+            for drop_layer in self.dropout_layers:
+                drop_layer.update_mask(n)
+    
+        
+class resPINN(FCNClass):
+
+    def __init__(self,
+                 n_outs,
+                 n_neurons,
+                 n_layers,
+                 **kwargs
+                 ):
+                 
+        super().__init__(n_outs,
+                        n_neurons,
+                        n_layers, **kwargs)
+        
+        layers = []
+        for _ in range(n_layers):
+            layer = Linear(n_outs,
+                           kernel_initializer = 'zeros',
+                           # constraint = tf.keras.constraints.NonNeg()
+                           )
+            
+            layers.append(layer)
+        
+        self.linear_layers = layers 
+        
+        
+    def call(self, inputs):
+        '''
+        inputs    :    [batch_size, dimensions] 
+                        d0    :    time
+                        d1    :    altitude
+                        d2    :    x
+                        d3    :    y
+        '''
+        
+        #e = tf.einsum('ij,jk->ik', m0, m1)
+        
+        u = self.emb(inputs)
+        
+        if self.dropout:
+            u = self.dropout_layers[0](u)
+        
+        # u = self.laaf_layers[0](u, self.alphas[0])
+        #
+        # if self.dropout:
+        #     u = self.dropout_layers[1](u)
+        
+        output = tf.constant(0.0)#self.linear_layers[0](u)
+        
+        for i in range(0,self.n_layers):
+            
+            u = self.laaf_layers[i](u, self.alphas[i])
+            
+            if self.dropout:
+                u = self.dropout_layers[i+1](u)
+            
+            output = output + self.linear_layers[i](u)
+        
+        # output = self.linear(output)#, alpha=self.alphas[i+2])
+        
+        output = self.scale(output)
+        
+        return(output)
+    
+class genericPINN(FCNClass):
+
+    def __init__(self,
+                 n_outs,
+                 n_neurons,
+                 n_layers,
+                 **kwargs
+                 ):
+                 
+        super().__init__(n_outs,
+                        n_neurons,
+                        n_layers, **kwargs)
+        
+        self.linear_layer = Linear(n_outs,
+                                   kernel_initializer = 'zeros',
+                                    # constraint = tf.keras.constraints.NonNeg()
+                                   )
+                
+    def call(self, inputs):
+        '''
+        inputs    :    [batch_size, dimensions] 
+                        d0    :    time
+                        d1    :    altitude
+                        d2    :    x
+                        d3    :    y
+        '''
+        
+        #e = tf.einsum('ij,jk->ik', m0, m1)
+        
+        u = self.emb(inputs)
+        
+        if self.dropout:
+            u = self.dropout_layers[0](u)
+        
+        for i in range(0,self.n_layers):
+            u = self.laaf_layers[i](u, self.alphas[i])
+            
+            if self.dropout:
+                u = self.dropout_layers[i+1](u)
+        
+        u = self.linear_layer(u)
+        
+        output = self.scale(u)
+        
+        return(output)
+
+class sPINN(BaseClass):
+
+    def __init__(self,
+                 n_outputs, #3
+                 n_kernel,
+                 n_layers,
+                 n_nodes,
+                 kernel_initializer = 'LecunNormal',
+                 values = [1e0,1e0,1e0],
+                 activation    = 'sine',
+                 add_nu=False,
+                 **kwargs
+                 ):
+        
+        super().__init__(add_nu=add_nu, **kwargs)
+        
+        # if activation == 'sine':
+        #     activation = tf.sin
+        # elif activation == 'tanh':
+        #     activation = tf.tanh
+        # elif activation == 'swish':
+        #     activation = tf.keras.activations.swish
+        # else:
+        #     raise ValueError
+        
+        self.n_outputs  = n_outputs
+        self.n_nodes = n_nodes
+        self.n_kernel = n_kernel
+        self.n_layers = n_layers
+        self.activation      = activation
+        
+        self.emb    = Shift(n_nodes=n_nodes)
+        
+        # self.kernel = NNKernel(n_outputs=n_outputs,
+        #                        n_layers=n_layers,
+        #                        n_kernel=n_kernel,
+        #                        activation=activation)
+        
+        self.u_kernel = FourierKernel(n_outputs=1,
+                                   n_layers=n_layers,
+                                   n_kernel=n_kernel,
+                                   activation=activation,
+                                   kernel_initializer=kernel_initializer)
+        
+        self.v_kernel = FourierKernel(n_outputs=1,
+                                   n_layers=n_layers,
+                                   n_kernel=n_kernel,
+                                   activation=activation,
+                                   kernel_initializer=kernel_initializer)
+        
+        self.w_kernel = FourierKernel(n_outputs=1,
+                                   n_layers=n_layers,
+                                   n_kernel=n_kernel,
+                                   activation=activation,
+                                   kernel_initializer=kernel_initializer)
+        
+        self.u_linear = Linear(kernel_initializer='zeros')
+        
+        self.v_linear = Linear(kernel_initializer='zeros')
+        
+        self.w_linear = Linear(kernel_initializer='zeros')
+        
+        self.concat = ConcatLayer()
+        
+        self.scale = Scaler(values)
+        
+    
+    def call(self, inputs, **kwargs):
+        '''
+        inputs    :    [batch_size, dimensions] 
+                        d0    :    time
+                        d1    :    altitude
+                        d2    :    x
+                        d3    :    y
+        '''
+        
+        #e = tf.einsum('ij,jk->ik', m0, m1)
+        x   = self.emb(inputs)
+        
+        u   = self.u_kernel(x)
+        v   = self.v_kernel(x)
+        w   = self.w_kernel(x)
+        
+        u = self.u_linear(u)
+        v = self.v_linear(v)
+        w = self.w_linear(w)
+        
+        uvw = self.concat(u,v,w, axis=1)
+        
+        # uvw   = self.linear(uvw, **kwargs)
+        
+        uvw  = self.scale(uvw)
+        
+        return(uvw)

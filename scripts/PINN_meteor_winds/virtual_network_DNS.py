@@ -24,9 +24,9 @@ if __name__ == '__main__':
     #Read meteor data in LLA coordinates
     meteorsys = SMRReader(path_meteor_data)
     
-    lat_center, lon_center, alt_center = meteorsys.get_spatial_center()
+    lon_center, lat_center, alt_center = meteorsys.get_spatial_center()
     
-    modelsys.set_meteor_spatial_center(lat_center, lon_center, alt_center)
+    modelsys.set_meteor_spatial_center(lat_ref=lat_center, lon_ref=lon_center, alt_ref=alt_center)
     
     subfolder = 'DNSx10_%+03d%+03d%+03d' %(lon_center, lat_center, alt_center)
     

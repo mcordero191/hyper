@@ -517,18 +517,23 @@ def main(path_ICON_model,
     filename = os.path.join(path_PINN, model_name)
     
     figpath = os.path.join(path_PINN, 'final_plots_4_%s' %(os.path.splitext(model_name)[0]))
-    if not os.path.exists(figpath): os.mkdir(figpath)
+    
+    if not os.path.exists(figpath):os.mkdir(figpath)
         
     figpath = os.path.join(figpath, 'full_%s' %log_index)
-    if not os.path.exists(figpath): os.mkdir(figpath)
+    
+    if not os.path.exists(figpath):
+        os.mkdir(figpath)
+    # else:
+    #     return
     
     alt_range = 18
     lon_range = 5
     lat_range = 3
     
-    decX = 1
-    decY = 1
-    decZ = 4
+    decX = 4
+    decY = 4
+    decZ = 2
     
     # if not (plot_fields):
     #     decX = 5
@@ -583,6 +588,8 @@ def main(path_ICON_model,
                     alt_center = alt_center,
                     units=units,
                     )
+    
+    print("Dataset dimension:", ALT.shape )
     
     #Dimensions [alt, lat, lon] <> [z,y,x]
     dz, _, _ = derivative(Z)
@@ -1024,27 +1031,30 @@ if __name__ == '__main__':
     model_name  =   'model_20160815-000000_w03_n0.0_NS[VP_div]_o3_asine_l04_n128_d016_w1.0e+00_w1.0e-03_lr1.0e-03_NS5.0e+03_0_0_He_None_ur=1.0e-03.h5'
     
     
-    subfolder   =   'nnRESPINN_3.25'
+    subfolder   =   'nnDEEPONET_12.01'
     model_name      = None
     
     log_index       = None
     
     units           = 'm'
     gradients       = False
-    plot_fields     = True
+    plot_fields     = False
     save_cuts       = False
     
     path_data = os.path.split( os.path.realpath(path_meteor_data) )[0]
     path_PINN = os.path.join(path_data, 'winds', subfolder)
     
     if model_name is None:
-        models = glob.glob1(path_PINN, '*model*[!s].h5')
+        models = glob.glob1(path_PINN, 'h*[!s].h5')
         models = sorted(models)
     else:
         models = [model_name] 
     
     
-    for model_name in models:
+    for model_name in models[10:]:
+        
+        print("\nProcessing %s\n" %model_name)
+        
         main(path_ICON_model, 
              path_meteor_data,
              model_name,

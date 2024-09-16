@@ -368,7 +368,7 @@ def main(model_name, decS=1, decZ=10,
          zdecimation=1,
          ):
     
-    figpath = os.path.join(path_PINN, 'final_%s' %(os.path.splitext(model_name)[0]) )
+    figpath = os.path.join(path_PINN, '%s' %(os.path.splitext(model_name)[0]) )
     
     if not os.path.exists(figpath):
         os.mkdir(figpath)
@@ -505,8 +505,8 @@ def main(model_name, decS=1, decZ=10,
         #     skip_block = True
         
         j += 1
-        # if j >= 10:
-        #     break
+        if j >= 10:
+            break
         
         df = model_sys.read_next_block(skip_block=skip_block)
         if df is None: break  
@@ -853,29 +853,29 @@ if __name__ == '__main__':
     subfolder = 'nnIPINN_15.03'
     
     model_name = None #'mean_model_20181102-000000_w04_n0.3_NS[VV]_o3_asine_l03_n064_d032_b02_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_0_HeNorm_None_ur=1.0e-05.h5'
-    subfolder = 'nnRESPINN_14.00'
+    subfolder = 'nnDEEPONET_12.07'
     
     log_index       = None
     
     units           = 'm'
     gradients       = False
-    plot_fields     = True
-    sevenfold       = True
+    plot_fields     = False
+    sevenfold       = False
     rti_type        = 'corr'
-    save_cuts       = False
+    save_cuts       = True
         
     path_data = os.path.split( os.path.realpath(path_meteor_data) )[0]
     path_PINN = os.path.join(path_data, "winds", subfolder)
     
     if model_name is None:
-        models = glob.glob1(path_PINN, '*model*[!s].h5')
+        models = glob.glob1(path_PINN, 'h*[!s].h5')
         models = sorted(models)
     else:
         models = [  model_name ]
     
     for model_name in models[:]:
         # try:
-        main(model_name, decS=1, decZ=20,
+        main(model_name, decS=1, decZ=1,
              plot_rti=False,
              zdecimation=1,
              )

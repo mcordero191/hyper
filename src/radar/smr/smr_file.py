@@ -7,7 +7,6 @@ import os, glob
 import h5py
 from datetime import datetime
 
-
 import numpy as np
 import pandas as pd
 
@@ -18,11 +17,14 @@ import matplotlib.colors as colors
 
 from sklearn.preprocessing import LabelEncoder
 
-from georeference.geo_coordinates import lla2xyh, lla2enu
+from radar.smr.standard_methods import mean_wind_grad
+
+from georeference.geo_coordinates import lla2enu
 from utils.clustering import hierarchical_cluster
 
 from utils.histograms import ax_2dhist_simple
 from utils.plotting import epoch2num
+from utils.plotting import plot_mean_winds
 
 stations = {}
 stations['collm']       = [51.31, 13.0, 10e-3]
@@ -40,99 +42,153 @@ stations['tromso']      = [69.58, 19.22, 10e-3]
 stations['alta']        = [69.96, 23.29, 10e-3]
 stations['straumen']    = [67.40, 15.6, 10e-3]
 
-def get_xyz_bounds(x, y, z, n=4):
+def get_xyz_bounds(x, y, z, factor=3.0):
     
-    # xsigma = np.std(x)
-    # ysigma = np.std(y)
-    # zsigma = np.std(z)
+    from scipy import stats
     
-    xbins = np.arange( np.min(x), np.max(x)+30e3, 30e3)
-    ybins = np.arange( np.min(y), np.max(y)+30e3, 30e3)
-    zbins = np.arange( np.min(z), np.max(z)+1e3, 1e3)
+    x0 = np.median(x)
+    y0 = np.median(y)
+    z0 = np.median(z)
     
-    hist, edges = np.histogramdd( np.array([x, y, z]).T, (xbins, ybins, zbins) )
+    xsigma = stats.median_abs_deviation(x)
+    ysigma = stats.median_abs_deviation(y)
+    zsigma = stats.median_abs_deviation(z)
     
-    valid = np.where(hist >= 10)
+    mask_x = np.abs(x - x0) < factor*xsigma
+    mask_y = np.abs(y - y0) < factor*ysigma
+    mask_z = np.abs(z - z0) < 1.5*factor*zsigma
     
-    idx0 = np.min(valid, axis=1)
-    idx1 = np.max(valid, axis=1)
+    valid = (mask_x & mask_y & mask_z)
     
-    xmin = edges[0][idx0[0]]
-    xmax = edges[0][idx1[0]+1]
+    return (valid)
     
-    ymin = edges[1][idx0[1]]
-    ymax = edges[1][idx1[1]+1]
-    
-    zmin = edges[2][idx0[2]]
-    zmax = edges[2][idx1[2]+1]
-    
-    
-    return( xmax-xmin, ymax-ymin, zmax-zmin )
+    # xbins = np.arange( np.min(x), np.max(x)+30e3, 30e3)
+    # ybins = np.arange( np.min(y), np.max(y)+30e3, 30e3)
+    # zbins = np.arange( np.min(z), np.max(z)+1e3, 1e3)
+    #
+    # hist, edges = np.histogramdd( np.array([x, y]).T, (xbins, ybins) )
+    #
+    # valid = np.where(hist >= 30)
+    #
+    # idx0 = np.min(valid, axis=1)
+    # idx1 = np.max(valid, axis=1)
+    #
+    # xmin = edges[0][idx0[0]]
+    # xmax = edges[0][idx1[0]+1]
+    #
+    # ymin = edges[1][idx0[1]]
+    # ymax = edges[1][idx1[1]+1]
+    #
+    # hist, edges = np.histogramdd( np.array([z,]).T, (zbins,) )
+    #
+    # valid = np.where(hist >= 30)
+    #
+    # idx0 = np.min(valid, axis=1)
+    # idx1 = np.max(valid, axis=1)
+    #
+    # zmin = edges[0][idx0[0]]
+    # zmax = edges[0][idx1[0]+1]
+    #
+    #
+    # return( xmax-xmin, ymax-ymin, zmax-zmin )
 
-def plot_hist(df):
+from scipy.spatial import KDTree
+
+def remove_close_clusters(df, spatial_threshold=5e3, temporal_threshold=30):
+    """
+    Removes points that are too close in both time and space from a DataFrame.
+
+    Parameters:
+    - df: pandas DataFrame with columns 't', 'x', 'y', 'z'
+    - spatial_threshold: minimum allowed spatial distance between points
+    - temporal_threshold: minimum allowed temporal distance between points
+
+    Returns:
+    - Filtered pandas DataFrame with points that are not clustered.
+    """
     
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import seaborn as sns
+    # Sort the DataFrame by time
+    df_sorted = df.sort_values(by='times').reset_index(drop=True)
     
-    # Specify the location you are interested in
-    x_location = 14.25
-    y_location = 70.35
-    z_location = 96
+    # Extract the spatial coordinates and time values
+    coordinates = df_sorted[['x', 'y', 'z']].to_numpy()
+    times = df_sorted['times'].to_numpy()
+    links = df_sorted['link'].to_numpy()
     
-    # Define a tolerance for matching the irregular steps
-    tolerance = 1
-    ztolerance = 1
+    # Use KDTree for efficient spatial queries
+    spatial_tree = KDTree(coordinates)
     
-    t0 = df['t'].min() + pd.to_timedelta(21*60*60, unit='s')  
-    ttolerance = pd.to_timedelta(30*60, unit='s') 
+    keep_indices = []
+    discard = np.zeros(len(df_sorted), dtype=bool)
     
-    valid  = (df['lons'].between(x_location - tolerance, x_location + tolerance))
-    valid &= (df['lats'].between(y_location - tolerance, y_location + tolerance))
-    valid &= (df['heights'].between(z_location - ztolerance, z_location + ztolerance)) 
-    valid &= (df['t'].between(t0 - ttolerance, t0 + ttolerance))
+    for i in range(len(df_sorted)):
+        
+        # if discard[i]:
+        #     continue
+        
+        # Get indices of nearby points within the spatial threshold
+        spatial_neighbors = spatial_tree.query_ball_point(coordinates[i], spatial_threshold)
+        
+        for neighbor in spatial_neighbors:
+            
+            if neighbor == i:
+                continue
+            
+            if links[neighbor] != links[i]:
+                continue
+            
+            # Check the temporal distance
+            temporal_distance = abs(times[i] - times[neighbor])
+            
+            if temporal_distance < temporal_threshold:
+                # discard[neighbor] = True
+                discard[i] = True
+                break
+        
+        if discard[i]:
+            continue
+        
+        keep_indices.append(i)
     
-    # Filter the DataFrame for the specific location with the given tolerance
-    filtered_df = df[valid]
+    # df_removed = df_sorted.drop(keep_indices)
+    #
+    # t0 = df_sorted['times']
+    # x0 = df_sorted['z']
+    #
+    # t = df_removed['times']
+    # x = df_removed['z']
+    #
+    # plt.plot(t0, x0, "bo", alpha=0.3)
+    # plt.plot(t, x, "rx", alpha=0.3)
+    # plt.show()
     
-    # print(filtered_df)
-    
-    # Extract the temperature values
-    temperature_values = filtered_df['dops']
-    
-    # Check if the filtered DataFrame is empty
-    if temperature_values.empty:
-        print(f"No data available for location (x={x_location}, y={y_location}) within the tolerance.")
-    else:
-        # Plot the histogram
-        plt.figure(figsize=(8, 6))
-        sns.histplot(temperature_values, bins=10, kde=True)
-        plt.title(f'Histogram of Temperature Values at Location (x={x_location}, y={y_location})')
-        plt.xlabel('Temperature')
-        plt.ylabel('Frequency')
-        plt.show()
-    
+    # Return filtered DataFrame
+    return df_sorted.iloc[keep_indices]
+
     
 def filter_data(df, tini=0, dt=24,
-                dlon=None, dlat=None, dh=None,
-                lon_center=None,
-                lat_center=None,
-                alt_center=None,
-                sevenfold=False):
+                sevenfold=False,
+                overlapping_time = 30*60,
+                central_date=None,
+                **kwargs
+                ):
     
-    if tini >= 0:
+    if central_date is not None:
+        tbase = central_date
+    elif tini >= 0:
         tbase = pd.to_datetime( df['t'].min() )
     else:
         tbase = pd.to_datetime( df['t'].max() )
         
     t = tbase + pd.to_timedelta(tini, unit='h') # Center time for reconstruction
     
-    tmin = pd.to_datetime(t) #- pd.to_timedelta(dt/2, unit='h')
-    tmax = pd.to_datetime(t) + pd.to_timedelta(dt*60*60, unit='s')        
+    tmin = t - pd.to_timedelta(overlapping_time, unit='s')
+    tmax = t + pd.to_timedelta(dt*60*60 + overlapping_time, unit='s')        
     
     ##################################################
     
-    valid  = (df['t'] >= tmin)       & (df['t'] <= tmax)
+    
+    valid  = (df['t'] >= tmin) & (df['t'] <= tmax)
     df = df[valid]
     
     ##################################################
@@ -145,14 +201,9 @@ def filter_data(df, tini=0, dt=24,
             
     ##################################################
     
-    # dxy = np.sqrt( df['dcosx']**2 + df['dcosy']**2 )
-    # zenith = np.arcsin(dxy)*180/np.pi
-    # df = df[zenith < 60]
-    
-    ########################
-    
-    # std = np.std(df['dop_errs'])
-    # df = df[ np.abs(df['dop_errs']) <= 5*std]
+    dxy = np.sqrt( df['dcosx']**2 + df['dcosy']**2 )
+    zenith = np.arcsin(dxy)*180/np.pi
+    df = df[zenith < 70]
     
     ########################
     
@@ -160,9 +211,9 @@ def filter_data(df, tini=0, dt=24,
     
     le = LabelEncoder()
     le.fit(links)
-    nlinks = len(le.classes_)
+    nlinks = 1#len(le.classes_)
     
-    for _ in range(1):
+    for _ in range(nlinks):
     #########################
     ### Outliers removal ##########
         
@@ -188,49 +239,57 @@ def filter_data(df, tini=0, dt=24,
         if np.count_nonzero(~valid) == 0:
             break
         
+        # print("Removing %d meteor samples ..." %(df.size - valid.size))
         df = df[valid]
     
     #####################################################
     
-    x = df['x']
-    y = df['y']
-    z = df['z']
-    
+    # x = df['x']
+    # y = df['y']
+    # z = df['z']
+    #
     # attrs = df.attrs
     # xmid = attrs['lon_center']
     # ymid = attrs['lat_center']
     # zmid = attrs['alt_center']
     
-    if lon_center is not None: xmid = lon_center
-    else: xmid = np.round( x.mean(), 1)
-    
-    if lat_center is not None: ymid = lat_center
-    else: ymid = np.round( y.mean(), 1)
-    
-    if alt_center is not None: zmid = alt_center
-    else: zmid = np.round( z.mean(), 1)
-    
-    # print('Filter middle point:', xmid, ymid, zmid)
-    
-    dlon0, dlat0, dh0 = get_xyz_bounds(x, y, z)
-    
-    if (dlon is None): dlon = dlon0
-    if (dlat is None): dlat = dlat0
-    if (dh is None)  : dh   = dh0
-    
-    # Set boundary
-    xmin = xmid - dlon/2
-    xmax = xmid + dlon/2
-    ymin = ymid - dlat/2
-    ymax = ymid + dlat/2
-    zmin = zmid - dh/2
-    zmax = zmid + dh/2
-    
-    valid  = (x >= xmin) & (x <= xmax)
-    valid &= (y >= ymin) & (y <= ymax) 
-    valid &= (z >= zmin) & (z <= zmax)
+    # if lon_center is not None: xmid = lon_center
+    # else: xmid = np.round( x.mean(), 1)
+    #
+    # if lat_center is not None: ymid = lat_center
+    # else: ymid = np.round( y.mean(), 1)
+    #
+    # xmid = 0
+    # ymid = 0
+    # zmid = np.round( z.mean(), 1)
+    #
+    # # print('Filter middle point:', xmid, ymid, zmid)
+    #
+    # dlon0, dlat0, dh0 = get_xyz_bounds(x, y, z)
+    #
+    # if (dlon is None): dlon = dlon0
+    # if (dlat is None): dlat = dlat0
+    # if (dh is None)  : dh   = dh0
+    #
+    # # Set boundary
+    # xmin = xmid - dlon/2
+    # xmax = xmid + dlon/2
+    # ymin = ymid - dlat/2
+    # ymax = ymid + dlat/2
+    # zmin = zmid - dh/2
+    # zmax = zmid + dh/2
+    #
+    # valid  = (x >= xmin) & (x <= xmax)
+    # valid &= (y >= ymin) & (y <= ymax) 
+    # valid &= (z >= zmin) & (z <= zmax)
     
         #tbase = pd.to_datetime(dfraw['t'][0].date())
+    
+    lons = df['lons']
+    lats = df['lats']
+    alts = df['heights']
+    
+    valid = get_xyz_bounds(lons, lats, alts)
     
     df = df[valid]
     
@@ -330,7 +389,7 @@ def plot_spatial_sampling(df, path, suffix='', lla=True, cmap='jet',
     
     # _, axs = plt.subplots(2, 3, figsize=(12,10))
     
-    fig = plt.figure(figsize=(12,10))
+    _ = plt.figure(figsize=(12,10))
     plt.suptitle('Meteor counts: %d' %total_counts)
     
     ax0 = plt.subplot2grid((3,3), (0,0), rowspan=1, colspan=2)
@@ -452,20 +511,20 @@ def plot_2point_sampling(df, path,
     
     if lla:
         x = df['lons'].values.astype(dtype)[:N]
-        y = df['lats'].values.astype(dtype)[:N]
-        z = df['heights'].values.astype(dtype)[:N]
-        
-        xlabel = 'Longitude'
-        ylabel = 'Latitude'
-        zlabel = 'Altitude (km)'
+        # y = df['lats'].values.astype(dtype)[:N]
+        # z = df['heights'].values.astype(dtype)[:N]
+        #
+        # xlabel = 'Longitude'
+        # ylabel = 'Latitude'
+        # zlabel = 'Altitude (km)'
     else:
         x = df['x'].values.astype(dtype)[:N]*1e-3
-        y = df['y'].values.astype(dtype)[:N]*1e-3
-        z = df['z'].values.astype(dtype)[:N]*1e-3
-        
-        xlabel = 'X (m)'
-        ylabel = 'Y (m)'
-        zlabel = 'Z (m)'
+        # y = df['y'].values.astype(dtype)[:N]*1e-3
+        # z = df['z'].values.astype(dtype)[:N]*1e-3
+        #
+        # xlabel = 'X (m)'
+        # ylabel = 'Y (m)'
+        # zlabel = 'Z (m)'
         
     #
     # indices = np.arange(t.shape[0])
@@ -509,7 +568,7 @@ def plot_2point_sampling(df, path,
     
     fig.write_image(filename, format='png') 
     
-def plot_Doppler_sampling(df_unfiltered, df, path="./", suffix='',
+def plot_Doppler_sampling(df_unfiltered, df, path="./",
                           lla=True, cmap='jet',
                           label_colorbar='meteor counts',
                           vmin=-10, vmax=10,
@@ -517,7 +576,9 @@ def plot_Doppler_sampling(df_unfiltered, df, path="./", suffix='',
                           umin=-50, umax=50,
                           bins=40,
                           density=False,
-                          noise=None):
+                          noise=None,
+                          suffix="",
+                          ):
     
     # bins_u = np.linspace(umin, umax, bins)
     # bins_w = np.linspace(vmin, vmax, bins)
@@ -539,7 +600,7 @@ def plot_Doppler_sampling(df_unfiltered, df, path="./", suffix='',
     derr = df['dop_errs'].values
     
     dops_unf = df_unfiltered['dops'].values
-    derr_unf = df_unfiltered['dop_errs'].values
+    # derr_unf = df_unfiltered['dop_errs'].values
     
     std = np.std(dops)
     std_unf = np.std(dops_unf)
@@ -548,7 +609,7 @@ def plot_Doppler_sampling(df_unfiltered, df, path="./", suffix='',
     # v = df['v'].values                              #[N]
     # w = df['w'].values 
     
-    dxy = np.sqrt( df['dcosx']**2 + df['dcosy']**2 )
+    dxy = np.sqrt( df['dcosx'].values**2 + df['dcosy'].values**2 )
     zenith = np.arcsin(dxy)*180/np.pi
     
     filename = os.path.join(path, 'sampling_Dopp_%s.png' %(suffix) )
@@ -760,321 +821,47 @@ def plot_Doppler_sampling(df_unfiltered, df, path="./", suffix='',
     plt.savefig(filename)
     plt.close()
     
+def plot_hist(df):
     
-class SMRReader(object):
+    import seaborn as sns
     
-    n_samples = None
-    times = None
-    latitudes = None
-    longitudes = None
-    altitudes = None
+    # Specify the location you are interested in
+    x_location = 14.25
+    y_location = 70.35
+    z_location = 96
     
-    braggs = None
-    dopplers = None
+    # Define a tolerance for matching the irregular steps
+    tolerance = 1
+    ztolerance = 1
     
-    u = None
-    v = None
-    w = None
+    t0 = df['t'].min() + pd.to_timedelta(21*60*60, unit='s')  
+    ttolerance = pd.to_timedelta(30*60, unit='s') 
     
-    x = None
-    y = None
-    z = None
+    valid  = (df['lons'].between(x_location - tolerance, x_location + tolerance))
+    valid &= (df['lats'].between(y_location - tolerance, y_location + tolerance))
+    valid &= (df['heights'].between(z_location - ztolerance, z_location + ztolerance)) 
+    valid &= (df['t'].between(t0 - ttolerance, t0 + ttolerance))
     
-    r = None
+    # Filter the DataFrame for the specific location with the given tolerance
+    filtered_df = df[valid]
     
-    file_index = 0
-            
-    def __init__(self, path, realtime=False, pattern='*'):
-        
-        files = self.__find_files(path, pattern=pattern)
-        
-        if len(files) == 0:
-            raise ValueError('No files found in %s' %path )
-        
-        self.path = path
-        
-        df = self.__read_data(files[0], enu_coordinates=False)
-        
-        self.df = df
-        self.unfiltered_df = df
-        self.files = files
-        
-        if realtime:
-            self.file_index = len(files) - 2
-        else:
-            self.file_index = -1
+    # print(filtered_df)
     
-        self.set_spatial_center()
-        
-    def __find_files(self, path, pattern='*'):
-        
-        files = glob.glob1(path, "%s.h5" %pattern )
-        files = sorted(files)
-        
-        return(files)
+    # Extract the temperature values
+    temperature_values = filtered_df['dops']
     
-    def __read_data(self, filename, enu_coordinates=True):
-        
-        file = os.path.join(self.path, filename)
-        
-        with h5py.File(file,'r') as fp:
+    # Check if the filtered DataFrame is empty
+    if temperature_values.empty:
+        print(f"No data available for location (x={x_location}, y={y_location}) within the tolerance.")
+    else:
+        # Plot the histogram
+        plt.figure(figsize=(8, 6))
+        sns.histplot(temperature_values, bins=10, kde=True)
+        plt.title(f'Histogram of Temperature Values at Location (x={x_location}, y={y_location})')
+        plt.xlabel('Temperature')
+        plt.ylabel('Frequency')
+        plt.show()
 
-            times   = fp['t'][()]
-            link    = fp['link'][()]
-            alt     = fp['heights'][:]*1e-3 #To km
-            lat     = fp['lats'][:]
-            lon     = fp['lons'][:]
-            dopplers    = fp['dops'][:]
-            dop_errs    = fp['dop_errs'][:]
-            braggs      = fp['braggs'][:]
-            
-            try:
-                dcosx       = fp['dcos'][:,0]
-                dcosy       = fp['dcos'][:,1]
-            except:
-                dcosx   =   alt*0
-                dcosy   =   alt*0
-            
-            empty_data = np.zeros_like(times, dtype=np.float64) + np.nan
-            
-            if 'u' in fp.keys():
-                u = fp['u'][:]
-                v = fp['v'][:]
-                w = fp['w'][:]
-            else:
-                u = empty_data
-                v = empty_data
-                w = empty_data
-            
-            if 'temp' in fp.keys():
-                T = fp['temp'][:]   #Kelvin
-                P = fp['pres'][:]   #Pascal <> N/m2
-                rho = fp['rho'][:]  #kg/m3
-                tke = fp['tke'][:]  #m2/s2
-            else:
-                T = empty_data
-                P = empty_data
-                rho = empty_data
-                tke = empty_data
-                
-            
-            if 'SMR_like' in fp.keys():
-                smr_like = fp['SMR_like'][:]
-            else:
-                smr_like = np.ones_like(times)
-        
-        self.ini_time = np.nanmin(times)
-        self.n_samples = len(times)
-        
-        t = pd.to_datetime(times, unit='s')
-        df = pd.DataFrame(data = t, columns=['t'])
-        
-        df['times'] = times
-        df['link'] = link
-        df['lats'] = lat
-        df['lons'] = lon
-        df['heights'] = alt #km
-        
-        df['dop_errs'] = dop_errs
-        df['braggs_x'] = braggs[:,0]
-        df['braggs_y'] = braggs[:,1]
-        df['braggs_z'] = braggs[:,2]
-        df['dcosx'] = dcosx
-        df['dcosy'] = dcosy
-        
-        #DNS, Scale by 10
-        df['dops'] = dopplers
-        
-        df['u'] = u
-        df['v'] = v
-        df['w'] = w
-        
-        df['T'] = T
-        df['P'] = P
-        df['rho'] = rho
-        df['tke'] = tke
-        
-        df['SMR_like'] = smr_like
-        
-        df = df[df.dops.notnull()]
-        
-        ### Meteor geolocation
-        # getting the radius at each point, the difference with respect to getting the radius to a reference point is less than 40 meters.
-        
-        if enu_coordinates:
-            #Make calculations with filtered data
-            lats = df['lats'].values
-            lons = df['lons'].values
-            alts = df['heights'].values
-            
-            # x0,y0,h0 = lla2xyh(lats=lats, lons=lons, alts=alts,
-            #                 lat_center=self.lat_center,
-            #                 lon_center=self.lon_center,
-            #                 alt_center=self.alt_center,
-            #                 )
-            
-            x,y,_ = lla2enu(lats, lons, alts,
-                            lat_ref=self.lat_center,
-                            lon_ref=self.lon_center,
-                            alt_ref=self.alt_center,
-                            units='m',
-                            )
-            
-            ##################
-            #xyz coordinates in m
-            df['x'] = x
-            df['y'] = y
-            df['z'] = alts*1e3
-            
-            attrs = {}
-            attrs['lon_center'] = self.lon_center
-            attrs['lat_center'] = self.lat_center
-            attrs['alt_center'] = self.alt_center
-            
-            df.attrs = attrs
-        
-        # mask = (df['SMR_like'] == 1)
-        # df = df[mask]
-        
-        df.sort_values(['times'], inplace=True, ignore_index=True)
-        
-        return(df)
-    
-    def get_initial_time(self):
-        
-        return(self.ini_time)
-    
-    def set_spatial_center(self, lat_center=None, lon_center=None, alt_center=None):
-        
-        if lat_center is None:
-            lat_center = np.round( np.mean(self.df['lats'].values), 1)
-            
-        if lon_center is None:
-            lon_center = np.round( np.mean(self.df['lons'].values), 1)
-        
-        if alt_center is None:
-            alt_center = np.round( np.mean(self.df['heights'].values), 1)
-              
-        self.lat_center = lat_center
-        self.lon_center = lon_center
-        self.alt_center = alt_center
-        
-        print('Meteor middle point (LLA): ', self.lon_center, self.lat_center, self.alt_center)
-        
-    def get_spatial_center(self):
-        
-        return(self.lat_center, self.lon_center, self.alt_center)
-    
-    def get_rx_tx_lla(self, index):
-        
-        link = self.df['link'][index].decode('ascii', 'replace')
-        link = link.split('-')[0]
-        tx, rx = link.split('_')[0:2]
-        
-        tx_lla = stations[tx]
-        rx_lla = stations[rx]
-        
-        return(tx_lla, rx_lla)
-        
-    def read_next_file(self, enu_coordinates=False):
-        
-        self.file_index += 1
-        
-        if self.file_index >= len(self.files):
-            return 0
-        
-        for _ in range(1):
-            filename = self.files[self.file_index]
-            df = self.__read_data(filename, enu_coordinates=enu_coordinates)
-            print('\nMeteor file %s [t=%2.1f]' %(filename, self.ini_time) )
-
-            self.df = df
-            self.unfiltered_df = df
-            
-            
-        self.filename = filename
-        
-        return(1)   
-    
-    def save_block(self, rpath, df=None, filename=None, dropnan=True):
-        
-        if df is None:
-            df = self.df
-        
-        if filename is None:
-            fullfile = self.files[self.file_index]
-            _, filename = os.path.split(fullfile)
-            filename = os.path.join(rpath, 'virt_'+filename)
-        
-        if dropnan:
-            df = df.dropna(subset=['dops'])
-        
-        braggs = np.array( [df['braggs_x'].values,
-                            df['braggs_y'].values,
-                            df['braggs_z'].values
-                            ]
-                        )
-        
-        fp = h5py.File(filename,'w')
-
-        fp['link']      = df['link'].values
-        fp['heights']   = df['heights'].values*1e3 #To m
-        fp['lats']      = df['lats'].values
-        fp['lons']      = df['lons'].values
-        fp['dops']      = df['dops'].values
-        fp['dop_errs']  = df['dop_errs'].values
-        fp['braggs']    = braggs.T
-        # fp['dcosx']     = self.dcosx
-        # fp['dcosy']     = self.dcosy  
-        fp['t']         = df['times'].values
-        fp['u']         = df['u'].values
-        fp['v']         = df['v'].values
-        fp['w']         = df['w'].values
-        
-        fp['temp']        = df['T'].values  #Kevin
-        fp['pres']        = df['P'].values  #Pascal
-        fp['rho']         = df['rho'].values    #kg/m3
-        fp['tke']         = df['tke'].values    #m2/s2
-        
-        if 'SMR_like' in df.keys():
-            fp['SMR_like']    = df['SMR_like'].values
-        
-        for key in df.attrs.keys():
-            fp.attrs[key] = df.attrs[key]
-            
-        fp.close()
-    
-    def filter(self, **kwargs):
-        
-        df = self.df
-        df_filtered = filter_data(df, **kwargs)
-        
-        self.df  = df_filtered
-        
-    def plot_sampling(self, suffix="", **kwargs):
-        
-        df = self.df
-        
-        ini_date = self.get_initial_date()
-        
-        suffix += ini_date.strftime('%Y%m%d')
-        
-        plot_spatial_sampling(df, suffix=suffix, **kwargs)
-        
-        return
-    
-    def plot_hist(self, **kwargs):
-        
-        df = self.df
-        df_unfiltered = self.unfiltered_df
-        
-        plot_Doppler_sampling(df_unfiltered, df, **kwargs)
-        
-    def get_initial_date(self):
-        
-        ini_date = datetime.utcfromtimestamp(self.df['times'].min()) 
-        
-        return(ini_date)
         
 
 def read_doppler_hdf5(fn, latref = 54., lonref = 12.5,
@@ -1150,6 +937,17 @@ def read_wind_hdf5(fn):
     
     return df
 
+def save_mean_winds(df, filename):
+    
+    # Open HDF5 file and write in the data_dict structure and info
+    with h5py.File(filename,'w') as fp:
+        
+        for key in df.keys():
+        
+            fp[key] = df[key]
+
+    
+    
 def plot_winds(x, y,
                u, v, w,
                min_value=-50,
@@ -1315,8 +1113,409 @@ def test_wind_files():
                      X.flatten(), Y.flatten(), Z.flatten(),
                      u.flatten(), v.flatten(), w.flatten(),
                      figpath=figpath)
+                
+class SMRReader(object):
+    
+    n_samples = None
+    times = None
+    latitudes = None
+    longitudes = None
+    altitudes = None
+    
+    braggs = None
+    dopplers = None
+    
+    u = None
+    v = None
+    w = None
+    
+    x = None
+    y = None
+    z = None
+    
+    r = None
+    
+    file_index = 0
+            
+    def __init__(self, path, realtime=False, pattern='*'):
+        
+        files = self.__find_files(path, pattern=pattern)
+        
+        if len(files) == 0:
+            raise ValueError('No files found in %s' %path )
+        
+        self.path = path
+        
+        df = self.__read_data(files[0], enu_coordinates=False)
+        
+        self.df = df
+        self.unfiltered_df = df
+        self.files = files
+        
+        if realtime:
+            self.file_index = len(files) - 2
+        else:
+            self.file_index = 0
+    
+        self.set_spatial_center()
+        
+        print('Default meteor middle point (LLA): ', self.lon_center, self.lat_center, self.alt_center)
+        
+    def __find_files(self, path, pattern='*'):
+        
+        files = glob.glob1(path, "%s.h5" %pattern )
+        files = sorted(files)
+        
+        return(files)
+    
+    def __read_data(self, filename, enu_coordinates=True):
+        
+        file = os.path.join(self.path, filename)
+        
+        with h5py.File(file,'r') as fp:
+
+            times   = fp['t'][()]
+            link    = fp['link'][()]
+            alt     = fp['heights'][:]*1e-3 #To km
+            lat     = fp['lats'][:]
+            lon     = fp['lons'][:]
+            dopplers    = fp['dops'][:]
+            dop_errs    = fp['dop_errs'][:]
+            braggs      = fp['braggs'][:]
+            
+            try:
+                dcosx       = fp['dcos'][:,0]
+                dcosy       = fp['dcos'][:,1]
+            except:
+                dcosx   =   alt*0
+                dcosy   =   alt*0
+            
+            empty_data = np.zeros_like(times, dtype=np.float64) + np.nan
+            
+            if 'u' in fp.keys():
+                u = fp['u'][:]
+                v = fp['v'][:]
+                w = fp['w'][:]
+            else:
+                u = empty_data
+                v = empty_data
+                w = empty_data
+            
+            if 'temp' in fp.keys():
+                T = fp['temp'][:]   #Kelvin
+                P = fp['pres'][:]   #Pascal <> N/m2
+                rho = fp['rho'][:]  #kg/m3
+                tke = fp['tke'][:]  #m2/s2
+            else:
+                T = empty_data
+                P = empty_data
+                rho = empty_data
+                tke = empty_data
+                
+            
+            if 'SMR_like' in fp.keys():
+                smr_like = fp['SMR_like'][:]
+            else:
+                smr_like = np.ones_like(times)
+            
+            attrs = None
+            if fp.attrs:
+                attrs = {}
+                attrs['lon_center'] = fp.attrs['lon_ref']
+                attrs['lat_center'] = fp.attrs['lat_ref']
+                attrs['alt_center'] = fp.attrs['alt_ref']
+        
+        self.ini_time = times.min()
+        self.n_samples = len(times)
+        
+        t = pd.to_datetime(times, unit='s')
+        df = pd.DataFrame(data = t, columns=['t'])
+        
+        df['times'] = times
+        df['link'] = link
+        df['lats'] = lat
+        df['lons'] = lon
+        df['heights'] = alt #km
+        
+        df['dop_errs'] = dop_errs
+        df['braggs_x'] = braggs[:,0]
+        df['braggs_y'] = braggs[:,1]
+        df['braggs_z'] = braggs[:,2]
+        df['dcosx'] = dcosx
+        df['dcosy'] = dcosy
+        
+        #DNS, Scale by 10
+        df['dops'] = dopplers
+        
+        df['u'] = u
+        df['v'] = v
+        df['w'] = w
+        
+        df['T'] = T
+        df['P'] = P
+        df['rho'] = rho
+        df['tke'] = tke
+        
+        df['SMR_like'] = smr_like
+        
+        df = df[df.dops.notnull()]
+        
+        ### Meteor geolocation
+        # getting the radius at each point, the difference with respect to getting the radius to a reference point is less than 40 meters.
+        
+        if enu_coordinates:
+            #Make calculations with filtered data
+            lats = df['lats'].values
+            lons = df['lons'].values
+            alts = df['heights'].values
+            
+            # x0,y0,h0 = lla2xyh(lats=lats, lons=lons, alts=alts,
+            #                 lat_center=self.lat_center,
+            #                 lon_center=self.lon_center,
+            #                 alt_center=self.alt_center,
+            #                 )
+            
+            x,y,_ = lla2enu(lats, lons, alts,
+                            lat_ref=self.lat_center,
+                            lon_ref=self.lon_center,
+                            alt_ref=self.alt_center,
+                            units='m',
+                            )
+            
+            ##################
+            #xyz coordinates in m
+            df['x'] = x
+            df['y'] = y
+            df['z'] = alts*1e3
+        
+        # mask = (df['SMR_like'] == 1)
+        # df = df[mask]
+        
+        df.sort_values(['times'], inplace=True, ignore_index=True)
+        
+        if attrs is not None:
+            df.attrs = attrs
+            
+        return(df)
+    
+    def get_initial_time(self):
+        
+        return(self.ini_time)
+    
+    def set_spatial_center(self, lon_center=None, lat_center=None, alt_center=None):
+        
+        if lat_center is None:
+            try:
+                lat_center = self.df.attrs['lat_center']
+            except:
+                lat_center = np.round( np.median(self.df['lats'].values), 1)
+            
+        if lon_center is None:
+            try:
+                lon_center = self.df.attrs['lon_center']
+            except:
+                lon_center = np.round( np.median(self.df['lons'].values), 1)
+        
+        if alt_center is None:
+            try:
+                alt_center = self.df.attrs['alt_center']
+            except:
+                alt_center = np.round( np.median(self.df['heights'].values), 1)
+              
+        self.lat_center = lat_center
+        self.lon_center = lon_center
+        self.alt_center = alt_center
+        
+    def get_spatial_center(self):
+        
+        return(self.lon_center, self.lat_center, self.alt_center)
+    
+    def get_rx_tx_lla(self, index):
+        
+        link = self.df['link'][index].decode('ascii', 'replace')
+        link = link.split('-')[0]
+        tx, rx = link.split('_')[0:2]
+        
+        tx_lla = stations[tx]
+        rx_lla = stations[rx]
+        
+        return(tx_lla, rx_lla)
+        
+    def read_next_file(self, enu_coordinates=True):
+        
+        self.file_index += 1
+        self.central_date = None
+        
+        if self.file_index >= len(self.files):
+            return 0
+        
+        df = None
+        for i in [0,-1,1]:
+            
+            idx_file = self.file_index + i
+            
+            if idx_file < 0:
+                continue
+            
+            if idx_file >= len(self.files):
+                continue
+            
+            filename = self.files[idx_file]
+            
+            df_i = self.__read_data(filename, enu_coordinates=enu_coordinates)
+            
+            print('\nMeteor file %s [t=%2.1f]' %(filename, self.ini_time) )
+            
+            if df is None:
+                df = df_i
+                self.central_date = datetime.utcfromtimestamp(df["times"][0])
+            else:
+                df = pd.concat([df, df_i], ignore_index=True)
+            
+        self.df = df
+        self.unfiltered_df = df
+            
+        self.filename = filename
+        
+        return(1)   
+    
+    def save(self, rpath, df=None, filename=None, dropnan=True):
+        
+        if df is None:
+            df = self.df
+        
+        if filename is None:
+            fullfile = self.files[self.file_index]
+            _, filename = os.path.split(fullfile)
+            filename = os.path.join(rpath, 'filtered_'+filename)
+        
+        if dropnan:
+            df = df.dropna(subset=['dops'])
+        
+        braggs = np.array( [df['braggs_x'].values,
+                            df['braggs_y'].values,
+                            df['braggs_z'].values
+                            ]
+                        )
+        
+        fp = h5py.File(filename,'w')
+
+        fp['link']      = df['link'].values
+        fp['heights']   = df['heights'].values*1e3 #To m
+        fp['lats']      = df['lats'].values
+        fp['lons']      = df['lons'].values
+        fp['dops']      = df['dops'].values
+        fp['dop_errs']  = df['dop_errs'].values
+        fp['braggs']    = braggs.T
+        # fp['dcosx']     = self.dcosx
+        # fp['dcosy']     = self.dcosy  
+        fp['t']         = df['times'].values
+        fp['u']         = df['u'].values
+        fp['v']         = df['v'].values
+        fp['w']         = df['w'].values
+        
+        fp['temp']        = df['T'].values  #Kevin
+        fp['pres']        = df['P'].values  #Pascal
+        fp['rho']         = df['rho'].values    #kg/m3
+        fp['tke']         = df['tke'].values    #m2/s2
+        
+        if 'SMR_like' in df.keys():
+            fp['SMR_like']    = df['SMR_like'].values
+        
+        for key in df.attrs.keys():
+            fp.attrs[key] = df.attrs[key]
+            
+        fp.close()
+    
+    def filter(self, path=None, **kwargs):
+        
+        df = self.unfiltered_df.copy()
+        
+        #Remove outliers using clustering
+        df = filter_data(df,
+                         central_date=self.central_date,
+                         **kwargs)
+        
+        df = remove_close_clusters(df)
+        
+        #Remove outliers based on mean wind
+        df_winds, df_filtered = mean_wind_grad(df) 
+        
+        if path is not None:
+            
+            ini_date = self.get_initial_date()
+            
+            figfile = os.path.join(path, "mean_wind_%s.png" %ini_date.strftime('%Y%m%d_%H%M%S'))
+            
+            plot_mean_winds(df_winds["times"],
+                            df_winds["alts"],
+                            df_winds["u0"],
+                            df_winds["v0"],
+                            df_winds["w0"],
+                            vmins=[-100,-100, -10],
+                            vmaxs=[ 100, 100,  10],
+                            figfile=figfile
+                            )
+            
+            # datafile = os.path.join(path, "mean_wind_%s.h5" %ini_date.strftime('%Y%m%d_%H%M%'))
+            #
+            # save_mean_winds(df_winds, datafile)
+
+
+
+        # #Remove outliers using clustering
+        # df = filter_data(df, **kwargs)
+        
+        self.df  = df_filtered
+        
+        return
+    
+    def add_synthetic_noise(self, sigma):
+        
+        if sigma == 0:
+            self.df['dop_errs'] = 1.0
+            return
+        
+        n = self.df.shape[0]
+        
+        noise = sigma*np.random.randn(n)
+        
+        self.df['dops'] += noise
+        self.df['dop_errs'] = sigma
+        
+        
+    def plot_sampling(self, suffix="", **kwargs):
+        
+        df = self.df
+        
+        ini_date = self.get_initial_date()
+        
+        suffix += ini_date.strftime('%Y%m%d_%H%M%S')
+        
+        plot_spatial_sampling(df, suffix=suffix, **kwargs)
+        
+        return
+    
+    def plot_hist(self, suffix="", **kwargs):
+        
+        df = self.df
+        df_unfiltered = self.unfiltered_df
+        
+        ini_date = self.get_initial_date()
+        
+        suffix += ini_date.strftime('%Y%m%d_%H%M%S')
+        
+        plot_Doppler_sampling(df_unfiltered, df, suffix=suffix, **kwargs)
+        
+    def get_initial_date(self):
+        
+        ini_date = datetime.utcfromtimestamp(self.df['times'].min()) 
+        
+        return(ini_date)
+
               
 if __name__ == '__main__':
+    
     test_doppler_files()
     # test_wind_files()
     
