@@ -1155,7 +1155,7 @@ class SMRReader(object):
         if realtime:
             self.file_index = len(files) - 2
         else:
-            self.file_index = 0
+            self.file_index = -1
     
         self.set_spatial_center()
         
@@ -1341,7 +1341,7 @@ class SMRReader(object):
         
         return(tx_lla, rx_lla)
         
-    def read_next_file(self, enu_coordinates=True):
+    def read_next_file(self, enu_coordinates=True, single_day=False):
         
         self.file_index += 1
         self.central_date = None
@@ -1371,6 +1371,9 @@ class SMRReader(object):
                 self.central_date = datetime.utcfromtimestamp(df["times"][0])
             else:
                 df = pd.concat([df, df_i], ignore_index=True)
+            
+            if single_day:
+                break
             
         self.df = df
         self.unfiltered_df = df
@@ -1438,6 +1441,11 @@ class SMRReader(object):
         
         df = remove_close_clusters(df)
         
+        if df.size == 0:
+            print("File %s has been completely filtered" %self.central_date)
+            self.df = df
+            return
+            
         #Remove outliers based on mean wind
         df_winds, df_filtered = mean_wind_grad(df) 
         
@@ -1487,6 +1495,9 @@ class SMRReader(object):
     def plot_sampling(self, suffix="", **kwargs):
         
         df = self.df
+        
+        if df.size == 0:
+            return
         
         ini_date = self.get_initial_date()
         

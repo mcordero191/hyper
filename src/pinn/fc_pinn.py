@@ -8,7 +8,12 @@ import tensorflow as tf
 import keras
 
 from pinn.layers import BaseModel, Embedding, LaafLayer, DropoutLayer, Scaler, Linear
+
+# Define the Gaussian activation function
+def gaussian_activation(x, alpha=1.0):
     
+    return tf.exp(-alpha * tf.square(x))
+
 class FCNClass(BaseModel):
 
     def __init__(self,
@@ -41,9 +46,15 @@ class FCNClass(BaseModel):
         # self.emb = PositionalEncoding(n_neurons, kernel_initializer=kernel_initializer, stddev=stddev)
         
         layers = []
-        for _ in range(n_layers):
+        for i in range(n_layers):
+            
+            if i == (n_layers - 1):
+                activation_ = gaussian_activation
+            else:
+                activation_ = activation
+            
             layer = LaafLayer(n_neurons,
-                              activation=activation,
+                              activation=activation_,
                               kernel_initializer=kernel_initializer,
                               )
             layers.append(layer)

@@ -1154,10 +1154,10 @@ if __name__ == '__main__':
     parser.add_argument('--meteor-path', dest='mpath', default=None, help='Data path')
     
     parser.add_argument('-m', '--model', dest='model', default=None, help='neural network model')
-    parser.add_argument('-s', '--subfolder', dest='subfolder', default="nnRESPINN_14.34", help='subfolder where the neural network model is stored')
+    parser.add_argument('-s', '--subfolder', dest='subfolder', default="nnRESPINN_16.03", help='subfolder where the neural network model is stored')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
     parser.add_argument('-t', '--type', dest='type', default='mean', help='plot type. Either "residuals" or "full" wind')
-    parser.add_argument('-l', '--log-file', dest='log_file', default=None, help='select the i-th weights file from the log folder')
+    parser.add_argument('-l', '--log-file', dest='log_file', default=2500, help='select the i-th weights file from the log folder')
     
     # parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90', help='Data path')
     # parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91/', help='Data path')

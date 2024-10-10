@@ -3,6 +3,9 @@ import time, datetime
 
 import numpy as np
 
+import sys
+sys.path.insert(0,'../src')
+
 from pinn import hyper as pinn
 
 from radar.smr.smr_file import SMRReader
@@ -218,13 +221,13 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='operational', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='dns', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=3, help='# kernel layers', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=4, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
     
@@ -232,7 +235,7 @@ if __name__ == '__main__':
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-6, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-7, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
@@ -241,13 +244,13 @@ if __name__ == '__main__':
     parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VV", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
     parser.add_argument('--architecture', dest='nn_type', default='respinn', help='select the network architecture: gpinn, respinn, ...')
-    parser.add_argument('--version',     dest='nn_version', default=15.11, type=float)
+    parser.add_argument('--version',     dest='nn_version', default=22.04, type=float)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     
     parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
@@ -337,6 +340,8 @@ if __name__ == '__main__':
     df_testing      = None
     paths           = None
     
+    single_day = False 
+    
     if sevenfold:
         nn_version += 10
     
@@ -351,7 +356,7 @@ if __name__ == '__main__':
             noise_sigma     = 0.0
             short_naming    = True
             
-            paths           = glob.glob(path+"*/DataC")
+            paths           = glob.glob(path+"*/DataE")
             
         elif exp.upper()  == 'DEFAULT':
             
@@ -360,6 +365,17 @@ if __name__ == '__main__':
             
             path            = "../data/"
             noise_sigma     = 0.0
+        
+        elif exp.upper()  == 'FILTER':
+            
+            tini            = 0
+            dt              = 24
+            
+            path            = "/Users/radar/Data/IAP/SIMONe/"
+            paths           = glob.glob(path+"*/Data2Filter")
+            
+            noise_sigma     = 0.0
+            single_day      = True
             
         elif exp.upper()  == 'SIMONE2018':
             
@@ -562,7 +578,7 @@ if __name__ == '__main__':
         
         while True:
             
-            info = meteor_data.read_next_file(enu_coordinates=True)
+            info = meteor_data.read_next_file(enu_coordinates=True, single_day=single_day)
             
             if info != 1: break
             
@@ -581,10 +597,11 @@ if __name__ == '__main__':
                                sevenfold=sevenfold,
                                path=rpath)
                 
-                # meteor_data.save(rpath)
-                
+                meteor_data.save(rpath)
+            
                 #Plot filtered data
                 meteor_data.plot_sampling(path=rpath, suffix='postfilter')
+            
                 meteor_data.plot_hist(path=rpath, suffix='postfilter')
             
                 df = meteor_data.df
@@ -628,4 +645,7 @@ if __name__ == '__main__':
                             nn_type=nn_type,
                             sampling_method=sampling_method,
                             )
+                
+                break
+        
         

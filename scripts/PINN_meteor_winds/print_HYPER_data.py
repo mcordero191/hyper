@@ -80,15 +80,7 @@ def main(path_meteor_data,
     if not os.path.exists(binpath):
         os.mkdir(binpath)
     
-    filename = os.path.join(path_PINN, model_name)
-    nn = pinn.restore(filename, log_index=log_index)
     
-    lat_center = nn.lat_ref
-    lon_center = nn.lon_ref
-    alt_center = nn.alt_ref
-    
-    tmin, xmin, ymin, zmin = nn.lb
-    tmax, xmax, ymax, zmax = nn.ub
     
     meteor_sys = SMRReader(path_meteor_data)
     
@@ -110,6 +102,19 @@ def main(path_meteor_data,
     x = df_meteor['x'].values
     y = df_meteor['y'].values
     z = df_meteor['z'].values
+    
+    
+    
+    
+    filename = os.path.join(path_PINN, model_name)
+    nn = pinn.restore(filename, log_index=log_index)
+    
+    lat_center = nn.lat_ref
+    lon_center = nn.lon_ref
+    alt_center = nn.alt_ref
+    
+    tmin, xmin, ymin, zmin = nn.lb
+    tmax, xmax, ymax, zmax = nn.ub
         
     #Get winds at meteor locations
     outputs = nn.infer(times, lons, lats, alts, filter_output=True)
@@ -183,7 +188,7 @@ if __name__ == '__main__':
     path_DNS     = '/Users/radar/Data/IAP/Models/DNS/NonStratified'
     
     model_name = None
-    subfolder = 'nnDEEPONET_12.07'
+    subfolder = 'nnRESPINN_15.00'
     
     log_index       = None
     units           = 'm'

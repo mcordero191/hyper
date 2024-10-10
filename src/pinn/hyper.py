@@ -1638,9 +1638,9 @@ class App:
         
         div     = tf.constant(2**10, dtype=data_type)*div       #2**10 <> 1.0e3
         div_vor = tf.constant(2**20, dtype=data_type)*div_vor
-        mom_x   = tf.constant(2**20, dtype=data_type)*mom_x     #2**20 <> 1.0e6
-        mom_y   = tf.constant(2**20, dtype=data_type)*mom_y
-        mom_z   = tf.constant(2**20, dtype=data_type)*mom_z
+        mom_x   = tf.constant(2**23, dtype=data_type)*mom_x     #2**20 <> 1.0e6
+        mom_y   = tf.constant(2**23, dtype=data_type)*mom_y
+        mom_z   = tf.constant(2**23, dtype=data_type)*mom_z
         
         # print("Finish tracing pde!")
         
@@ -3790,7 +3790,7 @@ def restore(filename, log_index=None, include_res_layer=None, activation=None, s
                    # 'ini_w_data', 'ini_w_Ph1', 'ini_w_Ph2', 'ini_w_Ph3', 'ini_w_Ph4',
                    # 'f_scl_out',
                    'lb', 'ub', 'mn',
-                   'lon_ref', 'lat_ref', 'alt_ref',
+                   # 'lon_ref', 'lat_ref', 'alt_ref',
                    ]
     
     keys_int    = ['shape_in', 'shape_out',

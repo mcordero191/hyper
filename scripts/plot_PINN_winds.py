@@ -2222,8 +2222,8 @@ if __name__ == '__main__':
     
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Germany", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815", help='Data path')
-    parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Argentina/", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Norway/", help='Data path')
+    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Argentina/", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Norway/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Condor/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/JRO/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Piura/", help='Data path')
@@ -2231,7 +2231,7 @@ if __name__ == '__main__':
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/", help='Data path')
     
     parser.add_argument('-m', '--model', dest='model', default=None, help='neural network model')
-    parser.add_argument('-s', '--subfolder', dest='subfolder', default="nnRESPINN_15.11", help='subfolder where the neural network model is stored')
+    parser.add_argument('-s', '--subfolder', dest='subfolder', default="nnRESPINN_16.02", help='subfolder where the neural network model is stored')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
     parser.add_argument('-t', '--type', dest='type', default='wind', help='plot type. Either "residuals" or "full" wind')
     parser.add_argument('-l', '--log-file', dest='log_file', default=None, help='select the i-th weights file from the log folder')
@@ -2343,8 +2343,8 @@ if __name__ == '__main__':
                  t0=t0,
                  trange=trange,
                  #MAARSY
-                # x0=16.04,
-                # y0=69.25,
+                x0=16.04,
+                y0=69.25,
                 # y0=70,
                 # x0=-106.5,
                 # y0=33.5,
@@ -2360,32 +2360,32 @@ if __name__ == '__main__':
                 # grads=True,
                )
         
-        continue
-        
-        mean_winds(filename, figpath_type,
-                   ext=ext,
-                    type=type,
-                    plot_mean=True,
-                    t0=t0,
-                    xrange=xrange,
-                    yrange=yrange,
-                    trange=trange,
-                    tstep=15*60,
-                    # xmin=-30,
-                    # ymin=-30,
-                    xstep=1.0,
-                    ystep=1.0,
-                    zstep=0.5,
-                    # zmin=84,
-                    log_file=log_file,
-                    vmins=vmins,
-                    vmaxs=vmaxs,
-                    cmap=cmap,
-                    time_width=0*60,
-                    h_width=0,
-                    h_width_mean=h_width_mean,
-                    time_width_mean=time_width_mean,
-                   )
+        # continue
+        #
+        # mean_winds(filename, figpath_type,
+        #            ext=ext,
+        #             type=type,
+        #             plot_mean=True,
+        #             t0=t0,
+        #             xrange=xrange,
+        #             yrange=yrange,
+        #             trange=trange,
+        #             tstep=15*60,
+        #             # xmin=-30,
+        #             # ymin=-30,
+        #             xstep=1.0,
+        #             ystep=1.0,
+        #             zstep=0.5,
+        #             # zmin=84,
+        #             log_file=log_file,
+        #             vmins=vmins,
+        #             vmaxs=vmaxs,
+        #             cmap=cmap,
+        #             time_width=0*60,
+        #             h_width=0,
+        #             h_width_mean=h_width_mean,
+        #             time_width_mean=time_width_mean,
+                   # )
         #
         # continue
             
