@@ -1638,9 +1638,9 @@ class App:
         
         div     = tf.constant(2**10, dtype=data_type)*div       #2**10 <> 1.0e3
         div_vor = tf.constant(2**20, dtype=data_type)*div_vor
-        mom_x   = tf.constant(2**23, dtype=data_type)*mom_x     #2**20 <> 1.0e6
-        mom_y   = tf.constant(2**23, dtype=data_type)*mom_y
-        mom_z   = tf.constant(2**23, dtype=data_type)*mom_z
+        mom_x   = tf.constant(2**20, dtype=data_type)*mom_x     #2**20 <> 1.0e6
+        mom_y   = tf.constant(2**20, dtype=data_type)*mom_y
+        mom_z   = tf.constant(2**20, dtype=data_type)*mom_z
         
         # print("Finish tracing pde!")
         
@@ -1884,7 +1884,7 @@ class App:
               batch_size = None,
               tol = 1e-5,
               print_rate    = 200,
-              saving_rate   = 500,
+              saving_rate   = 1e6,
               resampling_rate = 200,
               grad_upd_rate = 10,
               filename = None,
@@ -1925,7 +1925,7 @@ class App:
         self.optimizer = self.opt_(self.lr, self.opt, epochs)
         
         # Training dataset
-        X_data  = self.convert_df2tensors(df_training)
+        X_data  = self.convert_df2tensors(df_training, update_ref=True)
         X_testing = self.convert_df2tensors(df_testing)
         
         lb = tf.reduce_min (X_data, axis = 0)[:4]
@@ -2146,7 +2146,7 @@ class App:
             self.tv_ve_log.append(tv_ve)
             self.tv_we_log.append(tv_we)
             
-            if ep % saving_rate == 0:
+            if (ep+1) % saving_rate == 0:
                 self.save(filename, ep)
             
             # if ep < 200 -1:
@@ -2187,7 +2187,7 @@ class App:
         print(">>>>> end time:", datetime.datetime.now())
     
         
-    def convert_df2tensors(self, df, update_ref=True):    
+    def convert_df2tensors(self, df, update_ref=False):    
         
         ###########################
         #Traiing dataset
@@ -3790,7 +3790,7 @@ def restore(filename, log_index=None, include_res_layer=None, activation=None, s
                    # 'ini_w_data', 'ini_w_Ph1', 'ini_w_Ph2', 'ini_w_Ph3', 'ini_w_Ph4',
                    # 'f_scl_out',
                    'lb', 'ub', 'mn',
-                   # 'lon_ref', 'lat_ref', 'alt_ref',
+                    'lon_ref', 'lat_ref', 'alt_ref',
                    ]
     
     keys_int    = ['shape_in', 'shape_out',

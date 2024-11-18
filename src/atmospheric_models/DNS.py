@@ -103,8 +103,8 @@ class DNSReader(object):
     def __init__(self,
                  path,
                  delta_s=0.292969,       #kilometers
-                 delta_t=79.65,         #seconds
-                 u_scale=8.8914,
+                 delta_t=79.65,          #seconds
+                 u_scale=4.7956,         # U scale factor (m/s) #8.8914
                  dimS=1024,
                  dimZ=None,
                  dimZ_out=100,
@@ -286,6 +286,8 @@ class DNSReader(object):
         d['w'] = self.u_scale*w
         # d['T'] = th
         
+        d["filename"] = os.path.split(filename_vx)[1]
+        
         return(d)
     
     def read_next_block(self, derivatives=False, skip_block=False):
@@ -313,7 +315,9 @@ class DNSReader(object):
         self.w = d['w']
         # self.T = d['T']
         
-        print('\nFile #%d [t=%2.1f, %s]' %(ifile, self.time, datetime.datetime.utcfromtimestamp(self.time)) )
+        self.filename = d["filename"]
+        
+        print('\nFile %s [t=%2.1f, %s]' %(d["filename"], self.time, datetime.datetime.utcfromtimestamp(self.time)) )
         
         if derivatives:
             #Since the dimension of u, v and w is [alt, lat, lon]

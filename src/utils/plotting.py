@@ -422,7 +422,7 @@ def plot_mean_winds(t, h, u, v, w,
     else:
         plt.savefig(figfile)
         
-    plt.close()
+    plt.close("all")
     
 
 def plot_field(lons, lats, alts,

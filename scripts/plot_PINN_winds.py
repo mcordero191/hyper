@@ -2278,7 +2278,7 @@ if __name__ == '__main__':
     
     vmaxs = -vmins
     
-    path_PINN = os.path.join(path, "winds", args.subfolder)
+    path_PINN = os.path.join(path, "HYPER", args.subfolder)
     
     if model_name is None:
         models = glob.glob1(path_PINN, 'h*[!s].h5')

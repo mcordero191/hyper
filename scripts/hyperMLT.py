@@ -121,16 +121,16 @@ def train_hyper(df,
     ###########################
     if filename_model is None:
         filename_model = os.path.join(rpath, 'h%s.h5' %suffix) 
-    
+
     msis = None
-    try:
-        msis = MSIS(data_date,
-                     glat=df_training['lats'].mean(),
-                     glon=df_training['lons'].mean(),
-                     time_range=dt,
-                     plot_values=True)
-    except:
-        msis = None
+    # try:
+    #     msis = MSIS(data_date,
+    #                  glat=df_training['lats'].mean(),
+    #                  glon=df_training['lons'].mean(),
+    #                  time_range=dt,
+    #                  plot_values=True)
+    # except:
+    #     msis = None
     
     nn = pinn.App(
                 shape_in  = 4,
@@ -214,6 +214,8 @@ def train_hyper(df,
 
 if __name__ == '__main__':
     
+    from multiprocessing import Process
+    
     #delay in mins
     delay = 0#120+120+240
     
@@ -221,13 +223,13 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='dns', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='default', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
     parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=4, help='# kernel layers', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
     
@@ -244,13 +246,13 @@ if __name__ == '__main__':
     parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VV", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
     parser.add_argument('--architecture', dest='nn_type', default='respinn', help='select the network architecture: gpinn, respinn, ...')
-    parser.add_argument('--version',     dest='nn_version', default=22.04, type=float)
+    parser.add_argument('--version',     dest='nn_version', default=30.00, type=float)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     
     parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
@@ -341,9 +343,10 @@ if __name__ == '__main__':
     paths           = None
     
     single_day = False 
+    skip_training = False
     
     if sevenfold:
-        nn_version += 10
+        nn_version += 0.7
     
     
     if exp is not None:
@@ -371,11 +374,13 @@ if __name__ == '__main__':
             tini            = 0
             dt              = 24
             
-            path            = "/Users/radar/Data/IAP/SIMONe/"
-            paths           = glob.glob(path+"*/Data2Filter")
+            short_naming    = True
             
-            noise_sigma     = 0.0
+            path            = "/Users/radar/remote/radar/for_miguel/"
+            paths           = glob.glob( os.path.join(path, "*", "Data") )
+            
             single_day      = True
+            skip_training   = True
             
         elif exp.upper()  == 'SIMONE2018':
             
@@ -551,9 +556,11 @@ if __name__ == '__main__':
     
     for path in paths:
         
+        path = os.path.realpath(path)
+        
         # if rpath is None:
-        rpath = os.path.dirname( os.path.realpath(path) )
-        rpath = os.path.join(rpath, 'winds')
+        basepath, exp_name = os.path.split(path)
+        rpath = os.path.join(basepath, 'winds')
         
         if not os.path.exists(rpath): os.mkdir(rpath)
             
@@ -582,6 +589,10 @@ if __name__ == '__main__':
             
             if info != 1: break
             
+            # Virtual radar correction
+            # meteor_data.save(rpath, scale_factor=4.7956/8.8914)
+            # continue
+        
             #Plot original sampling
             meteor_data.plot_sampling(path=rpath, suffix='prefilter')
             meteor_data.add_synthetic_noise(noise_sigma)
@@ -602,50 +613,98 @@ if __name__ == '__main__':
                 #Plot filtered data
                 meteor_data.plot_sampling(path=rpath, suffix='postfilter')
             
+                if skip_training:
+                    continue
+                
                 meteor_data.plot_hist(path=rpath, suffix='postfilter')
-            
+                    
                 df = meteor_data.df
             
-                train_hyper(df,
-                            df_testing=df_testing,
-                            tini=ti,
-                            dt=dt,
-                            dlon=dlon,
-                            dlat=dlat,
-                            dh=dh,
-                            rpath=rpath,
-                            num_outputs=num_outputs,
-                            w_pde=w_pde,
-                            w_data=w_data,
-                            w_srt=w_srt,
-                            laaf=nn_laaf,
-                            learning_rate=learning_rate,
-                            noise_sigma=noise_sigma,
-                            nepochs=nepochs, 
-                            N_pde=N_pde,
-                            num_neurons_per_layer=neurons_per_layer,
-                            num_hidden_layers=hidden_layers,
-                            n_nodes=n_nodes,
-                            n_blocks=n_blocks,
-                            filename_model=filename_model,
-                            transfer_learning=transfer_learning,
-                            filename_model_tl=filename_model_tl,
-                            short_naming=short_naming,
-                            activation=nn_activation,
-                            init_sigma=nn_init_sigma,
-                            NS_type=NS_type,
-                            w_init=nn_w_init,
-                            lon_center=lon_center,
-                            lat_center=lat_center,
-                            alt_center=alt_center,
-                            batch_size=batch_size,
-                            dropout=nn_dropout,
-                            sevenfold=sevenfold,
-                            w_pde_update_rate=w_pde_update_rate,
-                            nn_type=nn_type,
-                            sampling_method=sampling_method,
-                            )
+                args = [df]
                 
-                break
+                kwargs = {
+                            "df_testing":df_testing,
+                            "tini":ti,
+                            "dt":dt,
+                            "dlon":dlon,
+                            "dlat":dlat,
+                            "dh":dh,
+                            "rpath":rpath,
+                            "num_outputs":num_outputs,
+                            "w_pde":w_pde,
+                            "w_data":w_data,
+                            "w_srt":w_srt,
+                            "laaf":nn_laaf,
+                            "learning_rate":learning_rate,
+                            "noise_sigma":noise_sigma,
+                            "nepochs":nepochs, 
+                            "N_pde":N_pde,
+                            "num_neurons_per_layer":neurons_per_layer,
+                            "num_hidden_layers":hidden_layers,
+                            "n_nodes":n_nodes,
+                            "n_blocks":n_blocks,
+                            "filename_model":filename_model,
+                            "transfer_learning":transfer_learning,
+                            "filename_model_tl":filename_model_tl,
+                            "short_naming":short_naming,
+                            "activation":nn_activation,
+                            "init_sigma":nn_init_sigma,
+                            "NS_type":NS_type,
+                            "w_init":nn_w_init,
+                            "lon_center":lon_center,
+                            "lat_center":lat_center,
+                            "alt_center":alt_center,
+                            "batch_size":batch_size,
+                            "dropout":nn_dropout,
+                            "sevenfold":sevenfold,
+                            "w_pde_update_rate":w_pde_update_rate,
+                            "nn_type":nn_type,
+                            "sampling_method":sampling_method,
+                    }
+                
+                #Start a child process to make sure Tensorflow frees memory after training
+                p = Process(target=train_hyper, args=args, kwargs=kwargs)
+                p.start()
+                p.join()
+                
+                # train_hyper(df,
+                #             df_testing=df_testing,
+                #             tini=ti,
+                #             dt=dt,
+                #             dlon=dlon,
+                #             dlat=dlat,
+                #             dh=dh,
+                #             rpath=rpath,
+                #             num_outputs=num_outputs,
+                #             w_pde=w_pde,
+                #             w_data=w_data,
+                #             w_srt=w_srt,
+                #             laaf=nn_laaf,
+                #             learning_rate=learning_rate,
+                #             noise_sigma=noise_sigma,
+                #             nepochs=nepochs, 
+                #             N_pde=N_pde,
+                #             num_neurons_per_layer=neurons_per_layer,
+                #             num_hidden_layers=hidden_layers,
+                #             n_nodes=n_nodes,
+                #             n_blocks=n_blocks,
+                #             filename_model=filename_model,
+                #             transfer_learning=transfer_learning,
+                #             filename_model_tl=filename_model_tl,
+                #             short_naming=short_naming,
+                #             activation=nn_activation,
+                #             init_sigma=nn_init_sigma,
+                #             NS_type=NS_type,
+                #             w_init=nn_w_init,
+                #             lon_center=lon_center,
+                #             lat_center=lat_center,
+                #             alt_center=alt_center,
+                #             batch_size=batch_size,
+                #             dropout=nn_dropout,
+                #             sevenfold=sevenfold,
+                #             w_pde_update_rate=w_pde_update_rate,
+                #             nn_type=nn_type,
+                #             sampling_method=sampling_method,
+                #             )
         
         

@@ -38,7 +38,7 @@ def mean_wind_grad(df,
                    alts=None,
                    dt = 60*60, #1h
                    dh = 1, #km
-                   outlier_sigma=3,
+                   outlier_sigma=3.5,
                    gradients=False,
                    min_number_of_measurements=10,
                    debug=False,

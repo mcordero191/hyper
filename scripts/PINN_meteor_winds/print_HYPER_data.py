@@ -26,31 +26,43 @@ def save_ascii(times,
                x, y, z,
                u, v, w,
                u_dns, v_dns, w_dns,
-               filename):
+               i_dns, j_dns, k_dns,
+               filename,
+               file_dns=None):
     
     df = {}
     
-    df['times[s]'] = times
+    df['epoch[s]'] = times
+    
     df['x[m]'] = x
     df['y[m]'] = y
     df['z[m]'] = z
+    
     df['u[m/s]'] = u
     df['v[m/s]'] = v
     df['w[m/s]'] = w
+    
+    df['index_x'] = i_dns
+    df['index_y'] = j_dns
+    df['index_z'] = k_dns
+    
     df['u_true[m/s]'] = u_dns
     df['v_true[m/s]'] = v_dns
     df['w_true[m/s]'] = w_dns
     
+    df["file"] = file_dns
+    
     df = pd.DataFrame.from_dict(df)
     df.dropna(inplace=True)
     
-    df.to_csv(filename, float_format='%g')
+    df.to_csv(filename, float_format='%10.11g')
     
     # plt.subplot(311)
-    plt.plot(u,u_dns,"rx", label="zonal")
-    plt.plot(v,v_dns,"bh", label="meridional")
-    plt.plot(w,w_dns,"go", label="vertical")
+    plt.plot(u,u_dns,"rx", label="zonal", alpha=0.1)
+    plt.plot(v,v_dns,"bh", label="meridional", alpha=0.1)
+    plt.plot(w,w_dns,"go", label="vertical", alpha=0.1)
     
+    plt.grid(True)
     plt.legend()
     
     plt.suptitle("Correlation")
@@ -88,7 +100,7 @@ def main(path_meteor_data,
     #Get the updated center (in case lon, lat and alt_center were None
     lon_center, lat_center, alt_center = meteor_sys.get_spatial_center()
     
-    meteor_sys.read_next_file(enu_coordinates=True)
+    meteor_sys.read_next_file(enu_coordinates=False)
     meteor_sys.filter(sevenfold=sevenfold)
     
     df_meteor = meteor_sys.df
@@ -99,12 +111,9 @@ def main(path_meteor_data,
     lons  = df_meteor['lons'].values
     alts  = df_meteor['heights'].values
     
-    x = df_meteor['x'].values
-    y = df_meteor['y'].values
-    z = df_meteor['z'].values
-    
-    
-    
+    # x = df_meteor['x'].values
+    # y = df_meteor['y'].values
+    # z = df_meteor['z'].values
     
     filename = os.path.join(path_PINN, model_name)
     nn = pinn.restore(filename, log_index=log_index)
@@ -117,7 +126,7 @@ def main(path_meteor_data,
     tmax, xmax, ymax, zmax = nn.ub
         
     #Get winds at meteor locations
-    outputs = nn.infer(times, lons, lats, alts, filter_output=True)
+    outputs, x, y, z = nn.infer(times, lons, lats, alts, filter_output=True, return_xyz=True)
     
     u = outputs[:,0]
     v = outputs[:,1]
@@ -127,11 +136,23 @@ def main(path_meteor_data,
     v_dns = None
     w_dns = None
     
+    i_dns = None
+    j_dns = None
+    k_dns = None
+    
+    file_dns = None
+    
     if path_DNS is not None:
         
         u_dns = np.zeros_like(u) + np.nan
         v_dns = np.zeros_like(u) + np.nan
         w_dns = np.zeros_like(u) + np.nan
+        
+        i_dns = np.zeros_like(u, dtype=np.int16) + np.nan
+        j_dns = np.zeros_like(u, dtype=np.int16) + np.nan
+        k_dns = np.zeros_like(u, dtype=np.int16) + np.nan
+        
+        file_dns = np.empty(u.shape, dtype="S20")
         
         #Read model data in LLA coordinates
         model_sys = DNSReader(path_DNS, decS=decS, decZ=decZ, dimZ=100)
@@ -159,8 +180,8 @@ def main(path_meteor_data,
                 print('x', end=' ')
                 continue
             
-            #Select grid points where there are meteors
-            valid = np.where( np.abs(times-t_dns)<30 )[0]
+            #Select meteor within DNS block
+            valid = np.where( np.abs(times-t_dns)<1.0 )[0]
             
             for ind, xi,yi,zi in zip(valid, x[valid], y[valid], z[valid]):
                 
@@ -175,26 +196,36 @@ def main(path_meteor_data,
                 u_dns[ind] = df['u'][k,j,i]
                 v_dns[ind] = df['v'][k,j,i]
                 w_dns[ind] = df['w'][k,j,i]
+                
+                file_dns[ind] = df['filename']
+                
+                i_dns[ind] = i
+                j_dns[ind] = j
+                k_dns[ind] = k
     
     save_ascii(times, x, y, z,
                u, v, w,
                u_dns, v_dns, w_dns,
-               filename+".txt")
+               i_dns, j_dns, k_dns,
+               filename+".txt", 
+               file_dns=file_dns)
        
 if __name__ == '__main__':
     
     
     path_meteor  = '/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91'
     path_DNS     = '/Users/radar/Data/IAP/Models/DNS/NonStratified'
+    path_PINN   = "/Users/radar/git/hyper/winds/nnRESPINN_30.00"
+    
+    # subfolder = 'nnRESPINN_15.00'
     
     model_name = None
-    subfolder = 'nnRESPINN_15.00'
     
     log_index       = None
     units           = 'm'
         
-    junk = os.path.split( os.path.realpath(path_meteor) )[0]
-    path_PINN = os.path.join(junk, "winds", subfolder)
+    # junk = os.path.split( os.path.realpath(path_meteor) )[0]
+    # path_PINN = os.path.join(junk, "winds", subfolder)
         
     if model_name is None:
         models = glob.glob1(path_PINN, 'h*[!s].h5')

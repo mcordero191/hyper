@@ -42,7 +42,7 @@ stations['tromso']      = [69.58, 19.22, 10e-3]
 stations['alta']        = [69.96, 23.29, 10e-3]
 stations['straumen']    = [67.40, 15.6, 10e-3]
 
-def get_xyz_bounds(x, y, z, factor=3.0):
+def get_xyz_bounds(x, y, z, factor=3.5):
     
     from scipy import stats
     
@@ -493,7 +493,7 @@ def plot_spatial_sampling(df, path, suffix='', lla=True, cmap='jet',
     
     plt.tight_layout()
     plt.savefig(filename)
-    plt.close()
+    plt.close("all")
 
 def plot_2point_sampling(df, path,
                          suffix='',
@@ -1218,12 +1218,12 @@ class SMRReader(object):
             else:
                 smr_like = np.ones_like(times)
             
-            attrs = None
-            if fp.attrs:
-                attrs = {}
-                attrs['lon_center'] = fp.attrs['lon_ref']
-                attrs['lat_center'] = fp.attrs['lat_ref']
-                attrs['alt_center'] = fp.attrs['alt_ref']
+            # attrs = None
+            # if fp.attrs:
+            #     attrs = {}
+            #     attrs['lon_center'] = fp.attrs['lon_ref']
+            #     attrs['lat_center'] = fp.attrs['lat_ref']
+            #     attrs['alt_center'] = fp.attrs['alt_ref']
         
         self.ini_time = times.min()
         self.n_samples = len(times)
@@ -1293,8 +1293,8 @@ class SMRReader(object):
         
         df.sort_values(['times'], inplace=True, ignore_index=True)
         
-        if attrs is not None:
-            df.attrs = attrs
+        # if attrs is not None:
+        #     df.attrs = attrs
             
         return(df)
     
@@ -1382,7 +1382,7 @@ class SMRReader(object):
         
         return(1)   
     
-    def save(self, rpath, df=None, filename=None, dropnan=True):
+    def save(self, rpath, df=None, filename=None, dropnan=True, scale_factor=1.0):
         
         if df is None:
             df = self.df
@@ -1407,15 +1407,15 @@ class SMRReader(object):
         fp['heights']   = df['heights'].values*1e3 #To m
         fp['lats']      = df['lats'].values
         fp['lons']      = df['lons'].values
-        fp['dops']      = df['dops'].values
+        fp['dops']      = df['dops'].values*scale_factor
         fp['dop_errs']  = df['dop_errs'].values
         fp['braggs']    = braggs.T
         # fp['dcosx']     = self.dcosx
         # fp['dcosy']     = self.dcosy  
         fp['t']         = df['times'].values
-        fp['u']         = df['u'].values
-        fp['v']         = df['v'].values
-        fp['w']         = df['w'].values
+        fp['u']         = df['u'].values*scale_factor
+        fp['v']         = df['v'].values*scale_factor
+        fp['w']         = df['w'].values*scale_factor
         
         fp['temp']        = df['T'].values  #Kevin
         fp['pres']        = df['P'].values  #Pascal
@@ -1434,12 +1434,12 @@ class SMRReader(object):
         
         df = self.unfiltered_df.copy()
         
+        df = remove_close_clusters(df)
+        
         #Remove outliers using clustering
         df = filter_data(df,
                          central_date=self.central_date,
                          **kwargs)
-        
-        df = remove_close_clusters(df)
         
         if df.size == 0:
             print("File %s has been completely filtered" %self.central_date)
@@ -1447,14 +1447,14 @@ class SMRReader(object):
             return
             
         #Remove outliers based on mean wind
-        df_winds, df_filtered = mean_wind_grad(df) 
+        df_winds, df = mean_wind_grad(df) 
         
         if path is not None:
-            
+        
             ini_date = self.get_initial_date()
-            
+        
             figfile = os.path.join(path, "mean_wind_%s.png" %ini_date.strftime('%Y%m%d_%H%M%S'))
-            
+        
             plot_mean_winds(df_winds["times"],
                             df_winds["alts"],
                             df_winds["u0"],
@@ -1464,17 +1464,8 @@ class SMRReader(object):
                             vmaxs=[ 100, 100,  10],
                             figfile=figfile
                             )
-            
-            # datafile = os.path.join(path, "mean_wind_%s.h5" %ini_date.strftime('%Y%m%d_%H%M%'))
-            #
-            # save_mean_winds(df_winds, datafile)
-
-
-
-        # #Remove outliers using clustering
-        # df = filter_data(df, **kwargs)
         
-        self.df  = df_filtered
+        self.df  = df
         
         return
     
