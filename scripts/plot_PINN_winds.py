@@ -2231,7 +2231,7 @@ if __name__ == '__main__':
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/", help='Data path')
     
     parser.add_argument('-m', '--model', dest='model', default=None, help='neural network model')
-    parser.add_argument('-s', '--subfolder', dest='subfolder', default="nnRESPINN_16.02", help='subfolder where the neural network model is stored')
+    parser.add_argument('-s', '--subfolder', dest='subfolder', default="Ext2023_OFF", help='subfolder where the neural network model is stored')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
     parser.add_argument('-t', '--type', dest='type', default='wind', help='plot type. Either "residuals" or "full" wind')
     parser.add_argument('-l', '--log-file', dest='log_file', default=None, help='select the i-th weights file from the log folder')
@@ -2278,7 +2278,7 @@ if __name__ == '__main__':
     
     vmaxs = -vmins
     
-    path_PINN = os.path.join(path, "HYPER", args.subfolder)
+    path_PINN = os.path.join(path, args.subfolder, "winds")
     
     if model_name is None:
         models = glob.glob1(path_PINN, 'h*[!s].h5')
@@ -2360,7 +2360,7 @@ if __name__ == '__main__':
                 # grads=True,
                )
         
-        # continue
+        continue
         #
         # mean_winds(filename, figpath_type,
         #            ext=ext,

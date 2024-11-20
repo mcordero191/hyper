@@ -42,7 +42,7 @@ stations['tromso']      = [69.58, 19.22, 10e-3]
 stations['alta']        = [69.96, 23.29, 10e-3]
 stations['straumen']    = [67.40, 15.6, 10e-3]
 
-def get_xyz_bounds(x, y, z, factor=3.5):
+def get_xyz_bounds(x, y, z, factor=3.0):
     
     from scipy import stats
     
@@ -123,8 +123,8 @@ def remove_close_clusters(df, spatial_threshold=5e3, temporal_threshold=30):
     
     for i in range(len(df_sorted)):
         
-        # if discard[i]:
-        #     continue
+        if discard[i]:
+            continue
         
         # Get indices of nearby points within the spatial threshold
         spatial_neighbors = spatial_tree.query_ball_point(coordinates[i], spatial_threshold)
@@ -141,8 +141,8 @@ def remove_close_clusters(df, spatial_threshold=5e3, temporal_threshold=30):
             temporal_distance = abs(times[i] - times[neighbor])
             
             if temporal_distance < temporal_threshold:
-                # discard[neighbor] = True
-                discard[i] = True
+                discard[neighbor] = True
+                # discard[i] = True
                 break
         
         if discard[i]:
@@ -191,6 +191,9 @@ def filter_data(df, tini=0, dt=24,
     valid  = (df['t'] >= tmin) & (df['t'] <= tmax)
     df = df[valid]
     
+    if df.size == 0:
+        return(df)
+    
     ##################################################
     
     if not(sevenfold):
@@ -204,6 +207,11 @@ def filter_data(df, tini=0, dt=24,
     dxy = np.sqrt( df['dcosx']**2 + df['dcosy']**2 )
     zenith = np.arcsin(dxy)*180/np.pi
     df = df[zenith < 70]
+    
+    return(df)
+
+    if df.size == 0:
+        return(df)
     
     ########################
     
@@ -242,6 +250,8 @@ def filter_data(df, tini=0, dt=24,
         # print("Removing %d meteor samples ..." %(df.size - valid.size))
         df = df[valid]
     
+    if df.size == 0:
+        return(df)
     #####################################################
     
     # x = df['x']
@@ -1436,6 +1446,10 @@ class SMRReader(object):
         
         df = remove_close_clusters(df)
         
+        if df.size == 0:
+            self.df = df
+            return
+        
         #Remove outliers using clustering
         df = filter_data(df,
                          central_date=self.central_date,
@@ -1462,7 +1476,8 @@ class SMRReader(object):
                             df_winds["w0"],
                             vmins=[-100,-100, -10],
                             vmaxs=[ 100, 100,  10],
-                            figfile=figfile
+                            figfile=figfile,
+                            histogram=True
                             )
         
         self.df  = df
@@ -1494,7 +1509,10 @@ class SMRReader(object):
         
         suffix += ini_date.strftime('%Y%m%d_%H%M%S')
         
-        plot_spatial_sampling(df, suffix=suffix, **kwargs)
+        try:
+            plot_spatial_sampling(df, suffix=suffix, **kwargs)
+        except:
+            pass
         
         return
     

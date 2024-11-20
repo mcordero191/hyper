@@ -179,7 +179,8 @@ def mean_wind_grad(df,
     if debug:
         plot_mean_winds(times, alts, u[0], u[1], u[0]*0,
                         vmins=[-100,-100, -10],
-                        vmaxs=[ 100, 100,  10]
+                        vmaxs=[ 100, 100,  10],
+                        histogram=True
                         )
     
     df_filtered = df[df["quality"]>=1.0]

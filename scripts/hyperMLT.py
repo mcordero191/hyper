@@ -223,12 +223,12 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='default', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='Ext2023', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
     parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
@@ -293,7 +293,7 @@ if __name__ == '__main__':
     num_outputs     = args.noutputs
     
     path            = args.dpath
-    rpath           = args.rpath
+    resource_path   = args.rpath
     
     w_pde           = args.w_pde
     w_data          = args.w_data
@@ -376,8 +376,26 @@ if __name__ == '__main__':
             
             short_naming    = True
             
-            path            = "/Users/radar/remote/radar/for_miguel/"
-            paths           = glob.glob( os.path.join(path, "*", "Data") )
+            # path            = "/Users/radar/remote/radar/for_miguel/"
+            # paths           = glob.glob( os.path.join(path, "*", "Data") )
+            
+            paths = []
+            
+            # path            = "/Users/radar/remote/METnwPER1"
+            # tmp             = glob.glob( os.path.join(path, "*", "*") )
+            # paths.extend(tmp)
+            
+            # resource_path   = "/Users/radar/Data/IAP/SIMONe/Peru"
+            
+            path            = "/Users/radar/remote/METnwPER2"
+            tmp             = glob.glob( os.path.join(path, "*", "*") )
+            paths.extend(tmp)
+            
+            path            = "/Users/radar/remote/METnwCONDOR"
+            tmp             = glob.glob( os.path.join(path, "*", "*") )
+            paths.extend(tmp)
+            
+            resource_path   = "/Users/radar/remote/scratch/Miguel/for_Fede"
             
             single_day      = True
             skip_training   = True
@@ -480,19 +498,21 @@ if __name__ == '__main__':
             alt_center      = 89
             path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
             
-        elif exp.upper()  == 'EXT2':
+        elif exp.upper()  == 'EXT2023':
             
-            tini            = 3
-            dt              = 4
-            dlon            = 600e3
-            dlat            = 350e3
-            dh              = 16e3
+            tini            = 10
+            dt              = 3
+            # dlon            = 600e3
+            # dlat            = 350e3
+            # dh              = 16e3
             
-            lon_center      = 20
+            lon_center      = 16.3
             lat_center      = 69.75
             alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
-        
+            path            = "/Users/radar/Data/IAP/SIMONe/Norway/Ext2023_OFF"
+            
+            single_day      = True
+            
         elif exp.upper()  == 'NM':
             
             tini            = 0
@@ -558,16 +578,25 @@ if __name__ == '__main__':
         
         path = os.path.realpath(path)
         
-        # if rpath is None:
-        basepath, exp_name = os.path.split(path)
-        rpath = os.path.join(basepath, 'winds')
-        
-        if not os.path.exists(rpath): os.mkdir(rpath)
+        if resource_path is None:
+            # basepath, exp_name = os.path.split(path)
+            rpath = os.path.join(path, 'hyper')
+        else:
+            basepath, mm_path = os.path.split(path)
+            basepath, yy_path = os.path.split(basepath)
+            _, exp_path       = os.path.split(basepath)
             
-        
-        rpath = os.path.join(rpath, 'nn%s_%3.2f' %(nn_type, nn_version) )
-        
+            rpath = os.path.join(resource_path, exp_path)
+            
+            if not os.path.exists(rpath): os.mkdir(rpath)
+            
+            rpath = os.path.join(rpath, yy_path)
+            
         if not os.path.exists(rpath): os.mkdir(rpath)
+        
+        # rpath = os.path.join(rpath, 'nn%s_%3.2f' %(nn_type, nn_version) )
+        #
+        # if not os.path.exists(rpath): os.mkdir(rpath)
         
         #Read meteor data in LLA coordinates
         meteor_data = SMRReader(path, realtime=realtime)
@@ -606,7 +635,8 @@ if __name__ == '__main__':
                 meteor_data.filter(tini=ti, dt=dt,
                                dlon=dlon, dlat=dlat, dh=dh,
                                sevenfold=sevenfold,
-                               path=rpath)
+                               path=rpath,
+                              )
                 
                 meteor_data.save(rpath)
             
