@@ -10,9 +10,9 @@ import keras
 from pinn.layers import BaseModel, Embedding, LaafLayer, DropoutLayer, Scaler, Linear
 
 # Define the Gaussian activation function
-def gaussian_activation(x, alpha=1.0):
+def gaussian_activation(x):
     
-    return tf.exp(-alpha * tf.square(x))
+    return tf.exp(-tf.square(x))
 
 class FCNClass(BaseModel):
 
@@ -21,7 +21,7 @@ class FCNClass(BaseModel):
                  n_neurons,
                  n_layers,
                  kernel_initializer = 'GlorotNormal',
-                 values = [1e0,1e0,1e0],
+                 values = [1e1,1e1,1e0],
                  activation    = 'sine',
                  add_nu=False,
                  laaf=0,
@@ -46,15 +46,10 @@ class FCNClass(BaseModel):
         # self.emb = PositionalEncoding(n_neurons, kernel_initializer=kernel_initializer, stddev=stddev)
         
         layers = []
-        for i in range(n_layers):
-            
-            if i == (n_layers - 1):
-                activation_ = gaussian_activation
-            else:
-                activation_ = activation
+        for _ in range(n_layers):
             
             layer = LaafLayer(n_neurons,
-                              activation=activation_,
+                              activation=activation,
                               kernel_initializer=kernel_initializer,
                               )
             layers.append(layer)
@@ -199,6 +194,10 @@ class resiPINN(FCNClass):
         
         self.linear_layers = layers 
         
+        self.gaussian_layer  = Linear(n_neurons,
+                                      add_bias=True,
+                                   )
+        
         self.linear_output  = Linear(n_outs,
                                      kernel_initializer="zeros",
                                    )
@@ -234,7 +233,12 @@ class resiPINN(FCNClass):
             
             u = u + v
         
+        #Apply a Gaussian kernel
+        u = self.gaussian_layer(u)
+        u = gaussian_activation(u)
+        
         output = self.linear_output(u)
+        
         output = self.scale(output)
         
         return(output)

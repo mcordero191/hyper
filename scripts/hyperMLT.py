@@ -21,12 +21,13 @@ def get_filename_suffix(short_naming,
                         dropout=0,
                         sampling_method="",
                         init_sigma = None,
+                        ensemble = 0,
                         ):
     
     if short_naming:
-        suffix = '%s' %ini_date.strftime('%Y%m%d_%H%M')
+        suffix = '%s_%03d' %(ini_date.strftime('%Y%m%d_%H%M'), ensemble)
     else:
-        suffix = "%s_w%02dn%3.2f%sl%02d%03dw%2.1elr%2.1eur%2.1e%3.2f" %(
+        suffix = "%s_w%02dn%3.2f%sl%02d%03dw%2.1elr%2.1eur%2.1e%3.2f_%03d" %(
                                                             ini_date.strftime('%Y%m%d_%H%M'),
                                                             dt,
                                                             noise_sigma,
@@ -47,6 +48,7 @@ def get_filename_suffix(short_naming,
                                                             w_pde_update_rate,
                                                             # sampling_method[:3],
                                                             init_sigma,
+                                                            ensemble,
                                                             )
         
     return suffix
@@ -89,14 +91,12 @@ def train_hyper(df,
                 w_pde_update_rate=1e-4,
                 nn_type = 'deeponet',
                 sampling_method = "lhs",
+                ensemble = 0,
                 ):
     
     # config_gpu(gpu_flg = 1)
-    
-    seed = 191
-    
-    # Set data type
-    np.random.seed(seed)
+    # seed = 191
+    # np.random.seed(seed)
     
     data_date =  datetime.datetime.utcfromtimestamp(df['times'].min()) 
     
@@ -116,6 +116,7 @@ def train_hyper(df,
                                 dropout  = dropout,
                                 sampling_method = sampling_method,
                                 init_sigma = init_sigma,
+                                ensemble = ensemble
                                 )
     
     ###########################
@@ -170,10 +171,8 @@ def train_hyper(df,
 
     nn.save(filename_model)
     
-    filename_model = os.path.join(rpath, 'h%s.keras' %suffix) 
-    nn.model.save(filename_model)
-    
-        # nn.restore(filename_mean)
+    # filename_model = os.path.join(rpath, 'h%s.keras' %suffix) 
+    # nn.model.save(filename_model)
     
     figname01 = os.path.join(rpath, 'loss_%s.png' %suffix)
     
@@ -223,13 +222,13 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='Ext2023', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='vortex', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=4, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
     
@@ -237,7 +236,7 @@ if __name__ == '__main__':
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-7, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
@@ -246,8 +245,10 @@ if __name__ == '__main__':
     parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VV", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
+    
+    parser.add_argument('--nensembles',   dest='nensembles', default=3, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
@@ -291,6 +292,7 @@ if __name__ == '__main__':
     alt_center      = args.alt_center
     
     num_outputs     = args.noutputs
+    num_ensembles   = args.nensembles
     
     path            = args.dpath
     resource_path   = args.rpath
@@ -348,6 +350,7 @@ if __name__ == '__main__':
     if sevenfold:
         nn_version += 0.7
     
+    home_directory = "/Users/mcordero"
     
     if exp is not None:
         if exp.upper()  == 'OPERATIONAL':
@@ -355,7 +358,7 @@ if __name__ == '__main__':
             tini            = 0
             dt              = 3
             
-            path            = "/Users/radar/Data/IAP/SIMONe/"
+            path            = "%s/Data/IAP/SIMONe/" %home_directory
             noise_sigma     = 0.0
             short_naming    = True
             
@@ -366,7 +369,7 @@ if __name__ == '__main__':
             tini            = 0
             # dt              = 24
             
-            path            = "../data/"
+            path            = "../data/" 
             noise_sigma     = 0.0
         
         elif exp.upper()  == 'FILTER':
@@ -376,26 +379,26 @@ if __name__ == '__main__':
             
             short_naming    = True
             
-            # path            = "/Users/radar/remote/radar/for_miguel/"
+            # path            = "%s/remote/radar/for_miguel/"
             # paths           = glob.glob( os.path.join(path, "*", "Data") )
             
             paths = []
             
-            # path            = "/Users/radar/remote/METnwPER1"
+            # path            = "%s/remote/METnwPER1"
             # tmp             = glob.glob( os.path.join(path, "*", "*") )
             # paths.extend(tmp)
             
-            # resource_path   = "/Users/radar/Data/IAP/SIMONe/Peru"
+            # resource_path   = "%s/Data/IAP/SIMONe/Peru"
             
-            path            = "/Users/radar/remote/METnwPER2"
+            path            = "%s/remote/METnwPER2"  %home_directory
             tmp             = glob.glob( os.path.join(path, "*", "*") )
             paths.extend(tmp)
             
-            path            = "/Users/radar/remote/METnwCONDOR"
+            path            = "%s/remote/METnwCONDOR"  %home_directory
             tmp             = glob.glob( os.path.join(path, "*", "*") )
             paths.extend(tmp)
             
-            resource_path   = "/Users/radar/remote/scratch/Miguel/for_Fede"
+            resource_path   = "%s/remote/scratch/Miguel/for_Fede"  %home_directory
             
             single_day      = True
             skip_training   = True
@@ -411,7 +414,7 @@ if __name__ == '__main__':
             lon_center      = 12.5
             lat_center      = 54
             alt_center      = 91
-            path            = "/Users/radar/Data/IAP/SIMONe/Germany/Simone2018"
+            path            = "%s/Data/IAP/SIMONe/Germany/Simone2018"  %home_directory
         
         elif exp.upper()  == 'EXTREMEW':
             
@@ -424,7 +427,7 @@ if __name__ == '__main__':
             # lon_center      = 12.5
             # lat_center      = 54
             # alt_center      = 91
-            path            = "/Users/radar/Data/IAP/SIMONe/Germany/ExtremeW"
+            path            = "%s/Data/IAP/SIMONe/Germany/ExtremeW"  %home_directory
         
         
         elif exp.upper()  == 'VORTEX':
@@ -439,9 +442,11 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex"
+            path            = "%s/Data/IAP/SIMONe/Norway/VorTex"  %home_directory
             
-            df_testing = read_vortex_files()
+            df_testing = read_vortex_files(path)
+            
+            single_day      = True
         
         elif exp.upper()  == 'VORTEXHD':
             
@@ -455,9 +460,9 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex"
+            path            = "%s/Data/IAP/SIMONe/Norway/VorTex"  %home_directory
             
-            df_testing = read_vortex_files()
+            df_testing = read_vortex_files(path)
             
         elif exp.upper()  == 'WAVECONVECTION':
             
@@ -469,7 +474,7 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             alt_center      = 90
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/WaveConvection"
+            path            = "%s/Data/IAP/SIMONe/Norway/WaveConvection"  %home_directory
         
         elif exp.upper()  == 'EXT24':
             
@@ -482,7 +487,7 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
+            path            = "%s/Data/IAP/SIMONe/Norway/ExtremeEvent"  %home_directory
             
         
         elif exp.upper()  == 'EXT1':
@@ -496,7 +501,7 @@ if __name__ == '__main__':
             lon_center      = 16.25
             lat_center      = 69.25
             alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent"
+            path            = "%s/Data/IAP/SIMONe/Norway/ExtremeEvent"  %home_directory
             
         elif exp.upper()  == 'EXT2023':
             
@@ -509,7 +514,7 @@ if __name__ == '__main__':
             lon_center      = 16.3
             lat_center      = 69.75
             alt_center      = 89
-            path            = "/Users/radar/Data/IAP/SIMONe/Norway/Ext2023_OFF"
+            path            = "%s/Data/IAP/SIMONe/Norway/Ext2023_OFF"  %home_directory
             
             single_day      = True
             
@@ -519,7 +524,7 @@ if __name__ == '__main__':
             # dt              = 24
             
             # alt_center      = 90
-            path            = "/Users/radar/Data/IAP/SIMONe/NewMexico/Eclipse"
+            path            = "%s/Data/IAP/SIMONe/NewMexico/Eclipse"  %home_directory
             
         elif exp.upper()  == 'NM2':
             
@@ -527,30 +532,30 @@ if __name__ == '__main__':
             # dt              = 24
             
             # alt_center      = 90
-            path            = "/Users/radar/Data/IAP/SIMONe/NewMexico/EclipseApr"
+            path            = "%s/Data/IAP/SIMONe/NewMexico/EclipseApr"  %home_directory
             
                
         elif exp.upper()  == 'TONGA1':
             
             tini            = 0
             # dt              = 24
-            path            = "/Users/radar/Data/IAP/SIMONe/Condor/Tonga"
+            path            = "%s/Data/IAP/SIMONe/Condor/Tonga"  %home_directory
         
         elif exp.upper()  == 'TONGA2':
             
             tini            = 0
             # dt              = 24
-            path            = "/Users/radar/Data/IAP/SIMONe/JRO/Tonga"
+            path            = "%s/Data/IAP/SIMONe/JRO/Tonga"  %home_directory
         
         elif exp.upper()  == 'TONGA3':
             
             tini            = 0
             # dt              = 24
-            path            = "/Users/radar/Data/IAP/SIMONe/Piura/Tonga"
+            path            = "%s/Data/IAP/SIMONe/Piura/Tonga"  %home_directory
             
         elif exp.upper()  == 'DNS':
             
-            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91"
+            path            = "%s/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91"  %home_directory
             noise_sigma     = 0
             tini            = 0
             dt              = 4
@@ -560,12 +565,12 @@ if __name__ == '__main__':
             tini            = 0
             dt              = 3
             
-            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
+            path            = "%s/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"  %home_directory
             noise_sigma     = 0.2
             
         elif exp.upper()  == 'ICON2016':
             
-            path            = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160816/ICON_-08+73+90"
+            path            = "%s/Data/IAP/SIMONe/Virtual/ICON_20160816/ICON_-08+73+90"  %home_directory
             # noise_sigma     = 6.0
         
         else:
@@ -582,21 +587,9 @@ if __name__ == '__main__':
             # basepath, exp_name = os.path.split(path)
             rpath = os.path.join(path, 'hyper')
         else:
-            basepath, mm_path = os.path.split(path)
-            basepath, yy_path = os.path.split(basepath)
-            _, exp_path       = os.path.split(basepath)
-            
-            rpath = os.path.join(resource_path, exp_path)
-            
-            if not os.path.exists(rpath): os.mkdir(rpath)
-            
-            rpath = os.path.join(rpath, yy_path)
+            rpath = resource_path
             
         if not os.path.exists(rpath): os.mkdir(rpath)
-        
-        # rpath = os.path.join(rpath, 'nn%s_%3.2f' %(nn_type, nn_version) )
-        #
-        # if not os.path.exists(rpath): os.mkdir(rpath)
         
         #Read meteor data in LLA coordinates
         meteor_data = SMRReader(path, realtime=realtime)
@@ -609,21 +602,20 @@ if __name__ == '__main__':
         #Get the updated center (in case lon, lat and alt_center were None
         lon_center, lat_center, alt_center = meteor_data.get_spatial_center()
         
-        print('Waiting %d min ...' %delay)
-        time.sleep(delay*60)
-        
         while True:
             
             info = meteor_data.read_next_file(enu_coordinates=True, single_day=single_day)
             
             if info != 1: break
             
-            # Virtual radar correction
-            # meteor_data.save(rpath, scale_factor=4.7956/8.8914)
-            # continue
-        
+            exp_date =  datetime.datetime.utcfromtimestamp(meteor_data.df['times'].min())
+            
+            exp_path = os.path.join(rpath, exp_date.strftime("m%Y%m%d"))
+            
+            if not os.path.exists(exp_path): os.mkdir(exp_path)
+            
             #Plot original sampling
-            meteor_data.plot_sampling(path=rpath, suffix='prefilter')
+            meteor_data.plot_sampling(path=exp_path, suffix='prefilter')
             meteor_data.add_synthetic_noise(noise_sigma)
             
             nblocks = 24//dt
@@ -631,26 +623,24 @@ if __name__ == '__main__':
             for i in range(nblocks):
             
                 ti = tini + i*dt
-            
+                
                 meteor_data.filter(tini=ti, dt=dt,
                                dlon=dlon, dlat=dlat, dh=dh,
                                sevenfold=sevenfold,
-                               path=rpath,
+                               path=exp_path,
                               )
                 
-                meteor_data.save(rpath)
+                # meteor_data.save(exp_path)
             
                 #Plot filtered data
-                meteor_data.plot_sampling(path=rpath, suffix='postfilter')
+                meteor_data.plot_sampling(path=exp_path, suffix='postfilter')
             
                 if skip_training:
                     continue
                 
-                meteor_data.plot_hist(path=rpath, suffix='postfilter')
-                    
-                df = meteor_data.df
-            
-                args = [df]
+                meteor_data.plot_hist(path=exp_path, suffix='postfilter')
+                
+                args = [meteor_data.df]
                 
                 kwargs = {
                             "df_testing":df_testing,
@@ -659,7 +649,7 @@ if __name__ == '__main__':
                             "dlon":dlon,
                             "dlat":dlat,
                             "dh":dh,
-                            "rpath":rpath,
+                            "rpath":exp_path,
                             "num_outputs":num_outputs,
                             "w_pde":w_pde,
                             "w_data":w_data,
@@ -692,49 +682,11 @@ if __name__ == '__main__':
                             "sampling_method":sampling_method,
                     }
                 
-                #Start a child process to make sure Tensorflow frees memory after training
-                p = Process(target=train_hyper, args=args, kwargs=kwargs)
-                p.start()
-                p.join()
-                
-                # train_hyper(df,
-                #             df_testing=df_testing,
-                #             tini=ti,
-                #             dt=dt,
-                #             dlon=dlon,
-                #             dlat=dlat,
-                #             dh=dh,
-                #             rpath=rpath,
-                #             num_outputs=num_outputs,
-                #             w_pde=w_pde,
-                #             w_data=w_data,
-                #             w_srt=w_srt,
-                #             laaf=nn_laaf,
-                #             learning_rate=learning_rate,
-                #             noise_sigma=noise_sigma,
-                #             nepochs=nepochs, 
-                #             N_pde=N_pde,
-                #             num_neurons_per_layer=neurons_per_layer,
-                #             num_hidden_layers=hidden_layers,
-                #             n_nodes=n_nodes,
-                #             n_blocks=n_blocks,
-                #             filename_model=filename_model,
-                #             transfer_learning=transfer_learning,
-                #             filename_model_tl=filename_model_tl,
-                #             short_naming=short_naming,
-                #             activation=nn_activation,
-                #             init_sigma=nn_init_sigma,
-                #             NS_type=NS_type,
-                #             w_init=nn_w_init,
-                #             lon_center=lon_center,
-                #             lat_center=lat_center,
-                #             alt_center=alt_center,
-                #             batch_size=batch_size,
-                #             dropout=nn_dropout,
-                #             sevenfold=sevenfold,
-                #             w_pde_update_rate=w_pde_update_rate,
-                #             nn_type=nn_type,
-                #             sampling_method=sampling_method,
-                #             )
-        
+                for j in range(num_ensembles):
+                    kwargs["ensemble"] = j
+                    
+                    #Start a child process to make sure Tensorflow frees memory after training
+                    p = Process(target=train_hyper, args=args, kwargs=kwargs)
+                    p.start()
+                    p.join()
         

@@ -3,6 +3,7 @@ Created on 21 Feb 2024
 
 @author: mcordero
 '''
+import os
 import h5py
 import datetime
 
@@ -40,23 +41,21 @@ def save_h5file(alts, lats, lons,
         g[labels[1]] = ve
         g[labels[2]] = we
         
-def read_vortex_files(filenames=None):
+def read_vortex_files(path):
+        
+    upleg = {
+             "filename" : os.path.join(path, 'UPLEG34_sigma0_1Bin_size_1km.txt'),
+             "time" : datetime.datetime(2023,3,23,21,5,0, tzinfo=datetime.timezone.utc).timestamp(),
+             "lon" : 15.75,
+             "lat" : 69.45,
+             }
     
-    if filenames is None:
-        
-        upleg = {
-                 "filename" : '/Users/radar/Data/IAP/SIMONe/Norway/VorTex/UPLEG34_sigma0_1Bin_size_1km.txt',
-                 "time" : datetime.datetime(2023,3,23,21,5,0, tzinfo=datetime.timezone.utc).timestamp(),
-                 "lon" : 15.75,
-                 "lat" : 69.45,
-                 }
-        
-        downleg={
-                 "filename" : '/Users/radar/Data/IAP/SIMONe/Norway/VorTex/DNLEGAVG_AVG.txt',
-                 "time" : datetime.datetime(2023,3,23,21,10,0, tzinfo=datetime.timezone.utc).timestamp(),
-                 "lon" : 14.25,
-                 "lat" : 70.35,
-                 }
+    downleg={
+             "filename" : os.path.join(path, 'DNLEGAVG_AVG.txt'),
+             "time" : datetime.datetime(2023,3,23,21,10,0, tzinfo=datetime.timezone.utc).timestamp(),
+             "lon" : 14.25,
+             "lat" : 70.35,
+             }
         
         
     

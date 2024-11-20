@@ -351,6 +351,7 @@ class Linear(keras.layers.Layer):
                  noutputs = 1,
                  kernel_initializer = 'GlorotNormal',
                  constraint = None,
+                 add_bias=False,
                  **kwargs
                  ):
         
@@ -359,6 +360,7 @@ class Linear(keras.layers.Layer):
         self.kernel_initializer = kernel_initializer
         self.constraint = constraint
         self.noutputs = noutputs
+        self.add_bias = add_bias
         
     def build(self, input_shape):
         
@@ -371,11 +373,14 @@ class Linear(keras.layers.Layer):
             trainable=True,
         )
         
-        # self.b = self.add_weight(
-        #     shape=(1, self.noutputs),
-        #     initializer='zeros',
-        #     trainable=True
-        # )
+        if self.add_bias:
+            self.b = self.add_weight(
+                shape=(1, self.noutputs),
+                initializer='zeros',
+                trainable=True
+            )
+        else:
+            self.b = tf.constant(0.0)
         
         # self.built = True
         
@@ -388,7 +393,7 @@ class Linear(keras.layers.Layer):
         # npoints, nnodes = inputs.shape
         
         
-        u = tf.matmul(inputs, self.w)# + self.b
+        u = tf.matmul(inputs, self.w) + self.b
         u = alpha*u
         
         return(u)

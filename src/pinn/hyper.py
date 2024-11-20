@@ -124,7 +124,7 @@ class App:
         # self.N_pde   = ns_pde    #number of samples
         
         self.r_seed  = r_seed
-        self.random_seed(self.r_seed)
+        # self.random_seed(self.r_seed)
         
         self.msis       = msis
         

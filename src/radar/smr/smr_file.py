@@ -207,8 +207,6 @@ def filter_data(df, tini=0, dt=24,
     dxy = np.sqrt( df['dcosx']**2 + df['dcosy']**2 )
     zenith = np.arcsin(dxy)*180/np.pi
     df = df[zenith < 70]
-    
-    return(df)
 
     if df.size == 0:
         return(df)
@@ -395,7 +393,7 @@ def plot_spatial_sampling(df, path, suffix='', lla=True, cmap='jet',
     bins_y = bins #np.arange(y.min()-0.03, y.max(), 0.06*5)
     bins_z = bins #np.arange(z.min(), z.max()+2, 2)
     
-    filename = os.path.join(path, 'sampling_%s_%d.png' %(suffix, lla) )
+    filename = os.path.join(path, 'sampling_%s.png' %(suffix) )
     
     # _, axs = plt.subplots(2, 3, figsize=(12,10))
     
