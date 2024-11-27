@@ -145,15 +145,15 @@ def xyh2lla(x, y, h, lat_ref, lon_ref, alt_ref):
     # x = radius * np.cos( np.deg2rad(lats) ) * np.deg2rad(lons-lon_center)
     # y = radius * np.deg2rad(lats-lat_center)
     
-    h0 = alt_ref + h
+    h0 = h - alt_ref
     
-    R = lla2ecef_radius(lat_ref, lon_ref, h0)
+    R = lla2ecef_radius(lat_ref, lon_ref, alt_ref)
     
-    arc = np.sqrt(x**2 + y**2)
-    angle = arc/(R+h0)
-    z = -(R+h0)*(1-np.cos(angle))
+    d = np.sqrt(x**2 + y**2)
+    angle = d/(R+h0)
+    z = (R+h0)*np.cos(angle) - R
     
-    lat, lon, alt = enu2lla(x, y, z, lat_ref, lon_ref, h0)
+    lat, lon, alt = enu2lla(x, y, z, lat_ref, lon_ref, alt_ref)
     # lat, lon, alt = ecef2lla(X, Y, Z)
     
     return lat, lon, alt

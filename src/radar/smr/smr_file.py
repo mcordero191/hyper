@@ -170,6 +170,7 @@ def filter_data(df, tini=0, dt=24,
                 sevenfold=False,
                 overlapping_time = 30*60,
                 central_date=None,
+                ena_clustering=1,
                 **kwargs
                 ):
     
@@ -213,43 +214,45 @@ def filter_data(df, tini=0, dt=24,
     
     ########################
     
-    links = df['link'].values
-    
-    le = LabelEncoder()
-    le.fit(links)
-    nlinks = 1#len(le.classes_)
-    
-    for _ in range(nlinks):
-    #########################
-    ### Outliers removal ##########
+    if ena_clustering:
         
-        dxy = np.sqrt( df['dcosx'].values**2 + df['dcosy'].values**2 )
-        zenith = np.arcsin(dxy)*180/np.pi
-        
-        if np.max(zenith) <= 0:
-            break
-        
-        dop = df['dops'].values
         links = df['link'].values
-        ids = le.transform(links)
         
-        X = np.stack([  dop,
-                        # kz,
-                        zenith,
-                        ids,
-                      ],
-                      axis=1)
+        le = LabelEncoder()
+        le.fit(links)
+        nlinks = 1#len(le.classes_)
         
-        valid = hierarchical_cluster(X)
+        for _ in range(nlinks):
+        #########################
+        ### Outliers removal ##########
+            
+            dxy = np.sqrt( df['dcosx'].values**2 + df['dcosy'].values**2 )
+            zenith = np.arcsin(dxy)*180/np.pi
+            
+            if np.max(zenith) <= 0:
+                break
+            
+            dop = df['dops'].values
+            links = df['link'].values
+            ids = le.transform(links)
+            
+            X = np.stack([  dop,
+                            # kz,
+                            zenith,
+                            ids,
+                          ],
+                          axis=1)
+            
+            valid = hierarchical_cluster(X)
+            
+            if np.count_nonzero(~valid) == 0:
+                break
+            
+            # print("Removing %d meteor samples ..." %(df.size - valid.size))
+            df = df[valid]
         
-        if np.count_nonzero(~valid) == 0:
-            break
-        
-        # print("Removing %d meteor samples ..." %(df.size - valid.size))
-        df = df[valid]
-    
-    if df.size == 0:
-        return(df)
+        if df.size == 0:
+            return(df)
     #####################################################
     
     # x = df['x']

@@ -82,9 +82,9 @@ def create_3d_grid(exp_folfer,
     
     coords["T"] = T
     
-    coords["X"] = X*1e+3 #save in meters
-    coords["Y"] = Y*1e+3
-    coords["Z"] = Z*1e+3
+    coords["X"] = X*1e3 #save in meters
+    coords["Y"] = Y*1e3
+    coords["Z"] = Z*1e3
     
     coords["lat"] = lat
     coords["lon"] = lon
@@ -123,7 +123,8 @@ def winds_from_model(exp_folder, coords):
     v0 = np.zeros(T.shape, dtype=np.float32)
     w0 = np.zeros(T.shape, dtype=np.float32)
     
-    file_ensembles = glob.glob1(exp_folder, "h*_???.h5")
+    file_ensembles = glob.glob1(exp_folder, "h*.h5")
+    
     N =  len(file_ensembles)
     
     for i, ifile in enumerate(file_ensembles):
@@ -132,37 +133,19 @@ def winds_from_model(exp_folder, coords):
         
         nn = hyper.restore(filename)
     
-        outputs = nn.infer(t, x=x, y=y, z=z)
+        outputs = nn.infer(t, x=x, y=y, z=z, filter_output=False)
         
         u[ind_3d] = outputs[:,0]
         v[ind_3d] = outputs[:,1]
         w[ind_3d] = outputs[:,2]
         
-        u0      += u/(N-1)
-        v0      += v/(N-1)
-        w0      += w/(N-1)
+        u0      += u/N
+        v0      += v/N
+        w0      += w/N
     
-    for i, ifile in enumerate(file_ensembles):
-    
-        filename = os.path.join(exp_folder, ifile)
-        
-        nn = hyper.restore(filename)
-    
-        outputs = nn.infer(t, x=x, y=y, z=z)
-    
-        n = i + 1
-        u[ind_3d] = outputs[:,0]
-        v[ind_3d] = outputs[:,1]
-        w[ind_3d] = outputs[:,2]
-        
-        # Welford's method
-        u_var   += np.square(u - u0)/(N-1)
-        v_var   += np.square(v - v0)/(N-1)
-        w_var   += np.square(w - w0)/(N-1)
-        
-    u_std = np.sqrt(u_var)
-    v_std = np.sqrt(v_var)
-    w_std = np.sqrt(w_var)
+    u_std = np.zeros(T.shape, dtype=np.float32) 
+    v_std = np.zeros(T.shape, dtype=np.float32) 
+    w_std = np.zeros(T.shape, dtype=np.float32) 
     
     df = {}
     
@@ -183,6 +166,35 @@ def winds_from_model(exp_folder, coords):
     df["lon"] = coords["lon"]
     df["alt"] = coords["alt"]
     
+    if N < 2:
+        return(df)
+        
+    for i, ifile in enumerate(file_ensembles):
+    
+        filename = os.path.join(exp_folder, ifile)
+        
+        nn = hyper.restore(filename)
+    
+        outputs = nn.infer(t, x=x, y=y, z=z, filter_output=False)
+        
+        u[ind_3d] = outputs[:,0]
+        v[ind_3d] = outputs[:,1]
+        w[ind_3d] = outputs[:,2]
+        
+        # Welford's method
+        u_std   += np.square(u - u0)/(N-1)
+        v_std   += np.square(v - v0)/(N-1)
+        w_std   += np.square(w - w0)/(N-1)
+    
+    
+    u_std = np.sqrt(u_std)
+    v_std = np.sqrt(v_std)
+    w_std = np.sqrt(w_std)
+    
+    df["u_std"] = u_std
+    df["v_std"] = v_std
+    df["w_std"] = w_std
+    
     return(df)
     
 def save_winds(df, path):
@@ -199,7 +211,7 @@ def save_winds(df, path):
     
     dt = datetime.datetime.utcfromtimestamp(T[0,0,0,0])
     
-    output_file = os.path.join(path, "winds_3d_%s.h5" %dt.strftime("%Y%m%d") )
+    output_file = os.path.join(path, "winds3D_%s.h5" %dt.strftime("%Y%m%d") )
     
     # Open the file in write mode
     with h5py.File(output_file, "a") as fp:
@@ -216,7 +228,7 @@ def save_winds(df, path):
             
             group_name = f"{t}"
             
-            if group_name not in fp: 
+            if group_name in fp:
                 continue
                 
               # Define a group name for each timestamp
@@ -230,43 +242,98 @@ def save_winds(df, path):
             group.create_dataset("v_std", data=df["v_std"][i])
             group.create_dataset("w_std", data=df["w_std"][i])
 
-def plot_winds(df, path, ext="png"):
+def plot_winds(df, path, ext="png", lat0=None, lon0=None, h0=None):
     
     nt, nx, ny, nz = df["T"].shape
     
-    ix = nx//2
-    iy = ny//2
+    if lat0 is None: ix = nx//2
+    else: ix = np.abs(df["lon"][0,:,0,0] - lon0).argmin()
     
-    t = df["T"][:,ix,iy,0]
-    # x = coords["X"][:,ix,iy,:]
-    # y = coords["Y"][:,ix,iy,:]
-    z = df["Z"][0,ix,iy,:]*1e-3 #km
+    if lon0 is None: iy = ny//2
+    else: iy = np.abs(df["lat"][0,0,:,0] - lat0).argmin()
     
-    u = df["u"][:,ix,iy,:]
-    v = df["v"][:,ix,iy,:]
-    w = df["w"][:,ix,iy,:]
+    if h0 is None: iz = nz//2
+    else: iz = np.abs(df["alt"][0,0,0,:] - h0).argmin()
     
-    u_std = df["u_std"][:,ix,iy,:]
-    v_std = df["v_std"][:,ix,iy,:]
-    w_std = df["w_std"][:,ix,iy,:]
+    t   = df["T"][:,ix, iy, iz]
+    lon = df["lon"][0,:,iy,iz]
+    lat = df["lat"][0,ix,:,iz]
+    h   = df["alt"][0,ix,iy,:]
+    
+    u = df["u"]
+    v = df["v"]
+    w = df["w"]
+    
+    u_std = df["u_std"]
+    v_std = df["v_std"]
+    w_std = df["w_std"]
     
     dt = datetime.datetime.utcfromtimestamp(t[0])
     
-    figfile1 = os.path.join(path, "keo_z_%s.%s" %(dt.strftime("%Y%m%d"), ext) )
-    figfile2 = os.path.join(path, "keo_z_std_%s.%s" %(dt.strftime("%Y%m%d"), ext) )
+    #Keogram X
+    lat_h = "[%3.2fN,%3.2fkm]" %(lat[iy], h[iz])
     
-    plotting.plot_mean_winds(t, z, u, v, w,
+    figfile1 = os.path.join(path, "keox_%s_%s.%s" %(dt.strftime("%Y%m%d"), lat_h, ext) )
+    figfile2 = os.path.join(path, "keox_std_%s_%s.%s" %(dt.strftime("%Y%m%d"), lat_h, ext) )
+    
+    plotting.plot_mean_winds(t, lon, u[:,:,iy,iz], v[:,:,iy,iz], w[:,:,iy,iz],
+                             figfile1,
+                             titles=["u", "v", "w"],
+                             vmins=[-100,-100,-5],
+                             vmaxs=[ 100, 100, 5],
+                             ylabel = "Latitude",
+                             )
+    
+    plotting.plot_mean_winds(t, lon, u_std[:,:,iy,iz], v_std[:,:,iy,iz], w_std[:,:,iy,iz],
+                             figfile2,
+                             titles=["std(u)", "std(v)", "std(w)"],
+                             vmins=[0,0,0],
+                             vmaxs=[ 10, 10, 1],
+                             cmap='jet',
+                             ylabel = "Latitude",
+                             )
+    
+    #Keogram Y
+    lon_h = "[%3.2fE,%3.2fkm]" %(lon[ix], h[iz])
+    
+    figfile1 = os.path.join(path, "keoy_%s_%s.%s" %(dt.strftime("%Y%m%d"), lon_h, ext) )
+    figfile2 = os.path.join(path, "keoy_std_%s_%s.%s" %(dt.strftime("%Y%m%d"), lon_h, ext) )
+    
+    plotting.plot_mean_winds(t, lat, u[:,ix,:,iz], v[:,ix,:,iz], w[:,ix,:,iz],
+                             figfile1,
+                             titles=["u", "v", "w"],
+                             vmins=[-100,-100,-5],
+                             vmaxs=[ 100, 100, 5],
+                             ylabel = "Longitude",
+                             )
+    
+    plotting.plot_mean_winds(t, lat, u_std[:,ix,:,iz], v_std[:,ix,:,iz], w_std[:,ix,:,iz],
+                             figfile2,
+                             titles=["std(u)", "std(v)", "std(w)"],
+                             vmins=[0,0,0],
+                             vmaxs=[ 10, 10, 1],
+                             cmap='jet',
+                             ylabel = "Longitude",
+                             )
+    
+    #Keogram Z
+    lat_lon = "[%3.2fE,%3.2fN]" %(lon[ix], lat[iy])
+    
+    figfile1 = os.path.join(path, "keoz_%s_%s.%s" %(dt.strftime("%Y%m%d"), lat_lon, ext) )
+    figfile2 = os.path.join(path, "keoz_std_%s_%s.%s" %(dt.strftime("%Y%m%d"), lat_lon, ext) )
+    
+    plotting.plot_mean_winds(t, h, u[:,ix,iy,:], v[:,ix,iy,:], w[:,ix,iy,:],
                              figfile1,
                              titles=["u", "v", "w"],
                              vmins=[-100,-100,-5],
                              vmaxs=[ 100, 100, 5],
                              )
     
-    plotting.plot_mean_winds(t, z, u, v, w,
+    plotting.plot_mean_winds(t, h, u_std[:,ix,iy,:], v_std[:,ix,iy,:], w_std[:,ix,iy,:],
                              figfile2,
                              titles=["std(u)", "std(v)", "std(w)"],
                              vmins=[0,0,0],
-                             vmaxs=[ 30, 30, 10],
+                             vmaxs=[ 10, 10, 1],
                              cmap='jet'
                              )
     
@@ -276,7 +343,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/hyper", help='Path where the model weights are')
+    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/winds", help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
@@ -284,14 +351,14 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--plotting', dest='ena_plotting', default=1, help='enable plotting')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figure extension')
     
-    parser.add_argument('--time-step', dest='tstep', default=30*60, help='')
-    parser.add_argument('--x-step', dest='xstep', default=None, help='')
-    parser.add_argument('--y-step', dest='ystep', default=None, help='')
-    parser.add_argument('--z-step', dest='zstep', default=None, help='')
+    parser.add_argument('--time-step', dest='tstep', default=30*60, help='in seconds')
+    parser.add_argument('--x-step', dest='xstep', default=None, help='in km')
+    parser.add_argument('--y-step', dest='ystep', default=None, help='in km')
+    parser.add_argument('--z-step', dest='zstep', default=None, help='in km')
     
-    parser.add_argument('--x-range', dest='xrange', default=None, help='')
-    parser.add_argument('--y-range', dest='yrange', default=None, help='')
-    parser.add_argument('--z-range', dest='zrange', default=None, help='')
+    parser.add_argument('--x-range', dest='xrange', default=None, help='in km')
+    parser.add_argument('--y-range', dest='yrange', default=None, help='in km')
+    parser.add_argument('--z-range', dest='zrange', default=None, help='in km')
     
     parser.add_argument('--lat-ref', dest='lat0', default=None, help='')
     parser.add_argument('--lon-ref', dest='lon0', default=None, help='')
@@ -320,7 +387,10 @@ if __name__ == '__main__':
     
     cmap = 'seismic'
     
-    exp_folders = glob.glob1(mpath, "m*")
+    exp_folders = glob.glob1(mpath, "*")
+    
+    if len(exp_folders) < 1:
+        print("No model folders found in %s" %mpath)
             
     for exp_folder in exp_folders:
         
@@ -329,9 +399,9 @@ if __name__ == '__main__':
         print("Processing experiment %s" %exp_folder)
         
         if rpath is None:
-            rpath_ = exp_folder        
+            rpath_ = exp_folder
         
-        print("Creating GRID")
+        print("Creating GRID ...")
         coords_3d = create_3d_grid(exp_folder,
                                     tstep=tstep, 
                                     xstep=xstep,
@@ -344,13 +414,13 @@ if __name__ == '__main__':
                                     lat0=lat0,
                                     )
         
-        print("Generating winds")
+        print("Generating winds ...")
         #Produce u, v, w, and std(u), std(v), std(w)
         df = winds_from_model(exp_folder, coords_3d)
         
-        print("Saving winds")
+        print("Saving winds ...")
         save_winds(df, rpath_)
         
-        print("Plotting winds")
+        print("Plotting winds ...")
         plot_winds(df, rpath_, ext=ext)
         

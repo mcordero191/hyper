@@ -9,7 +9,7 @@ import numpy as np
 
 import scipy.constants as const
 
-from georeference.geo_coordinates import lla2ecef, lla2xyh, xyh2lla
+from georeference.geo_coordinates import lla2ecef, lla2xyh, enu2lla
 
 dt1970 = datetime.datetime(1970,1,1,0,0,0)
 
@@ -379,7 +379,7 @@ class DNSReader(object):
         self.lon_ref = lon_ref
         self.alt_ref = alt_ref
         
-        LAT, LON, ALT = xyh2lla(self.X, self.Y, self.Z,
+        LAT, LON, ALT = enu2lla(self.X, self.Y, self.Z,
                                 lat_ref=lat_ref, lon_ref=lon_ref, alt_ref=alt_ref)
         self.lat_grid = LAT
         self.lon_grid = LON

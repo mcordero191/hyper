@@ -92,6 +92,8 @@ def train_hyper(df,
                 nn_type = 'deeponet',
                 sampling_method = "lhs",
                 ensemble = 0,
+                overwrite = 0,
+                verbose = False,
                 ):
     
     # config_gpu(gpu_flg = 1)
@@ -123,6 +125,11 @@ def train_hyper(df,
     if filename_model is None:
         filename_model = os.path.join(rpath, 'h%s.h5' %suffix) 
 
+    if os.path.isfile(filename_model) & (overwrite == 0) :
+        print('File exist ',filename_model)
+        print('Avoiding training, if you want to redo the training use -- overwrite 1')
+        return(filename_model)
+    
     msis = None
     # try:
     #     msis = MSIS(data_date,
@@ -170,6 +177,10 @@ def train_hyper(df,
              )
 
     nn.save(filename_model)
+    
+    if not verbose:
+        return( filename_model )
+    
     
     # filename_model = os.path.join(rpath, 'h%s.keras' %suffix) 
     # nn.model.save(filename_model)
@@ -227,8 +238,8 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=4, help='# kernel layers', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
     
@@ -248,12 +259,14 @@ if __name__ == '__main__':
     parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
     
-    parser.add_argument('--nensembles',   dest='nensembles', default=3, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
+    parser.add_argument('--nensembles',   dest='nensembles', default=10, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
+    
+    parser.add_argument('--clustering-filter',   dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
     parser.add_argument('--architecture', dest='nn_type', default='respinn', help='select the network architecture: gpinn, respinn, ...')
-    parser.add_argument('--version',     dest='nn_version', default=30.00, type=float)
+    parser.add_argument('--version',     dest='nn_version', default=3.00, type=float)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     
     parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
@@ -264,6 +277,9 @@ if __name__ == '__main__':
     parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
+    parser.add_argument('--verbose', dest='verbose', default=0, help='', type=int)
+    parser.add_argument('--overwrite', dest='overwrite', default=0, help='', type=int)
+    
     parser.add_argument('--lon-range', dest='dlon', default=None, help='degrees', type=float)
     parser.add_argument('--lat-range', dest='dlat', default=None, help='degrees', type=float)
     parser.add_argument('--alt-range', dest='dh', default=None, help='km', type=float)
@@ -273,7 +289,7 @@ if __name__ == '__main__':
     parser.add_argument('--alt-center', dest='alt_center', default=None, help='km', type=float)
     
     parser.add_argument('--output-file', dest='filename_model', default=None, help='')
-    parser.add_argument('--output-file-short-naming', dest='short_naming', default=0, type=int)
+    parser.add_argument('--output-file-short-naming', dest='short_naming', default=1, type=int)
     parser.add_argument('--realtime', dest='realtime', default=0, help='', type=int)
     
     parser.add_argument('--transfer-learning', dest='transfer_learning', default=0, help='', type=int)
@@ -290,6 +306,8 @@ if __name__ == '__main__':
     lon_center      = args.lon_center
     lat_center      = args.lat_center
     alt_center      = args.alt_center
+    
+    ena_clustering  = args.ena_clustering
     
     num_outputs     = args.noutputs
     num_ensembles   = args.nensembles
@@ -324,6 +342,9 @@ if __name__ == '__main__':
     
     nn_init_sigma   = args.nn_init_sigma
     nn_w_init       = args.nn_w_init
+    
+    verbose         = args.verbose
+    overwrite       = args.overwrite
     
     filename_model  = args.filename_model
     realtime        = args.realtime
@@ -585,7 +606,7 @@ if __name__ == '__main__':
         
         if resource_path is None:
             # basepath, exp_name = os.path.split(path)
-            rpath = os.path.join(path, 'hyper')
+            rpath = os.path.join(path, 'winds')
         else:
             rpath = resource_path
             
@@ -610,8 +631,11 @@ if __name__ == '__main__':
             
             exp_date =  datetime.datetime.utcfromtimestamp(meteor_data.df['times'].min())
             
-            exp_path = os.path.join(rpath, exp_date.strftime("m%Y%m%d"))
+            exp_path = os.path.join(rpath, exp_date.strftime("c%Y%m%d"))
             
+            if not ena_clustering:
+                exp_path = os.path.join(rpath, exp_date.strftime("nc%Y%m%d"))
+                
             if not os.path.exists(exp_path): os.mkdir(exp_path)
             
             #Plot original sampling
@@ -627,7 +651,8 @@ if __name__ == '__main__':
                 meteor_data.filter(tini=ti, dt=dt,
                                dlon=dlon, dlat=dlat, dh=dh,
                                sevenfold=sevenfold,
-                               path=exp_path,
+                               ena_clustering=ena_clustering,
+                               # path=exp_path,
                               )
                 
                 # meteor_data.save(exp_path)
@@ -638,7 +663,7 @@ if __name__ == '__main__':
                 if skip_training:
                     continue
                 
-                meteor_data.plot_hist(path=exp_path, suffix='postfilter')
+                # meteor_data.plot_hist(path=exp_path, suffix='postfilter')
                 
                 args = [meteor_data.df]
                 
@@ -680,6 +705,8 @@ if __name__ == '__main__':
                             "w_pde_update_rate":w_pde_update_rate,
                             "nn_type":nn_type,
                             "sampling_method":sampling_method,
+                            "overwrite":overwrite,
+                            "verbose":verbose,
                     }
                 
                 for j in range(num_ensembles):

@@ -194,12 +194,13 @@ class resiPINN(FCNClass):
         
         self.linear_layers = layers 
         
-        self.gaussian_layer  = Linear(n_neurons,
-                                      add_bias=True,
-                                   )
+        # self.gaussian_layer  = Linear(n_neurons,
+        #                               add_bias=True,
+        #                            )
         
         self.linear_output  = Linear(n_outs,
                                      kernel_initializer="zeros",
+                                     add_bias=True,
                                    )
     
     def call(self, inputs, training=False):
@@ -234,8 +235,8 @@ class resiPINN(FCNClass):
             u = u + v
         
         #Apply a Gaussian kernel
-        u = self.gaussian_layer(u)
-        u = gaussian_activation(u)
+        # u = self.gaussian_layer(u)
+        # u = gaussian_activation(u)
         
         output = self.linear_output(u)
         

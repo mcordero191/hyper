@@ -73,6 +73,7 @@ class App:
                 nblocks     = 3,
                 # filename_mean = '',
                 residual_layer=False,
+                verbose = False,
                 **kwargs
                 ):
         
@@ -256,37 +257,39 @@ class App:
         # _ = nn(dummy_input)
 
         model = nn.build_graph( self.shape_in )
-        model.summary(expand_nested=True)
-        
-        nn.summary(expand_nested=True)
-        
         self.model = nn
-        
         self.counter = 0
-        print("\n************************************************************")
-        print("****************     MAIN PROGRAM START     ****************")
-        print("************************************************************")
-        print(">>>>> start time:", datetime.datetime.now())
-        print(">>>>> configuration;")
-        print("         nn_type      :", self.nn_type)
-        print("         Navier-Stokes:", self.NS_type)
-        # print("         n_pde_samples:", self.N_pde)
-        print("         width        :", self.width)
-        print("         depth        :", self.depth)
-        print("         activation   :", self.act)
         
-        print("         laaf         :", self.laaf)
-        print("         dropout      :", self.dropout)
-        # print("         learning rate:", self.lr)
-        # print("         optimizer    :", self.opt)
-        
-        
-        # print("         total parms  :", n_total_parms)
-        print("         feature scaling :", self.f_scl_in)
-        print("         random seed  :", self.r_seed)
-        print("         data type    :", data_type)
-        print("         weight init  :", self.w_init)
-        print("         bias   init  :", self.b_init)
+        # model.summary(expand_nested=True)
+            
+        nn.summary(expand_nested=True)
+            
+        if verbose:
+            
+            print("\n************************************************************")
+            print("****************     MAIN PROGRAM START     ****************")
+            print("************************************************************")
+            print(">>>>> start time:", datetime.datetime.now())
+            print(">>>>> configuration;")
+            print("         nn_type      :", self.nn_type)
+            print("         Navier-Stokes:", self.NS_type)
+            # print("         n_pde_samples:", self.N_pde)
+            print("         width        :", self.width)
+            print("         depth        :", self.depth)
+            print("         activation   :", self.act)
+            
+            print("         laaf         :", self.laaf)
+            print("         dropout      :", self.dropout)
+            # print("         learning rate:", self.lr)
+            # print("         optimizer    :", self.opt)
+            
+            
+            # print("         total parms  :", n_total_parms)
+            print("         feature scaling :", self.f_scl_in)
+            print("         random seed  :", self.r_seed)
+            print("         data type    :", data_type)
+            print("         weight init  :", self.w_init)
+            print("         bias   init  :", self.b_init)
 
     def random_seed(self, seed = 1234):
         
@@ -1898,15 +1901,15 @@ class App:
               w_mom   = 1e0,
               w_temp  = 1e0,
               w_srt   = 1.0,
-              ns_pde  = 10000,
+              ns_pde  = 5000,
               sampling_method="adaptive",
               # NS_type     = 'VP',             #Velocity-Vorticity (VV) or Velocity-Pressure (VP) form
               ):
             
-        print("\n>>>>> training setting;")
-        print("         # of epoch     :", epochs)
-        print("         batch size     :", batch_size)
-        print("         convergence tol:", tol)
+        # print("\n>>>>> training setting;")
+        # print("         # of epoch     :", epochs)
+        # print("         batch size     :", batch_size)
+        # print("         convergence tol:", tol)
         
         self.lr      = lr
         self.opt     = opt
@@ -1936,8 +1939,8 @@ class App:
         
         self.mn = tf.reduce_mean(X_data, axis = 0)[:4]
         
-        print("         lower bounds    :", self.lbi.numpy())
-        print("         upper bounds    :", self.ubi.numpy())
+        # print("         lower bounds    :", self.lbi.numpy())
+        # print("         upper bounds    :", self.ubi.numpy())
         
         w_data  = tf.convert_to_tensor(self.w_data, data_type)
         w_div   = tf.convert_to_tensor(self.w_div, data_type)
@@ -2688,7 +2691,7 @@ class App:
         self.pde_N = N
         
         # print("\nNumber of collocation points (t,x,y,z): [%d, %d, %d, %d] = %d" %(Nt, Nx, Ny, Nz, Nt*Nx*Ny*Nz) )
-        print("Time range: %e s - %e s = %e min" %(tmin, tmax, (tmax-tmin)/60.0) )
+        # print("Time range: %e s - %e s = %e min" %(tmin, tmax, (tmax-tmin)/60.0) )
         
     def _gen_random_samples(self, *args):
         
@@ -3808,7 +3811,7 @@ def restore(filename, log_index=None, include_res_layer=None, activation=None, s
         
     kwargs = {'nblocks':3}
     
-    print("Opening NN file: %s ..." %filename)
+    # print("Opening NN file: %s ..." %filename)
     
     with h5py.File(filename,'r') as fp:
         
@@ -3837,7 +3840,7 @@ def restore(filename, log_index=None, include_res_layer=None, activation=None, s
     nn = App(**kwargs)
     
     file_weights = get_log_file(filename, log_index)
-    print("Opening NN file: %s ..." %file_weights)
+    # print("Opening NN file: %s ..." %file_weights)
     nn.model.load_weights(file_weights)#, skip_mismatch=skip_mismatch)
     
     # if include_res_layer:
@@ -3849,8 +3852,8 @@ def restore(filename, log_index=None, include_res_layer=None, activation=None, s
     nn.ubi = tf.convert_to_tensor(kwargs['ub'])
     nn.mn  = tf.convert_to_tensor(kwargs['mn'])
     
-    print("         lower bounds    :", nn.lbi.numpy())
-    print("         upper bounds    :", nn.ubi.numpy())
+    # print("         lower bounds    :", nn.lbi.numpy())
+    # print("         upper bounds    :", nn.ubi.numpy())
     
     with h5py.File(filename,'r') as fp:
         

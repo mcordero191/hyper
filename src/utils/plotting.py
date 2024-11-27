@@ -284,6 +284,7 @@ def plot_mean_winds(t, h, u, v, w,
                     vmaxs=None,
                     cmap='seismic',
                     ylabel='Altitude (km)',
+                    xlabel="UT",
                     histogram=False,
                     df_ref=None,
                     titles = ['Zonal wind', 'Meridional wind', 'Vertical wind'],
@@ -334,7 +335,7 @@ def plot_mean_winds(t, h, u, v, w,
         
         ax.set_title(titles[i])
         ax.set_ylabel(ylabel)
-        ax.set_xlabel('UTC (h)')
+        ax.set_xlabel(xlabel)
         ax.set_xlim(np.min(num), np.max(num))
         
         im = ax.pcolormesh(num, h, data.T, cmap=cmap, vmin=vmin, vmax=vmax)
