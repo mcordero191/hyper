@@ -242,7 +242,9 @@ def save_winds(df, path):
             group.create_dataset("v_std", data=df["v_std"][i])
             group.create_dataset("w_std", data=df["w_std"][i])
 
-def plot_winds(df, path, ext="png", lat0=None, lon0=None, h0=None):
+def plot_winds(df, path, ext="png",
+               lat0=None, lon0=None, h0=None,
+               cmap_std="inferno_r"):
     
     nt, nx, ny, nz = df["T"].shape
     
@@ -281,7 +283,7 @@ def plot_winds(df, path, ext="png", lat0=None, lon0=None, h0=None):
                              titles=["u", "v", "w"],
                              vmins=[-100,-100,-5],
                              vmaxs=[ 100, 100, 5],
-                             ylabel = "Latitude",
+                             ylabel = "Longitude",
                              )
     
     plotting.plot_mean_winds(t, lon, u_std[:,:,iy,iz], v_std[:,:,iy,iz], w_std[:,:,iy,iz],
@@ -289,8 +291,8 @@ def plot_winds(df, path, ext="png", lat0=None, lon0=None, h0=None):
                              titles=["std(u)", "std(v)", "std(w)"],
                              vmins=[0,0,0],
                              vmaxs=[ 10, 10, 1],
-                             cmap='jet',
-                             ylabel = "Latitude",
+                             cmap=cmap_std,
+                             ylabel = "Longitude",
                              )
     
     #Keogram Y
@@ -304,7 +306,7 @@ def plot_winds(df, path, ext="png", lat0=None, lon0=None, h0=None):
                              titles=["u", "v", "w"],
                              vmins=[-100,-100,-5],
                              vmaxs=[ 100, 100, 5],
-                             ylabel = "Longitude",
+                             ylabel = "Latitude",
                              )
     
     plotting.plot_mean_winds(t, lat, u_std[:,ix,:,iz], v_std[:,ix,:,iz], w_std[:,ix,:,iz],
@@ -312,8 +314,8 @@ def plot_winds(df, path, ext="png", lat0=None, lon0=None, h0=None):
                              titles=["std(u)", "std(v)", "std(w)"],
                              vmins=[0,0,0],
                              vmaxs=[ 10, 10, 1],
-                             cmap='jet',
-                             ylabel = "Longitude",
+                             cmap=cmap_std,
+                             ylabel = "Latitude",
                              )
     
     #Keogram Z
@@ -334,7 +336,7 @@ def plot_winds(df, path, ext="png", lat0=None, lon0=None, h0=None):
                              titles=["std(u)", "std(v)", "std(w)"],
                              vmins=[0,0,0],
                              vmaxs=[ 10, 10, 1],
-                             cmap='jet'
+                             cmap=cmap_std,
                              )
     
 if __name__ == '__main__':

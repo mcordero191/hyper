@@ -261,10 +261,10 @@ class App:
         self.counter = 0
         
         # model.summary(expand_nested=True)
-            
-        nn.summary(expand_nested=True)
-            
+        
         if verbose:
+            
+            nn.summary(expand_nested=True)
             
             print("\n************************************************************")
             print("****************     MAIN PROGRAM START     ****************")

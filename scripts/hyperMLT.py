@@ -256,7 +256,7 @@ if __name__ == '__main__':
     parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VV", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
     
     parser.add_argument('--nensembles',   dest='nensembles', default=10, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
@@ -453,8 +453,8 @@ if __name__ == '__main__':
         
         elif exp.upper()  == 'VORTEX':
             
-            tini            = 0
-            # dt              = 24
+            tini            = 20
+            dt              = 3
             
             dlon            = 400e3
             dlat            = 400e3
