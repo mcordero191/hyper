@@ -14,35 +14,68 @@ import matplotlib.pyplot as plt
 from pinn import hyper
 from torch._inductor.ir import NoneLayout
    
-def read_upleg(upleg = 1):
+def read_upleg(upleg = 1, vortex=1):
     
-    if upleg:
+    if vortex == 1:
         
-        filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/UPLEG34_sigma0_1Bin_size_1km.txt'
-        lat = 69.45
-        lon = 15.75
-        ref_label = 'UPLEG'
-        dt = datetime.datetime(2023,3,23,21,0,0, tzinfo=datetime.timezone.utc)
+        if upleg == 0:
+            
+            filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/DNLEGAVG_AVG.txt'
+            lat = 70.35
+            lon = 14.25
+            ref_label = 'DWLEG'
+            dt = datetime.datetime(2023,3,23,21,0,0, tzinfo=datetime.timezone.utc)
         
-    else:
-        filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/DNLEGAVG_AVG.txt'
-        lat = 70.35
-        lon = 14.25
-        ref_label = 'DWLEG'
-        dt = datetime.datetime(2023,3,23,21,0,0, tzinfo=datetime.timezone.utc)
+        
+        if upleg == 1:
+            
+            filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/UPLEG34_sigma0_1Bin_size_1km.txt'
+            lat = 69.45
+            lon = 15.75
+            ref_label = 'UPLEG'
+            dt = datetime.datetime(2023,3,23,21,0,0, tzinfo=datetime.timezone.utc)
+        
     
-    epoch = dt.timestamp()    
+        epoch = dt.timestamp()    
+        
+        df = pd.read_csv(filename,
+                         # sep=' ',
+                         header=0,
+                         skiprows=1,
+                         delim_whitespace=True,
+                         names=['alt', 'u', 'v','ue', 've'],
+                         )
     
+        df = df.assign(lat=lat, lon=lon, datetime=dt, epoch=epoch)
+        
+        return(df)
+        
+    filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex2/VortEx2_TrajectoryUTC_0_1Hz.txt'
+    lat = 69.45
+    lon = 15.75
+    ref_label = 'UPLEG'
+    dt = datetime.datetime(2024,11,10,9,23,0, tzinfo=datetime.timezone.utc)
+        
     df = pd.read_csv(filename,
-                     # sep=' ',
-                     header=0,
-                     skiprows=1,
-                     delim_whitespace=True,
-                     names=['alt', 'u', 'v','ue', 've'],
-                     )
-
-    df = df.assign(lat=lat, lon=lon, datetime=dt, epoch=epoch)
+                         # sep=' ',
+                         # header=1,
+                         # skiprows=1,
+                         sep='\s+',
+                         # names=['alt', 'u', 'v','ue', 've'],
+                         )
     
+    # Convert column names to lowercase
+    df.columns = df.columns.str.lower()
+    
+    # Combine year, month, day, hour, minute, and second into a datetime column
+    dt = pd.to_datetime(df[['year', 'month', 'day', 'hour', 'minute', 'second']])
+    
+    # Define the epoch (1st January 1950)
+    epoch_start = datetime.datetime(1970, 1, 1)
+    
+    # Calculate seconds since epoch
+    df['epoch'] = (dt - epoch_start).dt.total_seconds()
+
     return(df)
 
 def create_grid(hmin = 80,
@@ -57,7 +90,7 @@ def create_grid(hmin = 80,
     
     h       = np.arange(hmin, hmax, hstep)
     
-    TIMES, ALT, LON, LAT = np.meshgrid(epoch, h, lon0, lat0, indexing='ij')
+    TIMES, LON, LAT, ALT = np.meshgrid(epoch, lon0, lat0, h, indexing='ij')
     
     coords = {}
     coords["times"] = TIMES
@@ -66,6 +99,16 @@ def create_grid(hmin = 80,
     coords["alt"]   = ALT
     
     return(coords)
+
+def format_grid(times, lat, lon, alt):
+    
+    coords = {}
+    coords["times"] = np.array([[[times]]])
+    coords["lat"]   = np.array([[[lat]]])
+    coords["lon"]   = np.array([[[lon]]])
+    coords["alt"]   = np.array([[[alt]]])
+    
+    return coords
 
 def winds_from_model(exp_folder, coords):
     
@@ -108,7 +151,7 @@ def winds_from_model(exp_folder, coords):
         
         nn = hyper.restore(filename)
     
-        outputs = nn.infer(t, x, y, z, filter_output=False)
+        outputs = nn.infer(t, x, y, z, filter_output=True)
         
         u[ind_3d] = outputs[:,0]
         v[ind_3d] = outputs[:,1]
@@ -183,9 +226,9 @@ def save_winds(df, path):
     # Open the file in write mode
     with h5py.File(output_file, "a") as fp:
         
-        if "lat" not in fp: fp.create_dataset("lat", data=lat[0,0,0,0])
-        if "lon" not in fp: fp.create_dataset("lon", data=lon[0,0,0,0])
-        if "alt" not in fp: fp.create_dataset("alt", data=alt[0,:,0,0])
+        if "lat" not in fp: fp.create_dataset("lat", data=lat[0,0,0,:])
+        if "lon" not in fp: fp.create_dataset("lon", data=lon[0,0,0,:])
+        if "alt" not in fp: fp.create_dataset("alt", data=alt[0,0,0,:])
         
         for i, t in enumerate(times[:,0,0,0]):  # Iterate over the time dimension
             
@@ -205,6 +248,37 @@ def save_winds(df, path):
             group.create_dataset("v_std", data=df["v_std"][i])
             group.create_dataset("w_std", data=df["w_std"][i])
 
+def save_flat_winds(df, path):
+    
+    times = df["times"]
+    
+    lat = df["lat"]
+    lon = df["lon"]
+    alt = df["alt"]
+    
+    dt = datetime.datetime.utcfromtimestamp(times[0,0,0,0])
+    
+    output_file = os.path.join(path, "winds_%s.h5" %dt.strftime("%Y%m%d") )
+    
+    # Open the file in write mode
+    with h5py.File(output_file, "a") as fp:
+        
+        if "lat" not in fp: fp.create_dataset("lat", data=lat[0,0,0,:])
+        if "lon" not in fp: fp.create_dataset("lon", data=lon[0,0,0,:])
+        if "alt" not in fp: fp.create_dataset("alt", data=alt[0,0,0,:])
+        if "epoch" not in fp: fp.create_dataset("epoch", data=times[0,0,0,:])
+                
+        # Define a group name for each timestamp
+        group = fp#.create_group(group_name)  # Create a group for the timestamp
+        
+        group.create_dataset("u", data=df["u"][0,0,0,:])  # Save the 3D slice
+        group.create_dataset("v", data=df["v"][0,0,0,:])
+        group.create_dataset("w", data=df["w"][0,0,0,:])
+        
+        group.create_dataset("u_std", data=df["u_std"][0,0,0,:])  # Save the 3D slice
+        group.create_dataset("v_std", data=df["v_std"][0,0,0,:])
+        group.create_dataset("w_std", data=df["w_std"][0,0,0,:])
+            
 def plot_profiles(df, figpath,
                   df_ref = None,
                   ext = "png",
@@ -244,10 +318,17 @@ def plot_profiles(df, figpath,
     
     linestyles = ['-', '--', '-.']
     
+    plot_ref = False
+    
     if df_ref is not None:
-        alt_ref = df_ref['alt'].values
-        u_ref   = df_ref['u'].values 
-        v_ref   = df_ref['v'].values
+        
+        if "u" in df_ref.keys():
+            
+            alt_ref = df_ref['alt'].values
+            u_ref   = df_ref['u'].values 
+            v_ref   = df_ref['v'].values
+            
+            plot_ref = True
     
     for j in range(nlons):
         for k in range(nlats):
@@ -277,16 +358,16 @@ def plot_profiles(df, figpath,
                 # ax.plot(u[i,:,j,k], alts[i,:,j,k], 'k', linestyle=linestyle, alpha=alpha, label=label_u)
                 # ax.plot(v[i,:,j,k], alts[i,:,j,k], 'b', linestyle=linestyle, alpha=alpha, label=label_v)
                 
-                ax.errorbar(u[i,:,j,k], alts[i,:,j,k], xerr=u_std[i,:,j,k], color='k', linestyle=linestyle, alpha=alpha, label=label_u)
-                ax.errorbar(v[i,:,j,k], alts[i,:,j,k], xerr=v_std[i,:,j,k], color='b', linestyle=linestyle, alpha=alpha, label=label_v)
+                ax.errorbar(u[i,j,k], alts[i,j,k], xerr=u_std[i,j,k], color='k', linestyle=linestyle, alpha=alpha, label=label_u)
+                ax.errorbar(v[i,j,k], alts[i,j,k], xerr=v_std[i,j,k], color='b', linestyle=linestyle, alpha=alpha, label=label_v)
                 
                 if w is not None:
                     # ax.plot(10*w[i,:,j,k], alts[i,:,j,k], 'g', linestyle=linestyle, alpha=alpha, label=label_w)
                     
-                    ax.errorbar(10*w[i,:,j,k], alts[i,:,j,k], xerr=w_std[i,:,j,k], color='g', linestyle=linestyle, alpha=alpha, label=label_w)
+                    ax.errorbar(10*w[i,j,k], alts[i,j,k], xerr=w_std[i,j,k], color='g', linestyle=linestyle, alpha=alpha, label=label_w)
                 
                 
-            if df_ref is not None:
+            if plot_ref:
                 ax.plot(u_ref, alt_ref, 'ko', linestyle='-', alpha=0.4, label='%s: %s' %(ref_label, labels[0]) )
                 ax.plot(v_ref, alt_ref, 'bo', linestyle='-', alpha=0.4, label='%s: %s' %(ref_label, labels[1]) )
             
@@ -312,7 +393,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/winds/c20230323", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex2/winds/c20241110", help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
     parser.add_argument('-u', '--upleg', dest='upleg', default=1, help='')
@@ -330,21 +411,23 @@ if __name__ == '__main__':
     if not os.path.isdir(rpath):
         os.mkdir(rpath)
         
-    df_vortex = read_upleg(upleg=upleg)
+    df_vortex = read_upleg(upleg=upleg, vortex=2)
     
     print("Creating GRID ...")
-    coords = create_grid(
-                        epoch = df_vortex["epoch"][0],
-                        lon0  = df_vortex["lon"][0],
-                        lat0  = df_vortex["lat"][0],
-                        )
+    # coords = create_grid(
+    #                     epoch = df_vortex["epoch"][0],
+    #                     lon0  = df_vortex["lon"][0],
+    #                     lat0  = df_vortex["lat"][0],
+    #                     )
+    
+    coords = format_grid(df_vortex["epoch"], df_vortex["lat"], df_vortex["lon"], df_vortex["alt"])
     
     print("Generating winds ...")
     #Produce u, v, w, and std(u), std(v), std(w)
     df = winds_from_model(path, coords)
     
     print("Saving winds ...")
-    save_winds(df, rpath)
+    save_flat_winds(df, rpath)
     
     print("Plotting winds ...")
     plot_profiles(df, rpath, df_ref=df_vortex, ext=ext)

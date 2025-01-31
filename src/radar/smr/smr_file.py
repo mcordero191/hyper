@@ -396,7 +396,7 @@ def plot_spatial_sampling(df, path, suffix='', lla=True, cmap='jet',
     bins_y = bins #np.arange(y.min()-0.03, y.max(), 0.06*5)
     bins_z = bins #np.arange(z.min(), z.max()+2, 2)
     
-    filename = os.path.join(path, 'sampling_%s.png' %(suffix) )
+    filename = os.path.join(path, 'dist_%s.png' %(suffix) )
     
     # _, axs = plt.subplots(2, 3, figsize=(12,10))
     
@@ -1468,7 +1468,7 @@ class SMRReader(object):
         
             ini_date = self.get_initial_date()
         
-            figfile = os.path.join(path, "mean_wind_%s.png" %ini_date.strftime('%Y%m%d_%H%M%S'))
+            figfile = os.path.join(path, "mean_wind_%s.png" %ini_date.strftime('%Y%m%d_%H0000'))
         
             plot_mean_winds(df_winds["times"],
                             df_winds["alts"],
@@ -1508,7 +1508,7 @@ class SMRReader(object):
         
         ini_date = self.get_initial_date()
         
-        suffix += ini_date.strftime('%Y%m%d_%H%M%S')
+        suffix += ini_date.strftime('_%Y%m%d_%H0000')
         
         try:
             plot_spatial_sampling(df, suffix=suffix, **kwargs)
@@ -1524,7 +1524,7 @@ class SMRReader(object):
         
         ini_date = self.get_initial_date()
         
-        suffix += ini_date.strftime('%Y%m%d_%H%M%S')
+        suffix += ini_date.strftime('%Y%m%d_%H0000')
         
         plot_Doppler_sampling(df_unfiltered, df, suffix=suffix, **kwargs)
         

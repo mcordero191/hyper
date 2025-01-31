@@ -25,10 +25,10 @@ def get_filename_suffix(short_naming,
                         ):
     
     if short_naming:
-        suffix = '%s_%03d' %(ini_date.strftime('%Y%m%d_%H%M'), ensemble)
+        suffix = '%s_i%03d' %(ini_date.strftime('%Y%m%d_%H0000'), ensemble)
     else:
-        suffix = "%s_w%02dn%3.2f%sl%02d%03dw%2.1elr%2.1eur%2.1e%3.2f_%03d" %(
-                                                            ini_date.strftime('%Y%m%d_%H%M'),
+        suffix = "%s_w%02dn%3.2f%sl%02d%03dw%2.1elr%2.1eur%2.1e%3.2f_i%03d" %(
+                                                            ini_date.strftime('%Y%m%d_%H0000'),
                                                             dt,
                                                             noise_sigma,
                                                             NS_type,
@@ -100,7 +100,7 @@ def train_hyper(df,
     # seed = 191
     # np.random.seed(seed)
     
-    data_date =  datetime.datetime.utcfromtimestamp(df['times'].min()) 
+    data_date =  datetime.datetime.utcfromtimestamp(df['times'].mean()) 
     
     df_training = df#.sample(frac=0.95, random_state=191)
     df_training.sort_index(inplace=True)
@@ -155,6 +155,9 @@ def train_hyper(df,
                 laaf=laaf,
                 dropout  = dropout,
                 init_sigma = init_sigma,
+                lon_ref = lon_center,
+                lat_ref = lat_center,
+                alt_ref = alt_center,
             )
     
     # with tf.device("/device:GPU:0"):
@@ -233,7 +236,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='vortex', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='SIMONE2023', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
@@ -246,6 +249,14 @@ if __name__ == '__main__':
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
+    parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
+    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
+    
+    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    
+    parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
+    parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
+    
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
     parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
     
@@ -256,12 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VV", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
-    
-    parser.add_argument('--nensembles',   dest='nensembles', default=10, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
-    
-    parser.add_argument('--clustering-filter',   dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
@@ -273,9 +279,6 @@ if __name__ == '__main__':
     
     parser.add_argument('-s', '--nn-init-std',    dest='nn_init_sigma', default=1.0, type=float)
     parser.add_argument('-i', '--nn-w-init',    dest='nn_w_init', default='GlorotNormal', type=str)
-    
-    parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
-    parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
     parser.add_argument('--verbose', dest='verbose', default=0, help='', type=int)
     parser.add_argument('--overwrite', dest='overwrite', default=0, help='', type=int)
@@ -437,6 +440,19 @@ if __name__ == '__main__':
             alt_center      = 91
             path            = "%s/Data/IAP/SIMONe/Germany/Simone2018"  %home_directory
         
+        elif exp.upper()  == 'SIMONE2023':
+            
+            tini            = 0
+            # dt              = 24
+            # dlon            = 6
+            # dlat            = 3
+            # dh              = 24
+            
+            lon_center      = 12.5
+            lat_center      = 54
+            alt_center      = 91
+            path            = "%s/Data/IAP/SIMONe/Germany/Simone2023"  %home_directory
+        
         elif exp.upper()  == 'EXTREMEW':
             
             tini            = 0
@@ -467,7 +483,7 @@ if __name__ == '__main__':
             
             df_testing = read_vortex_files(path)
             
-            single_day      = True
+            single_day      = False
         
         elif exp.upper()  == 'VORTEXHD':
             
@@ -606,7 +622,7 @@ if __name__ == '__main__':
         
         if resource_path is None:
             # basepath, exp_name = os.path.split(path)
-            rpath = os.path.join(path, 'winds')
+            rpath = os.path.join(path, 'hyper%02d' %dt)
         else:
             rpath = resource_path
             
@@ -629,17 +645,17 @@ if __name__ == '__main__':
             
             if info != 1: break
             
-            exp_date =  datetime.datetime.utcfromtimestamp(meteor_data.df['times'].min())
+            exp_date =  datetime.datetime.utcfromtimestamp(meteor_data.df['times'].mean())
             
             exp_path = os.path.join(rpath, exp_date.strftime("c%Y%m%d"))
             
             if not ena_clustering:
-                exp_path = os.path.join(rpath, exp_date.strftime("nc%Y%m%d"))
+                exp_path = os.path.join(rpath, exp_date.strftime("d%Y%m%d"))
                 
             if not os.path.exists(exp_path): os.mkdir(exp_path)
             
             #Plot original sampling
-            meteor_data.plot_sampling(path=exp_path, suffix='prefilter')
+            meteor_data.plot_sampling(path=exp_path, suffix='pre')
             meteor_data.add_synthetic_noise(noise_sigma)
             
             nblocks = 24//dt
@@ -658,7 +674,7 @@ if __name__ == '__main__':
                 # meteor_data.save(exp_path)
             
                 #Plot filtered data
-                meteor_data.plot_sampling(path=exp_path, suffix='postfilter')
+                meteor_data.plot_sampling(path=exp_path, suffix='post')
             
                 if skip_training:
                     continue

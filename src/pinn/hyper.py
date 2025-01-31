@@ -347,10 +347,8 @@ class App:
         
         return(mean_grad)
     
-    @tf.function
-    def forward_pass(self, model, X, training=True, return_all=False,
-                     # freq_scaling=5.0,#tf.constant([10.0, 4.0, 4.0, 4.0]), #100min, 20km, 100km, 100km
-                     ):
+    @tf.function(reduce_retracing=True)
+    def forward_pass(self, model, X, training=tf.constant(True)):
         
         # print("Tracing model!") 
         
@@ -1880,6 +1878,21 @@ class App:
         
         return w_pde, grad_data_mean, grad_pde_mean
     
+    def update_lla_reference(self, df):
+        
+        lon = df['lons'].values                             #[N]
+        lat = df['lats'].values                             #[N]
+        alt = df['heights'].values                          #[N]                  #[N,3]
+        
+        if self.lon_ref is None:
+            self.lon_ref    = np.int32( lon.mean()*2 )/2.0
+            
+        if self.lat_ref is None:
+            self.lat_ref    = np.int32( lat.mean()*2 )/2.0
+            
+        if self.alt_ref is None:
+            self.alt_ref    = np.int32( alt.mean()*2 )/2.0
+        
     def train(self,
               df_training,
               df_testing,
@@ -1927,8 +1940,11 @@ class App:
         # optimization
         self.optimizer = self.opt_(self.lr, self.opt, epochs)
         
+        #Verify if lon, lat and alt reference is defined
+        # self.update_lla_reference(df_training)
+        
         # Training dataset
-        X_data  = self.convert_df2tensors(df_training, update_ref=True)
+        X_data  = self.convert_df2tensors(df_training)
         X_testing = self.convert_df2tensors(df_testing)
         
         lb = tf.reduce_min (X_data, axis = 0)[:4]
@@ -1939,8 +1955,8 @@ class App:
         
         self.mn = tf.reduce_mean(X_data, axis = 0)[:4]
         
-        # print("         lower bounds    :", self.lbi.numpy())
-        # print("         upper bounds    :", self.ubi.numpy())
+        print("         lower bounds    :", self.lbi.numpy())
+        print("         upper bounds    :", self.ubi.numpy())
         
         w_data  = tf.convert_to_tensor(self.w_data, data_type)
         w_div   = tf.convert_to_tensor(self.w_div, data_type)
@@ -2064,7 +2080,7 @@ class App:
                        )
                     )
                 
-                print("\t\t\ttotal \tdata \tPDE  \tMom " )
+                print("\t\t\tTotal \tData \tPDE  \tMomentum " )
                  
                  
                 print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e" 
@@ -2098,28 +2114,28 @@ class App:
                        )
                     )
                 
-                print("\t\t\tu \t\tv \t\tw" )
-                
-                print("\tTV  : \t\t%.2e \t%.2e \t%.2e" 
-                    % (tv_u,
-                       tv_v,
-                       tv_w,
-                       )
-                    )
-                
-                print("\tTVe : \t\t%.2e \t%.2e \t%.2e" 
-                    % (tv_ue,
-                       tv_ve,
-                       tv_we,
-                       )
-                    )
-                
-                print("\trmse: \t\t%.2e \t%.2e \t%.2e" 
-                    % (ep_loss_u,
-                       ep_loss_v,
-                       ep_loss_w,
-                       )
-                    )
+                # print("\t\t\tu \t\tv \t\tw" )
+                #
+                # print("\tTV  : \t\t%.2e \t%.2e \t%.2e" 
+                #     % (tv_u,
+                #        tv_v,
+                #        tv_w,
+                #        )
+                #     )
+                #
+                # print("\tTVe : \t\t%.2e \t%.2e \t%.2e" 
+                #     % (tv_ue,
+                #        tv_ve,
+                #        tv_we,
+                #        )
+                #     )
+                #
+                # print("\trmse: \t\t%.2e \t%.2e \t%.2e" 
+                #     % (ep_loss_u,
+                #        ep_loss_v,
+                #        ep_loss_w,
+                #        )
+                #     )
             
             #Save logs
             self.ep_log.append(ep)
@@ -2190,7 +2206,7 @@ class App:
         print(">>>>> end time:", datetime.datetime.now())
     
         
-    def convert_df2tensors(self, df, update_ref=False):    
+    def convert_df2tensors(self, df):    
         
         ###########################
         #Traiing dataset
@@ -2213,15 +2229,6 @@ class App:
         dop_errs    = df['dop_errs'].values
         
         k = np.stack([kx, ky, kz], axis=1)                      #[N,3]
-        
-        if update_ref:
-            self.lon_ref    = lon.mean()
-            self.lat_ref    = lat.mean()
-            self.alt_ref    = alt.mean()
-            
-            # ini_dt = datetime.datetime.fromtimestamp(t[0], datetime.timezone.utc)
-            # ini_dt = ini_dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            # self._time_base = ini_dt.timestamp()
         
         #vUse local time reference
         t = t - self._time_base
@@ -2265,7 +2272,7 @@ class App:
         # mask |= (y<self.lbi[3]) | (y>self.ubi[3])
         mask |= (z<self.lbi[1]) | (z>self.ubi[1])
         
-        return(mask)
+        return(mask.numpy())
     
     def infer_from_df(self, df, filter_output=False):
         
@@ -2282,22 +2289,27 @@ class App:
         
         return (outputs)
     
-    def infer(self, t, lon=None, lat=None, alt=None, filter_output=True,
-              x=None, y=None, z=None, return_xyz=False):
+    def infer(self, t,
+              lon=None, lat=None, alt=None, 
+              x=None, y=None, z=None,
+              return_xyz=False,
+              return_mask=False,
+              filter_output=True,
+              ):
         
-        t = t - self._time_base
+        new_t = t - self._time_base
         
         if (x is None) or (y is None) or (z is None):
             x, y, z = lla2xyh(lat, lon, alt, self.lat_ref, self.lon_ref, self.alt_ref)
         
-        mask = self.invalid_mask(t, x, y, z)
-        
-        t = tf.convert_to_tensor(t.reshape(-1,1), dtype = data_type)
+        t = tf.convert_to_tensor(new_t.reshape(-1,1), dtype = data_type)
         x = tf.convert_to_tensor(x.reshape(-1,1), dtype = data_type)
         y = tf.convert_to_tensor(y.reshape(-1,1), dtype = data_type)
         z = tf.convert_to_tensor(z.reshape(-1,1), dtype = data_type)
         
-        outputs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=False)
+        mask = self.invalid_mask(t, x, y, z)[:,0]
+        
+        outputs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=tf.constant(False))
         outputs = outputs.numpy()
         
         if filter_output:
@@ -2305,6 +2317,9 @@ class App:
         
         if return_xyz:
             return (outputs, x, y, z)
+        
+        if return_mask:
+            return(outputs, mask)
             
         # u = outputs[:,0]
         # v = outputs[:,1]
@@ -2340,7 +2355,7 @@ class App:
             tp.watch(y)
             tp.watch(z)
             
-            outs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=False)
+            outs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=tf.constant(False))
             
             u = outs[:,0:1]
             v = outs[:,1:2]
@@ -2405,7 +2420,7 @@ class App:
                 tp.watch(y)
                 tp.watch(z)
                 
-                outs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=False)
+                outs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=tf.constant(False))
                 
                 u = outs[:,0:1]
                 v = outs[:,1:2]
@@ -2480,7 +2495,7 @@ class App:
         if tf.math.reduce_all(tf.math.is_nan(u)) == True:
             return (tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type))
             
-        outputs = self.forward_pass(self.model, X[:,:4], training=False)
+        outputs = self.forward_pass(self.model, X[:,:4], training=tf.constant(False))
         
         ue = outputs[:,0:1]
         ve = outputs[:,1:2]

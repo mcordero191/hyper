@@ -409,8 +409,8 @@ def plot_mean_winds(t, h, u, v, w,
                      rect=[0.02,0.0,1.0,1.0]
                      )
     
-    axs[-1].annotate('@jmu',
-                     xy = (1.05, -0.2),
+    axs[-1].annotate('@mu',
+                     xy = (1.05, -0.15),
                      xycoords='axes fraction',
                      ha='left',
                      va="top",
