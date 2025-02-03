@@ -113,7 +113,7 @@ class Grid4D():
 
 class TimeAltitudePlot():
     
-    def __init__(self):
+    def __init__(self, lon0=None, lat0=None, alt0=None):
         """
         Initialize the plot with the given parameters.
         
@@ -123,9 +123,9 @@ class TimeAltitudePlot():
             altitude_levels (int): Number of altitude levels.
         """
         
-        self.lon0 = None
-        self.lat0 = None
-        self.alt0 = None
+        self.lon0 = lon0
+        self.lat0 = lat0
+        self.alt0 = alt0
         
         self.latitudes = []  # Altitude levels
         self.longitudes = []  # Altitude levels
@@ -247,7 +247,7 @@ class TimeAltitudePlot():
         data_w = np.vstack(self.datax_w)
         
         #Keogram X
-        lat_h = "[%3.2fN,%3.2fkm]" %(self.lat0, self.alt0)
+        lat_h = r"[%3.2f$^\circ$N, %3.2fkm]" %(self.lat0, self.alt0)
         
         figfile = os.path.join(path, "keox_%s.%s" %(dt.strftime("%Y%m%d"), ext) )
         
@@ -255,7 +255,8 @@ class TimeAltitudePlot():
                                  longitudes,
                                  data_u, data_v, data_w,
                                  figfile,
-                                 titles=["u", "v", "w"],
+                                 # titles=["u", "v", "w"],
+                                 figtitle=lat_h,
                                  vmins=vmins,
                                  vmaxs=vmaxs,
                                  ylabel = "Longitude",
@@ -268,7 +269,7 @@ class TimeAltitudePlot():
         data_w = np.vstack(self.datay_w)
         
         
-        lon_h = "[%3.2fE,%3.2fkm]" %(self.lon0, self.alt0)
+        lon_h = r"[%3.2f$^\circ$E, %3.2fkm]" %(self.lon0, self.alt0)
         
         figfile = os.path.join(path, "keoy_%s.%s" %(dt.strftime("%Y%m%d"), ext) )
         
@@ -276,7 +277,8 @@ class TimeAltitudePlot():
                                  latitudes,
                                  data_u, data_v, data_w,
                                  figfile,
-                                 titles=["u", "v", "w"],
+                                 # titles=["u", "v", "w"],
+                                 figtitle=lon_h,
                                  vmins=vmins,
                                  vmaxs=vmaxs,
                                  ylabel = "Latitude",
@@ -288,7 +290,7 @@ class TimeAltitudePlot():
         data_v = np.vstack(self.dataz_v)
         data_w = np.vstack(self.dataz_w)
         
-        lat_lon = "[%3.2fE,%3.2fN]" %(self.lon0, self.lat0)
+        lat_lon = r"[%3.2f$^\circ$E, %3.2f$^\circ$N]" %(self.lon0, self.lat0)
         
         print(lat_lon, lon_h)
         
@@ -298,7 +300,8 @@ class TimeAltitudePlot():
                                  altitudes,
                                  data_u, data_v, data_w,
                                  figfile,
-                                 titles=["u", "v", "w"],
+                                 # titles=["u", "v", "w"],
+                                 figtitle=lat_lon,
                                  vmins=vmins,
                                  vmaxs=vmaxs,
                                  )
@@ -359,7 +362,7 @@ def winds_from_model(ensemble_files, coords):
     
         outputs, mask = nn.infer(T_mesh, X_mesh, Y_mesh, Z_mesh,
                            filter_output=False,
-                           return_mask=True)
+                           return_valid_mask=True)
         
         u[ind_4d] = outputs[:,0]
         v[ind_4d] = outputs[:,1]
@@ -506,8 +509,9 @@ if __name__ == '__main__':
     parser.add_argument('--y-range', dest='yrange', default=None, help='in km')
     parser.add_argument('--z-range', dest='zrange', default=None, help='in km')
     
-    parser.add_argument('--lat-ref', dest='lat0', default=None, help='')
-    parser.add_argument('--lon-ref', dest='lon0', default=None, help='')
+    parser.add_argument('--lat-ref', dest='lat0', default=53.9, help='')
+    parser.add_argument('--lon-ref', dest='lon0', default=12.6, help='')
+    parser.add_argument('--alt-ref', dest='alt0', default=None, help='')
     
     args = parser.parse_args()
     
@@ -530,6 +534,7 @@ if __name__ == '__main__':
     
     lat0        = args.lat0
     lon0        = args.lon0
+    alt0        = args.alt0
     
     cmap = 'seismic'
     
@@ -577,7 +582,7 @@ if __name__ == '__main__':
             
         print("Processing experiment %s" %day_folder)
         
-        plotData = TimeAltitudePlot()
+        plotData = TimeAltitudePlot(lon0=lon0, lat0=lat0, alt0=alt0)
         
         print("Generating winds ...")
         for hourly_file in hourly_files:
@@ -608,6 +613,3 @@ if __name__ == '__main__':
         
         print("Plotting winds ...")
         plotData.save_plot(path=figpath_)
-        
-            
-        

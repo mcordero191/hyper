@@ -2293,7 +2293,7 @@ class App:
               lon=None, lat=None, alt=None, 
               x=None, y=None, z=None,
               return_xyz=False,
-              return_mask=False,
+              return_valid_mask=False,
               filter_output=True,
               ):
         
@@ -2318,8 +2318,8 @@ class App:
         if return_xyz:
             return (outputs, x, y, z)
         
-        if return_mask:
-            return(outputs, mask)
+        if return_valid_mask:
+            return(outputs, ~mask)
             
         # u = outputs[:,0]
         # v = outputs[:,1]

@@ -284,10 +284,11 @@ def plot_mean_winds(t, h, u, v, w,
                     vmaxs=None,
                     cmap='seismic',
                     ylabel='Altitude (km)',
-                    xlabel="UT",
+                    xlabel="Universal time",
                     histogram=False,
                     df_ref=None,
                     titles = ['Zonal wind', 'Meridional wind', 'Vertical wind'],
+                    figtitle="",
                     bins=40
                     ):
     
@@ -319,6 +320,7 @@ def plot_mean_winds(t, h, u, v, w,
     bbox = dict(boxstyle='round', fc='blanchedalmond', ec='orange', alpha=0.5)
     
     _ = plt.figure(figsize=(8,6))
+    plt.suptitle(figtitle)
     
     for i in range(3):
         
@@ -406,7 +408,7 @@ def plot_mean_winds(t, h, u, v, w,
         
     plt.tight_layout(
                      pad=0.1, 
-                     rect=[0.02,0.0,1.0,1.0]
+                     rect=[0.02,0.0,1.02,0.97]
                      )
     
     axs[-1].annotate('@mu',

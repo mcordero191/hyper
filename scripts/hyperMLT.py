@@ -264,8 +264,8 @@ if __name__ == '__main__':
     parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e-1, help='Slope recovery time loss weight', type=float)
     
-    parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
-    parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
+    parser.add_argument('--laaf',        dest='nn_laaf', default=1, type=int)
+    parser.add_argument('--dropout',     dest='nn_dropout', default=1, type=int)
     
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
     
