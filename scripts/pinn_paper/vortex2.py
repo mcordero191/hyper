@@ -12,10 +12,40 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 from pinn import hyper
-from torch._inductor.ir import NoneLayout
    
-def read_upleg(upleg = 1, vortex=1):
+def read_upleg(vortex=1, upleg = 1,
+               lat=None, lon=None, alt=[75,105], dt=None):
     
+    if vortex == 2:
+        
+        filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex2/VortEx2_TrajectoryUTC_0_1Hz.txt'
+        lat = 69.45
+        lon = 15.75
+        ref_label = 'UPLEG'
+        dt = datetime.datetime(2024,11,10,9,23,0, tzinfo=datetime.timezone.utc)
+            
+        df = pd.read_csv(filename,
+                             # sep=' ',
+                             # header=1,
+                             # skiprows=1,
+                             sep='\s+',
+                             # names=['alt', 'u', 'v','ue', 've'],
+                             )
+        
+        # Convert column names to lowercase
+        df.columns = df.columns.str.lower()
+        
+        # Combine year, month, day, hour, minute, and second into a datetime column
+        dt = pd.to_datetime(df[['year', 'month', 'day', 'hour', 'minute', 'second']])
+        
+        # Define the epoch (1st January 1950)
+        epoch_start = datetime.datetime(1970, 1, 1)
+        
+        # Calculate seconds since epoch
+        df['epoch'] = (dt - epoch_start).dt.total_seconds()
+    
+        return(df)
+        
     if vortex == 1:
         
         if upleg == 0:
@@ -34,8 +64,7 @@ def read_upleg(upleg = 1, vortex=1):
             lon = 15.75
             ref_label = 'UPLEG'
             dt = datetime.datetime(2023,3,23,21,0,0, tzinfo=datetime.timezone.utc)
-        
-    
+            
         epoch = dt.timestamp()    
         
         df = pd.read_csv(filename,
@@ -49,33 +78,19 @@ def read_upleg(upleg = 1, vortex=1):
         df = df.assign(lat=lat, lon=lon, datetime=dt, epoch=epoch)
         
         return(df)
-        
-    filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex2/VortEx2_TrajectoryUTC_0_1Hz.txt'
-    lat = 69.45
-    lon = 15.75
-    ref_label = 'UPLEG'
-    dt = datetime.datetime(2024,11,10,9,23,0, tzinfo=datetime.timezone.utc)
-        
-    df = pd.read_csv(filename,
-                         # sep=' ',
-                         # header=1,
-                         # skiprows=1,
-                         sep='\s+',
-                         # names=['alt', 'u', 'v','ue', 've'],
-                         )
     
-    # Convert column names to lowercase
-    df.columns = df.columns.str.lower()
+    d = {'alt' : np.arange(alt[0], alt[1], 0.5)}
     
-    # Combine year, month, day, hour, minute, and second into a datetime column
-    dt = pd.to_datetime(df[['year', 'month', 'day', 'hour', 'minute', 'second']])
+    df = pd.DataFrame(data=d, dtype=np.float32)
     
     # Define the epoch (1st January 1950)
-    epoch_start = datetime.datetime(1970, 1, 1)
+    dt_ini = datetime.datetime(1970, 1, 1)
     
     # Calculate seconds since epoch
-    df['epoch'] = (dt - epoch_start).dt.total_seconds()
-
+    epoch = (dt - dt_ini).total_seconds()
+    
+    df = df.assign(lat=lat, lon=lon, datetime=dt, epoch=epoch)
+    
     return(df)
 
 def create_grid(hmin = 80,
@@ -393,7 +408,8 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex2/winds/c20241110", help='Data path')
+    # parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex2/winds/c20241110", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/NewMexico/MRA/hyper24/c20240118", help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
     parser.add_argument('-u', '--upleg', dest='upleg', default=1, help='')
@@ -411,7 +427,11 @@ if __name__ == '__main__':
     if not os.path.isdir(rpath):
         os.mkdir(rpath)
         
-    df_vortex = read_upleg(upleg=upleg, vortex=2)
+    df_vortex = read_upleg(vortex=0, upleg=upleg, 
+                           lat=34.45,
+                           lon=-107.55,
+                           dt=datetime.datetime(2024,1,18,12,56,0)
+                           )
     
     print("Creating GRID ...")
     # coords = create_grid(

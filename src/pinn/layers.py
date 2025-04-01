@@ -3,8 +3,6 @@ Created on 22 Apr 2024
 
 @author: mcordero
 '''
-import numpy as np
-
 import tensorflow as tf
 import keras
 
@@ -164,9 +162,7 @@ class Embedding(keras.layers.Layer):
         # bias_initializer = 'GlorotNormal'
         # bias_initializer = keras.initializers.RandomNormal(0.0, np.pi/12)
         
-        self.n_neurons = n_neurons
-        
-        self.alpha = tf.constant(stddev, dtype = data_type)
+        # self.alpha = tf.constant(stddev, dtype = data_type)
         
         self.layer0 = keras.layers.Dense(n_neurons,
                                       activation = activation,
@@ -196,7 +192,7 @@ class Embedding(keras.layers.Layer):
         '''
         #Scaling factor when GlorotNormal distribution is used
         #otherwise the frequency components are too small
-        inputs = self.alpha*inputs
+        inputs = alpha*inputs
         
         x0 = self.layer0(inputs)
         # x1 = self.layer1(inputs)
@@ -327,12 +323,14 @@ class LaafLayer(keras.layers.Layer):
         self.w = self.add_weight(
                                 shape = (nfeatures, self.n_neurons),
                                 initializer = self.kernel_initializer,
+                                trainable = True,
                                 # regularizer = keras.regularizers.L2(0.001),
                                 )
         
         self.b = self.add_weight(
                                 shape = (self.n_neurons, ),
                                 initializer = 'zeros',
+                                trainable = True,
                                 )
         
     def call(self, inputs, alpha=tf.constant(1.0)):

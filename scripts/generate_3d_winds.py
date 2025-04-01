@@ -145,7 +145,7 @@ class TimeAltitudePlot():
         self.dataz_v = []
         self.dataz_w = []
 
-    def update_chunk(self, df):
+    def update_chunk(self, df, plot_std=False):
         """
         Update the plot with a new chunk of data.
         
@@ -160,9 +160,10 @@ class TimeAltitudePlot():
         v = df["v"]
         w = df["w"]
         
-        u_std = df["u_std"]
-        v_std = df["v_std"]
-        w_std = df["w_std"]
+        if plot_std:
+            u = df["u_std"]
+            v = df["v_std"]
+            w = df["w_std"]
         
         nt, nx, ny, nz = u.shape
         
@@ -225,6 +226,8 @@ class TimeAltitudePlot():
     def save_plot(self, path,
                   vmins=[-100,-100,-5],
                   vmaxs=[ 100, 100, 5],
+                  cmap='seismic',
+                  sufix="",
                   ):
         
         """
@@ -249,7 +252,7 @@ class TimeAltitudePlot():
         #Keogram X
         lat_h = r"[%3.2f$^\circ$N, %3.2fkm]" %(self.lat0, self.alt0)
         
-        figfile = os.path.join(path, "keox_%s.%s" %(dt.strftime("%Y%m%d"), ext) )
+        figfile = os.path.join(path, "keox_%s_%s.%s" %(dt.strftime("%Y%m%d"), sufix, ext) )
         
         plotting.plot_mean_winds(times,
                                  longitudes,
@@ -259,6 +262,7 @@ class TimeAltitudePlot():
                                  figtitle=lat_h,
                                  vmins=vmins,
                                  vmaxs=vmaxs,
+                                 cmap=cmap,
                                  ylabel = "Longitude",
                                  )
         
@@ -271,7 +275,7 @@ class TimeAltitudePlot():
         
         lon_h = r"[%3.2f$^\circ$E, %3.2fkm]" %(self.lon0, self.alt0)
         
-        figfile = os.path.join(path, "keoy_%s.%s" %(dt.strftime("%Y%m%d"), ext) )
+        figfile = os.path.join(path, "keoy_%s_%s.%s" %(dt.strftime("%Y%m%d"), sufix, ext) )
         
         plotting.plot_mean_winds(times,
                                  latitudes,
@@ -281,6 +285,7 @@ class TimeAltitudePlot():
                                  figtitle=lon_h,
                                  vmins=vmins,
                                  vmaxs=vmaxs,
+                                 cmap=cmap,
                                  ylabel = "Latitude",
                                  )
         
@@ -294,7 +299,7 @@ class TimeAltitudePlot():
         
         print(lat_lon, lon_h)
         
-        figfile = os.path.join(path, "keoz_%s.%s" %(dt.strftime("%Y%m%d"), ext) )
+        figfile = os.path.join(path, "keoz_%s_%s.%s" %(dt.strftime("%Y%m%d"), sufix, ext) )
         
         plotting.plot_mean_winds(times,
                                  altitudes,
@@ -304,8 +309,209 @@ class TimeAltitudePlot():
                                  figtitle=lat_lon,
                                  vmins=vmins,
                                  vmaxs=vmaxs,
+                                 cmap=cmap,
                                  )
+
+class TwoDPlanesPlot():
     
+    def __init__(self, lon0=None, lat0=None, alt0=None):
+        """
+        Initialize the plot with the given parameters.
+        
+        Args:
+            total_hours (int): Total time span for the plot (e.g., 24 hours).
+            chunk_hours (int): Time span for each chunk (e.g., 3 hours).
+            altitude_levels (int): Number of altitude levels.
+        """
+        
+        self.lon0 = lon0
+        self.lat0 = lat0
+        self.alt0 = alt0
+        
+        self.latitudes = []  # Altitude levels
+        self.longitudes = []  # Altitude levels
+        self.altitudes = []  # Altitude levels
+        
+        self.times = []  # To accumulate time data
+        
+        self.datax_u = []  # To accumulate 2D data
+        self.datax_v = []
+        self.datax_w = []
+        
+        self.datay_u = []  # To accumulate 2D data
+        self.datay_v = []
+        self.datay_w = []
+        
+        self.dataz_u = []  # To accumulate 2D data
+        self.dataz_v = []
+        self.dataz_w = []
+
+    def update_chunk(self, df, plot_std=False):
+        """
+        Update the plot with a new chunk of data.
+        
+        Args:
+            time_chunk (array-like): 1D array of time points for the chunk.
+            data_chunk (array-like): 2D array of data for the chunk (time x altitude).
+        """
+        
+        t = df["t"]
+        
+        u = df["u"]
+        v = df["v"]
+        w = df["w"]
+        
+        if plot_std:
+            u = df["u_std"]
+            v = df["v_std"]
+            w = df["w_std"]
+        
+        nt, nx, ny, nz = u.shape
+        
+        if self.lat0 is None: ix = nx//2
+        else: ix = np.abs(df["lon_3D"][:,0,0] - self.lon0).argmin()
+        
+        if self.lon0 is None: iy = ny//2
+        else: iy = np.abs(df["lat_3D"][0,:,0] - self.lat0).argmin()
+        
+        if self.alt0 is None: iz = nz//2
+        else: iz = np.abs(df["alt_3D"][0,0,:] - self.alt0).argmin()
+    
+        lon = df["lon_3D"][:,iy,iz]
+        lat = df["lat_3D"][ix,:,iz]
+        alt = df["alt_3D"][ix,iy,:]
+        
+        keox_u = u[:,:,iy,iz]
+        keox_v = v[:,:,iy,iz]
+        keox_w = w[:,:,iy,iz]
+        
+        keoy_u = u[:,ix,:,iz]
+        keoy_v = v[:,ix,:,iz]
+        keoy_w = w[:,ix,:,iz]
+        
+        keoz_u = u[:,ix,iy,:]
+        keoz_v = v[:,ix,iy,:]
+        keoz_w = w[:,ix,iy,:]
+        
+        
+        # Validate input dimensions
+        if (len(t) != nt) or (nx != len(lon)) or (ny != len(lat)) or (nz != len(alt)):
+            raise ValueError("Dimensions of (time, lon, lat, alt) and data do not match. (%d,%d,%d,%d)= %s" %(nt, nx, ny, nz, df["lon_3D"].shape))
+        
+        #Grid
+        self.times.extend(t)
+        
+        self.longitudes = lon
+        self.latitudes  = lat
+        self.altitudes  = alt
+        
+        #Center
+        self.lon0 = lon[ix]
+        self.lat0 = lat[iy]
+        self.alt0 = alt[iz]
+        
+        # Accumulate data
+        self.datax_u.append(keox_u)
+        self.datax_v.append(keox_v)
+        self.datax_w.append(keox_w)
+        
+        self.datay_u.append(keoy_u)
+        self.datay_v.append(keoy_v)
+        self.datay_w.append(keoy_w)
+        
+        self.dataz_u.append(keoz_u)
+        self.dataz_v.append(keoz_v)
+        self.dataz_w.append(keoz_w)
+        
+
+    def save_plot(self, path,
+                  vmins=[-100,-100,-5],
+                  vmaxs=[ 100, 100, 5],
+                  cmap='seismic',
+                  sufix="",
+                  ):
+        
+        """
+        Save the final plot as an image file.
+        
+        Args:
+            filename (str): The name of the file to save.
+        """
+        
+        dt = datetime.datetime.utcfromtimestamp(np.mean(self.times))
+        
+        
+        times       = np.ravel(self.times)
+        longitudes  = np.ravel(self.longitudes)
+        latitudes   = np.ravel(self.latitudes)
+        altitudes   = np.ravel(self.altitudes)
+        
+        data_u = np.vstack(self.datax_u)
+        data_v = np.vstack(self.datax_v)
+        data_w = np.vstack(self.datax_w)
+        
+        #Keogram X
+        lat_h = r"[%3.2f$^\circ$N, %3.2fkm]" %(self.lat0, self.alt0)
+        
+        figfile = os.path.join(path, "keox_%s_%s.%s" %(dt.strftime("%Y%m%d"), sufix, ext) )
+        
+        plotting.plot_mean_winds(times,
+                                 longitudes,
+                                 data_u, data_v, data_w,
+                                 figfile,
+                                 # titles=["u", "v", "w"],
+                                 figtitle=lat_h,
+                                 vmins=vmins,
+                                 vmaxs=vmaxs,
+                                 cmap=cmap,
+                                 ylabel = "Longitude",
+                                 )
+        
+        #Keogram Y
+        
+        data_u = np.vstack(self.datay_u)
+        data_v = np.vstack(self.datay_v)
+        data_w = np.vstack(self.datay_w)
+        
+        
+        lon_h = r"[%3.2f$^\circ$E, %3.2fkm]" %(self.lon0, self.alt0)
+        
+        figfile = os.path.join(path, "keoy_%s_%s.%s" %(dt.strftime("%Y%m%d"), sufix, ext) )
+        
+        plotting.plot_mean_winds(times,
+                                 latitudes,
+                                 data_u, data_v, data_w,
+                                 figfile,
+                                 # titles=["u", "v", "w"],
+                                 figtitle=lon_h,
+                                 vmins=vmins,
+                                 vmaxs=vmaxs,
+                                 cmap=cmap,
+                                 ylabel = "Latitude",
+                                 )
+        
+        #Keogram Z
+        
+        data_u = np.vstack(self.dataz_u)
+        data_v = np.vstack(self.dataz_v)
+        data_w = np.vstack(self.dataz_w)
+        
+        lat_lon = r"[%3.2f$^\circ$E, %3.2f$^\circ$N]" %(self.lon0, self.lat0)
+        
+        print(lat_lon, lon_h)
+        
+        figfile = os.path.join(path, "keoz_%s_%s.%s" %(dt.strftime("%Y%m%d"), sufix, ext) )
+        
+        plotting.plot_mean_winds(times,
+                                 altitudes,
+                                 data_u, data_v, data_w,
+                                 figfile,
+                                 # titles=["u", "v", "w"],
+                                 figtitle=lat_lon,
+                                 vmins=vmins,
+                                 vmaxs=vmaxs,
+                                 cmap=cmap,
+                                 )
 
 def winds_from_model(ensemble_files, coords):
     
@@ -401,7 +607,8 @@ def winds_from_model(ensemble_files, coords):
         
         nn = hyper.restore(ifile)
     
-        outputs = nn.infer(T, x=X, y=Y, z=Z, filter_output=False)
+        outputs = nn.infer(T_mesh, X_mesh, Y_mesh, Z_mesh,
+                           filter_output=False)
         
         u[ind_4d] = outputs[:,0]
         v[ind_4d] = outputs[:,1]
@@ -492,12 +699,14 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/mcordero/Data/IAP/SIMONe/Germany/Simone2023/hyper24", help='Path where the model weights are')
+    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/mcordero/Data/IAP/SIMONe/Norway/Vortex2/hyper03", help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
     
     parser.add_argument('-p', '--plotting', dest='ena_plotting', default=1, help='enable plotting')
+    parser.add_argument('--plot-std', dest='plot_std', default=1, help='plot uncertainties')
+    
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figure extension')
     
     parser.add_argument('--time-step', dest='tstep', default=5*60, help='in seconds')
@@ -509,8 +718,8 @@ if __name__ == '__main__':
     parser.add_argument('--y-range', dest='yrange', default=None, help='in km')
     parser.add_argument('--z-range', dest='zrange', default=None, help='in km')
     
-    parser.add_argument('--lat-ref', dest='lat0', default=53.9, help='')
-    parser.add_argument('--lon-ref', dest='lon0', default=12.6, help='')
+    parser.add_argument('--lat-ref', dest='lat0', default=None, help='')
+    parser.add_argument('--lon-ref', dest='lon0', default=None, help='')
     parser.add_argument('--alt-ref', dest='alt0', default=None, help='')
     
     args = parser.parse_args()
@@ -521,6 +730,8 @@ if __name__ == '__main__':
     ena_grads   = args.ena_gradients
     
     ena_plot    = args.ena_plotting
+    plot_std    = args.plot_std
+    
     ext         = args.ext
     
     tstep       = args.tstep
@@ -584,6 +795,9 @@ if __name__ == '__main__':
         
         plotData = TimeAltitudePlot(lon0=lon0, lat0=lat0, alt0=alt0)
         
+        if plot_std:
+            plotStd = TimeAltitudePlot(lon0=lon0, lat0=lat0, alt0=alt0)
+        
         print("Generating winds ...")
         for hourly_file in hourly_files:
             
@@ -609,7 +823,18 @@ if __name__ == '__main__':
             save_winds(df, output_file)
             
             plotData.update_chunk(df)
-            # plot_winds(df, figpath_, ext=ext)
+            
+            if plot_std:
+                plotStd.update_chunk(df, plot_std=True)
         
         print("Plotting winds ...")
+        
         plotData.save_plot(path=figpath_)
+        
+        if plot_std:
+            plotStd.save_plot(path=figpath_,
+                           sufix="std",
+                           cmap='inferno',
+                           vmins=[0,0,0],
+                           vmaxs=[30,30,5],
+                           )

@@ -31,7 +31,7 @@ time_base = 1.468e9
 from georeference.geo_coordinates import lla2xyh
 from utils.histograms import ax_2dhist
 from utils.plotting import epoch2num
-from pinn.fc_pinn import genericPINN, resPINN
+from pinn.networks import genericPINN, resPINN
 from pinn.spinn import sPINN
 from pinn.deeponet import DeepONet
     
@@ -260,9 +260,9 @@ class App:
         self.model = nn
         self.counter = 0
         
-        # model.summary(expand_nested=True)
-        
         if verbose:
+            
+            model.summary(expand_nested=True)
             
             nn.summary(expand_nested=True)
             
@@ -2256,8 +2256,8 @@ class App:
     
     def invalid_mask(self, t, x, y, z):
         
-        x0 = (self.ubi[2] +  self.lbi[2])/2.0
-        y0 = (self.ubi[3] +  self.lbi[3])/2.0
+        x0 = 0#(self.ubi[2] +  self.lbi[2])/2.0
+        y0 = 0#(self.ubi[3] +  self.lbi[3])/2.0
         # z0 = (self.ubi[1] +  self.lbi[1])/2.0
         
         rx = (self.ubi[2] -  self.lbi[2])/2.0

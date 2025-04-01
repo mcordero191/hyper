@@ -158,6 +158,7 @@ def train_hyper(df,
                 lon_ref = lon_center,
                 lat_ref = lat_center,
                 alt_ref = alt_center,
+                verbose = verbose,
             )
     
     # with tf.device("/device:GPU:0"):
@@ -236,7 +237,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='SIMONE2023', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='Vortex2', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
@@ -249,7 +250,7 @@ if __name__ == '__main__':
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
-    parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
+    parser.add_argument('--nensembles',             dest='nensembles', default=10, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
     parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
@@ -258,7 +259,7 @@ if __name__ == '__main__':
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-6, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
@@ -453,6 +454,13 @@ if __name__ == '__main__':
             alt_center      = 91
             path            = "%s/Data/IAP/SIMONe/Germany/Simone2023"  %home_directory
         
+        elif exp.upper()  == 'SPACEX':
+            
+            lon_center      = 12.5
+            lat_center      = 54
+            alt_center      = 90
+            path            = "%s/Data/IAP/SIMONe/Germany/SpaceX"  %home_directory
+        
         elif exp.upper()  == 'EXTREMEW':
             
             tini            = 0
@@ -485,6 +493,24 @@ if __name__ == '__main__':
             
             single_day      = False
         
+        elif exp.upper()  == 'VORTEX2':
+            
+            tini            = 20
+            dt              = 3
+            
+            # dlon            = 400e3
+            # dlat            = 400e3
+            # dh              = 25e3
+            
+            lon_center      = 16.25
+            lat_center      = 69.25
+            alt_center      = 89
+            path            = "%s/Data/IAP/SIMONe/Norway/VorTex2"  %home_directory
+            
+            # df_testing = read_vortex_files(path)
+            
+            single_day      = True
+            
         elif exp.upper()  == 'VORTEXHD':
             
             tini            = 19

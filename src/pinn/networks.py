@@ -52,6 +52,7 @@ class FCNClass(BaseModel):
                               activation=activation,
                               kernel_initializer=kernel_initializer,
                               )
+            
             layers.append(layer)
         
         self.laaf_layers = layers
@@ -59,13 +60,13 @@ class FCNClass(BaseModel):
         if laaf:
             self.alphas = self.add_weight(
                             name="alphas",
-                            shape=(n_layers, ),
+                            shape=(n_layers+1, ),
                             initializer="ones",
                             # constraint = tf.keras.constraints.NonNeg(),
                             trainable=True,   
                         )
         else:
-            self.alphas = tf.ones( (n_layers, ) )
+            self.alphas = tf.ones( (n_layers+1, ) )
         
         
         if self.dropout:
@@ -113,9 +114,9 @@ class resPINN(FCNClass):
                         n_layers, **kwargs)
         
         layers = []
-        for _ in range(n_layers):
+        for _ in range(n_layers+1):
             layer = Linear(n_outs,
-                            kernel_initializer = 'zeros',
+                            # kernel_initializer = 'zeros',
                            # constraint = tf.keras.constraints.NonNeg()
                            )
             
@@ -137,7 +138,7 @@ class resPINN(FCNClass):
         
         # inputs = tf.constant(2*np.pi)*inputs
         
-        u = self.emb(inputs)
+        u = self.emb(inputs, self.alphas[0])
         
         # if self.normalization:
         #     u = self.norm_layers[0](u, training=training)
@@ -145,18 +146,16 @@ class resPINN(FCNClass):
         if self.dropout:
             u = self.dropout_layers[0](u)
         
-        
-            
-        # u = self.laaf_layers[0](u, self.alphas[0])
+        # u = self.laaf_layers[0](u, self.alphas[1])
         #
         # if self.dropout:
         #     u = self.dropout_layers[1](u)
         
-        output = tf.constant(0.0)#self.linear_layers[0](u)
+        output = tf.constant(0.0) #self.linear_layers[0](u)
         
         for i in range(0,self.n_layers):
             
-            u = self.laaf_layers[i](u, self.alphas[i])
+            u = self.laaf_layers[i](u, self.alphas[i+1])
             
             # if self.normalization:
             #     u = self.norm_layers[i+1](u, training=training)
@@ -166,7 +165,7 @@ class resPINN(FCNClass):
             
             output = output + self.linear_layers[i](u)
         
-        # output = self.linear(output)#, alpha=self.alphas[i+2])
+        output = self.linear_layers[i+1](output)#, alpha=self.alphas[i+2])
         
         output = self.scale(output)
         

@@ -1005,7 +1005,7 @@ def getting_and_plotting_winds(filename,
                                figpath,
                                tstep = None, #min
                                 xstep = 0.4, #degrees
-                                ystep = 0.1, #degrees
+                                ystep = 0.2, #degrees
                                 zstep = 2, #km
                                 xrange = 8, #degrees
                                 yrange = 3, #degrees
@@ -1040,8 +1040,8 @@ def getting_and_plotting_winds(filename,
         nn = pinn.PINN()
         nn.restore(filename, log_index=log_file)
         
-    tmin = nn.lb[0] + t0
-    tmax = nn.ub[0]
+    tmin = np.floor( (nn.lb[0] + 30*60 + t0)/600) *600
+    tmax = np.ceil(  (nn.ub[0] - 30*60)/600) *600
     
     x_lb = nn.lb[2]
     y_lb = nn.lb[3]
@@ -1051,9 +1051,8 @@ def getting_and_plotting_winds(filename,
     y_ub = nn.ub[3]
     z_ub = nn.ub[1]
     
-    
     if trange is not None: tmax = tmin+trange
-    if tstep is None: tstep = (tmax - tmin)/(24*6)
+    if tstep is None: tstep = int( (tmax - tmin)/(24*6)/300 )*300
     
     if xrange is None: xrange = (x_ub - x_lb)/40e3
     if yrange is None: yrange = (y_ub - y_lb)/90e3
@@ -2220,18 +2219,20 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Germany", help='Data path')
+    # /Users/mcordero/Data/IAP/SIMONe/NewMexico/MRA/hyper24/c20240118
+    
+    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/mcordero/Data/IAP/SIMONe/Germany", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Argentina/", help='Data path')
-    parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Norway/", help='Data path')
+    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Norway/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Condor/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/JRO/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Piura/", help='Data path')
-    # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/NewMexico/", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/mcordero/Data/IAP/SIMONe/NewMexico/", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='dpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/", help='Data path')
     
     parser.add_argument('-m', '--model', dest='model', default=None, help='neural network model')
-    parser.add_argument('-s', '--subfolder', dest='subfolder', default="Ext2023_OFF", help='subfolder where the neural network model is stored')
+    parser.add_argument('-s', '--subfolder', dest='subfolder', default="MRA/hyper24", help='subfolder where the neural network model is stored')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
     parser.add_argument('-t', '--type', dest='type', default='wind', help='plot type. Either "residuals" or "full" wind')
     parser.add_argument('-l', '--log-file', dest='log_file', default=None, help='select the i-th weights file from the log folder')
@@ -2240,7 +2241,7 @@ if __name__ == '__main__':
     
     # parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90', help='Data path')
     # parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Virtual/DNS_Simone2018/DNSx10_+12+53+91/', help='Data path')
-    parser.add_argument('--meteor-path', dest='mpath', default='/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/', help='Data path')
+    parser.add_argument('--meteor-path', dest='mpath', default=None, help='Data path')
     
     
     args = parser.parse_args()
@@ -2252,7 +2253,7 @@ if __name__ == '__main__':
     type = args.type
     log_file = args.log_file
     
-    xrange = 12
+    xrange = 8
     yrange = 4
     
     cmap = 'seismic'
@@ -2278,33 +2279,33 @@ if __name__ == '__main__':
     
     vmaxs = -vmins
     
-    path_PINN = os.path.join(path, args.subfolder, "winds")
+    path_PINN = os.path.join(path, args.subfolder)
     
     if model_name is None:
-        models = glob.glob1(path_PINN, 'h*[!s].h5')
+        models = glob.glob(path_PINN + '/*/*_i???.h5')
         models = sorted(models)
     else:
         models = [  model_name ]
             
     for model in models[:]:
         
-        id_name = model[-11:-3]
-        filename = os.path.join(path_PINN, model)
+        # id_name = model[-11:-3]
+        filename = model #os.path.join(path_PINN, model)
         
         if not os.path.isfile(filename):
             continue
         
-        figpath = os.path.join(path_PINN, "plots")
+        figpath = os.path.join(path_PINN, "plot")
                                
         if not os.path.exists(figpath):
             os.mkdir(figpath)
             
-        figpath = os.path.join(figpath, '%s' %model[:-3])
+        figpath = os.path.join(figpath, '%s' %model[-7:-3])
         
         if not os.path.exists(figpath):
             os.mkdir(figpath)
-            
-        figpath_type = os.path.join(figpath, '%s_%s_%02d' %(type,log_file, t0/3600) ) #+os.path.splitext(model_name)[0])
+        
+        # figpath_type = os.path.join(figpath, '%s_%s_%02d' %(type,log_file, t0/3600) ) #+os.path.splitext(model_name)[0])
         
         
         # 69.45 N, 15.83 E, around 90 km
@@ -2322,7 +2323,7 @@ if __name__ == '__main__':
         #                   log_file=log_file)
         
         keograms(filename,
-                 figpath_type, ext=ext,
+                 figpath, ext=ext,
                  # ystep=0.1,
                 # z0=np.arange(90,92,0.25), #Vortex
                  xstep=0.05,
@@ -2343,8 +2344,8 @@ if __name__ == '__main__':
                  t0=t0,
                  trange=trange,
                  #MAARSY
-                x0=16.04,
-                y0=69.25,
+                # x0=16.04,
+                # y0=69.25,
                 # y0=70,
                 # x0=-106.5,
                 # y0=33.5,
@@ -2389,7 +2390,7 @@ if __name__ == '__main__':
         #
         # continue
             
-        getting_and_plotting_winds(filename, figpath_type, ext=ext,
+        getting_and_plotting_winds(filename, figpath, ext=ext,
                                     type=type,
                                     plot_mean=False,
                                     plot_fields=False,
@@ -2400,9 +2401,9 @@ if __name__ == '__main__':
                                     # ymin=-30,
                                     xrange=xrange,
                                     yrange=yrange,
-                                    zstep=1,
-                                    zrange=6,
-                                    zmin=83,
+                                    zstep=2,
+                                    zrange=18,
+                                    zmin=85,
                                     log_file=log_file,
                                     vmins=vmins,
                                     vmaxs=vmaxs,

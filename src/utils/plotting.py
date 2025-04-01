@@ -1,12 +1,13 @@
 import os
+import datetime
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-import datetime
+from mpl_toolkits.basemap import Basemap
 
-from skimage.filters import gaussian
+# from skimage.filters import gaussian
 
 def epoch2num(t):
 
@@ -14,8 +15,116 @@ def epoch2num(t):
     num = mdates.date2num(dates)
     
     return(num)
+
+# Function to determine the best interval (integer or half-integer) for max 5 grid lines
+def get_grid_interval(min_val, max_val, max_ticks=5):
+    
+    range_span = max_val - min_val
+    if range_span / 1 <= max_ticks:  # If whole numbers fit within 5 ticks
+        return 1  # Use whole numbers
+    elif range_span / 0.5 <= max_ticks:  # If half-integers fit within 5 ticks
+        return 0.5  # Use half-integers
+    else:  # If even half-integers exceed 5 ticks, use an adaptive step
+        return round(2*range_span / max_ticks, 0)/2  # Round to 0.5 precision
     
 def _plot_3d_vector(x, y,
+                    u, v, w,
+                    ax,
+                    title="",
+                    xmin=None, xmax=None,
+                    ymin=None, ymax=None,
+                    wmin=None, wmax=None,
+                    scale=None,
+                    cmap='RdYlBu_r',
+                    cmap_label='',
+                    decimation=2,
+                    df_meteor=None,
+                    projection='cyl'
+                 ):
+    """
+    Input:
+        x,y        :    x and y position (ny, nx)
+        u,v,w      :    wind field. array-like (ny, nx)
+        
+        scale     :    Number of data units per arrow length unit,
+                        e.g., m/s per plot width.
+                        A smaller scale parameter makes the arrow longer.
+    """
+    
+    ny, nx = u.shape
+    w_masked = np.ma.masked_array(w, mask=np.isnan(w))
+    
+    if w_masked.count() < 1:
+        return None, None
+
+    # Initialize Basemap
+    m = Basemap(projection=projection,
+                llcrnrlon=xmin, urcrnrlon=xmax,
+                llcrnrlat=ymin, urcrnrlat=ymax,
+                resolution='l', ax=ax)
+
+    m.drawcoastlines(linewidth=0.5, color='gray')
+    m.drawcountries(linewidth=0.5, color='gray')
+
+    # Reduce color intensity for better transparency
+    m.drawmapboundary(fill_color=(0.9, 0.9, 0.9, 0.3))  # Light gray ocean with transparency
+    m.fillcontinents(color=(0.8, 0.8, 0.8, 0.4), lake_color=(0.9, 0.9, 0.9, 0.3))  # Light gray continents
+    
+    # Round limits to the nearest half or whole number
+    xmin_rounded = np.floor(xmin * 2) / 2  # Round down to nearest 0.5
+    xmax_rounded = np.ceil(xmax * 2) / 2   # Round up to nearest 0.5
+    ymin_rounded = np.floor(ymin * 2) / 2
+    ymax_rounded = np.ceil(ymax * 2) / 2
+    
+    # Compute the best interval dynamically
+    lon_interval = get_grid_interval(xmin_rounded, xmax_rounded)
+    lat_interval = get_grid_interval(ymin_rounded, ymax_rounded)
+    
+    # Generate meridian and parallel locations based on the computed interval
+    parallels = np.arange(ymin_rounded, ymax_rounded + lat_interval, lat_interval)
+    meridians = np.arange(xmin_rounded, xmax_rounded + lon_interval, lon_interval)
+
+    m.drawparallels(parallels, labels=[True, False, False, False], fontsize=10, color='gray', alpha=0.5)
+    m.drawmeridians(meridians, labels=[False, False, False, True], fontsize=10, color='gray', alpha=0.5)
+
+    # Transform coordinates to Basemap projection
+    x_mapped, y_mapped = m(x, y)
+    
+    im = ax.pcolormesh(x_mapped, y_mapped, w, cmap=cmap, vmin=wmin, vmax=wmax, alpha=0.5)
+    
+    # Plot wind vectors
+    qk = ax.quiver(x_mapped[::decimation, ::decimation],
+                    y_mapped[::decimation, ::decimation],
+                    u[::decimation, ::decimation],
+                    v[::decimation, ::decimation],
+                    scale=scale,
+                    color='k')
+    
+    
+    
+    alpha = 0.5
+
+    # Mark MAARSY location
+    maarsy_lon, maarsy_lat = 16.04, 69.30
+    x_maarsy, y_maarsy = m(maarsy_lon, maarsy_lat)
+    ax.scatter(x_maarsy, y_maarsy, marker='*', s=20, c='r', alpha=alpha, label='MAARSY')
+
+    ax.set_title(title)
+
+    # Set axis labels
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Latitude')
+
+    if df_meteor is not None:
+        met_lons = df_meteor['lons'].values
+        met_lats = df_meteor['lats'].values
+        x_meteors, y_meteors = m(met_lons, met_lats)
+        ax.scatter(x_meteors, y_meteors, marker='X', c='k', alpha=0.2, label='Meteors')
+
+    return qk, im
+
+
+def _plot_3d_vector_ori(x, y,
                     u, v, w,
                     ax,
                      title="",
@@ -138,12 +247,12 @@ def plot_3d_vectors(x3d, y3d, z1d,
     # plt.style.use('dark_background')
     fig, axs = plt.subplots(ny_subplot, nx_subplot,
                        sharex=True, sharey=True,
-                       figsize=(5.0*nx_subplot, 5.5*ny_subplot),
+                       figsize=(7.0*nx_subplot, 5.0*ny_subplot),
                        squeeze=False)
     
     fig.suptitle(title, fontsize=14, weight='bold')
     
-    for i, ax in enumerate(axs.flat[::-1]):
+    for i, ax in enumerate(axs.flatten()[::-1]):
         
         if i >= nz: break
         
@@ -178,7 +287,7 @@ def plot_3d_vectors(x3d, y3d, z1d,
             
             plt.legend(loc='upper left')
     
-    for ax in axs.flat:
+    for ax in axs.flatten():
         ax.label_outer()
     
     plt.tight_layout()
@@ -193,12 +302,12 @@ def plot_3d_vectors(x3d, y3d, z1d,
     
     if im is not None:
         cbar = fig.colorbar(im,
-                            ax=axs.ravel().tolist(),
-                            shrink=0.99,
+                            ax=axs,
+                            shrink=0.8,
                             label='Vertical velocity (m/s)',
                             pad=0.01,
                             fraction=0.05,
-                            aspect=50,
+                            aspect=30,
                             )
     
     if filename is None:
