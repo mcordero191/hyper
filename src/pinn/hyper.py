@@ -2521,7 +2521,7 @@ class App:
         
         return (rmse_u, rmse_v, rmse_w, TV_u, TV_v, TV_w, TV_ue, TV_ve, TV_we)
         
-    def save(self, filename, log_index=None):
+    def save(self, filename, log_index=None, version="1.0.0"):
         
         #Save model
         # filename_log =  filename
@@ -2602,6 +2602,8 @@ class App:
             fp['w_Ph4_log'] = self.w_srt_log
             
             fp['residual_layer'] = self.residual_layer
+            
+            fp['version'] = version
             
             if self.ext_forcing is not None:
                 fp['ext_forcing']  = self.ext_forcing

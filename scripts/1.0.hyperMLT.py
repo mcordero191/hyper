@@ -11,6 +11,9 @@ from pinn import hyper as pinn
 from radar.smr.smr_file import SMRReader
 from utils.io import read_vortex_files
 from utils.PhysicalParameters import MSIS
+from utils import version_history
+
+version_history_file = "./hyper_history.json"
 
 def get_filename_suffix(short_naming,
                         ini_date, dt, noise_sigma, NS_type,
@@ -24,10 +27,12 @@ def get_filename_suffix(short_naming,
                         ensemble = 0,
                         ):
     
+    version = version_history.get_current_version(version_history_file)
+
     if short_naming:
-        suffix = '%s_i%03d' %(ini_date.strftime('%Y%m%d_%H0000'), ensemble)
+        suffix = '%s_i%03d_v%s' %(ini_date.strftime('%Y%m%d_%H0000'), ensemble, version)
     else:
-        suffix = "%s_w%02dn%3.2f%sl%02d%03dw%2.1elr%2.1eur%2.1e%3.2f_i%03d" %(
+        suffix = "%s_w%02dn%3.2f%sl%02d%03dw%2.1elr%2.1eur%2.1e%3.2f_i%03d_v%s" %(
                                                             ini_date.strftime('%Y%m%d_%H0000'),
                                                             dt,
                                                             noise_sigma,
@@ -49,6 +54,7 @@ def get_filename_suffix(short_naming,
                                                             # sampling_method[:3],
                                                             init_sigma,
                                                             ensemble,
+                                                            version
                                                             )
         
     return suffix
@@ -123,7 +129,7 @@ def train_hyper(df,
     
     ###########################
     if filename_model is None:
-        filename_model = os.path.join(rpath, 'h%s.h5' %suffix) 
+        filename_model = os.path.join(rpath, 'h%s.h5' %suffix ) 
 
     if os.path.isfile(filename_model) & (overwrite == 0) :
         print('File exist ',filename_model)
@@ -180,7 +186,7 @@ def train_hyper(df,
              # NS_type  = NS_type,
              )
 
-    nn.save(filename_model)
+    nn.save(filename_model, version=version)
     
     if not verbose:
         return( filename_model )

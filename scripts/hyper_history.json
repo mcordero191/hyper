@@ -1,0 +1,19 @@
+{
+  "history": [
+    {
+      "timestamp": "2024-11-10T",
+      "version": "1.0.0",
+      "description": "Initial version."
+    },
+    {
+      "timestamp": "2024-11-15T",
+      "version": "1.0.1",
+      "description": "First test."
+    },
+    {
+      "timestamp": "2025-04-03T",
+      "version": "1.0.2",
+      "description": "Changed file structure to use 4D datasets."
+    }
+  ]
+}

@@ -710,6 +710,7 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figure extension')
     
     parser.add_argument('--time-step', dest='tstep', default=5*60, help='in seconds')
+    
     parser.add_argument('--x-step', dest='xstep', default=20, help='in km')
     parser.add_argument('--y-step', dest='ystep', default=20, help='in km')
     parser.add_argument('--z-step', dest='zstep', default=1, help='in km')
