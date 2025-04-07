@@ -74,7 +74,7 @@ class App:
                 # filename_mean = '',
                 residual_layer=False,
                 verbose = False,
-                version = "1.0.0"
+                version = "1.0.0",
                 **kwargs
                 ):
         
