@@ -74,6 +74,7 @@ class App:
                 # filename_mean = '',
                 residual_layer=False,
                 verbose = False,
+                version = "1.0.0"
                 **kwargs
                 ):
         
@@ -130,6 +131,7 @@ class App:
         self.msis       = msis
         
         self.NS_type    = NS_type
+        self.version    = version
         
         add_nu = False
         if NS_type in ['VV', 'VV_hydro', 'VP']:
@@ -2603,7 +2605,7 @@ class App:
             
             fp['residual_layer'] = self.residual_layer
             
-            fp['version'] = version
+            fp['version'] = self.version
             
             if self.ext_forcing is not None:
                 fp['ext_forcing']  = self.ext_forcing
@@ -3824,7 +3826,7 @@ def restore(filename, log_index=None, include_res_layer=None, activation=None, s
                    # 'nblocks',
                    ]
     
-    keys_str    = ['act', 'opt', 'f_scl_in', 'nn_type', 'NS_type']
+    keys_str    = ['act', 'opt', 'f_scl_in', 'nn_type', 'NS_type', 'version']
         
     kwargs = {'nblocks':3}
     

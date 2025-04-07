@@ -25,9 +25,8 @@ def get_filename_suffix(short_naming,
                         sampling_method="",
                         init_sigma = None,
                         ensemble = 0,
+                        version = "1.0.0"
                         ):
-    
-    version = version_history.get_current_version(version_history_file)
 
     if short_naming:
         suffix = '%s_i%03d_v%s' %(ini_date.strftime('%Y%m%d_%H0000'), ensemble, version)
@@ -106,6 +105,8 @@ def train_hyper(df,
     # seed = 191
     # np.random.seed(seed)
     
+    version = version_history.get_current_version(version_history_file)
+    
     data_date =  datetime.datetime.utcfromtimestamp(df['times'].mean()) 
     
     df_training = df#.sample(frac=0.95, random_state=191)
@@ -124,7 +125,8 @@ def train_hyper(df,
                                 dropout  = dropout,
                                 sampling_method = sampling_method,
                                 init_sigma = init_sigma,
-                                ensemble = ensemble
+                                ensemble = ensemble,
+                                version = version,
                                 )
     
     ###########################
@@ -165,6 +167,7 @@ def train_hyper(df,
                 lat_ref = lat_center,
                 alt_ref = alt_center,
                 verbose = verbose,
+                version=version,
             )
     
     # with tf.device("/device:GPU:0"):
@@ -186,7 +189,7 @@ def train_hyper(df,
              # NS_type  = NS_type,
              )
 
-    nn.save(filename_model, version=version)
+    nn.save(filename_model)
     
     if not verbose:
         return( filename_model )
