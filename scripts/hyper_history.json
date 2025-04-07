@@ -15,5 +15,10 @@
       "version": "1.0.2",
       "description": "Changed file structure to use 4D datasets."
     }
+    {
+      "timestamp": "2025-04-07T",
+      "version": "1.1.0",
+      "description": "The model architecture was optimized (fewer parameters)."
+    }
   ]
 }

@@ -95,11 +95,11 @@ class Grid4D():
         self.tmax = tmax
         
         def m_to_deg_lon(meters, lat0):
-            """Convert kilometers to degrees longitude at a given center latitude (lat0 in degrees)."""
+            """Convert meters to degrees longitude at a given center latitude (lat0 in degrees)."""
             return meters / (111.32e3 * np.cos(np.radians(lat0)))
         
         def m_to_deg_lat(meters):
-            """Convert kilometers to degrees latitude."""
+            """Convert meters to degrees latitude."""
             return meters / 111.32e3
 
         # Set default spatial ranges if not provided (lon/lat in degrees, alt in km)
@@ -110,7 +110,7 @@ class Grid4D():
             self.lat_range = m_to_deg_lat(yrange)   # default: 1 degree latitude range
             
         if self.alt_range is None:
-            self.alt_range = int(zrange/2)*2  # default: 10 km altitude range
+            self.alt_range = int(zrange/2000)*2  # default: 10 km altitude range
 
         if self.lon_step is None:
             self.lon_step = self.lon_range/20.0
@@ -735,7 +735,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/mcordero/Data/IAP/SIMONe/NewMexico/MRA/hyper24", help='Path where the model weights are')
+    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/NewMexico/KenExperiment/hyper24", help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
@@ -840,7 +840,7 @@ if __name__ == '__main__':
     for day_folder in day_folders:
         
         day_folder = os.path.join(mpath, day_folder)
-        hourly_files = sorted(glob.glob(os.path.join(day_folder, "*_i000.h5")))
+        hourly_files = sorted(glob.glob(os.path.join(day_folder, "*_i00*.h5")))
         
         if len(hourly_files) < 1:
             print("No model files found in %s" % day_folder)
