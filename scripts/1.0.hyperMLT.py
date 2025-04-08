@@ -246,12 +246,12 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='Vortex2', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='SpaceX', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
     parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
@@ -259,7 +259,7 @@ if __name__ == '__main__':
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
-    parser.add_argument('--nensembles',             dest='nensembles', default=10, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
+    parser.add_argument('--nensembles',             dest='nensembles', default=5, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
     parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
@@ -384,7 +384,7 @@ if __name__ == '__main__':
     if sevenfold:
         nn_version += 0.7
     
-    home_directory = "/Users/mcordero"
+    home_directory = "/Users/radar"
     
     if exp is not None:
         if exp.upper()  == 'OPERATIONAL':
@@ -596,7 +596,7 @@ if __name__ == '__main__':
             # dt              = 24
             
             # alt_center      = 90
-            path            = "%s/Data/IAP/SIMONe/NewMexico/Eclipse"  %home_directory
+            path            = "%s/Data/IAP/SIMONe/NewMexico/KenExperiment"  %home_directory
             
         elif exp.upper()  == 'NM2':
             
@@ -680,15 +680,16 @@ if __name__ == '__main__':
             
             if info != 1: break
             
-            exp_date =  datetime.datetime.utcfromtimestamp(meteor_data.df['times'].mean())
-            
+            #Create folder based on filtered data
+            exp_date = meteor_data.central_date
+        
             exp_path = os.path.join(rpath, exp_date.strftime("c%Y%m%d"))
             
             if not ena_clustering:
                 exp_path = os.path.join(rpath, exp_date.strftime("d%Y%m%d"))
                 
             if not os.path.exists(exp_path): os.mkdir(exp_path)
-            
+                
             #Plot original sampling
             meteor_data.plot_sampling(path=exp_path, suffix='pre')
             meteor_data.add_synthetic_noise(noise_sigma)
@@ -699,6 +700,7 @@ if __name__ == '__main__':
             
                 ti = tini + i*dt
                 
+                #Save unfiltered copy internally
                 meteor_data.filter(tini=ti, dt=dt,
                                dlon=dlon, dlat=dlat, dh=dh,
                                sevenfold=sevenfold,

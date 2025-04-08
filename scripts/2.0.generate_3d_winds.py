@@ -10,6 +10,7 @@ import os, glob
 import time, datetime
 import numpy as np
 import h5py
+import netCDF4
 
 from pinn import hyper
 from utils import plotting, version_history
@@ -119,7 +120,7 @@ class Grid4D():
             self.lat_step = self.lat_range/20.0
         
         if self.alt_step is None:
-            self.alt_step = self.alt_range/20.0
+            self.alt_step = self.alt_range/40.0
         
     def set_spatial_grid(self):
         
@@ -278,7 +279,10 @@ class TimeAltitudePlot():
                   vmins=[-100,-100,-5],
                   vmaxs=[ 100, 100, 5],
                   cmap='seismic',
-                  sufix=""):
+                  suffix="",
+                  ):
+        
+        
         dt = datetime.datetime.utcfromtimestamp(np.mean(self.times))
         times       = np.ravel(self.times)
         longitudes  = np.ravel(self.longitudes)
@@ -290,7 +294,7 @@ class TimeAltitudePlot():
         data_w = np.vstack(self.datax_w)
         
         lat_h = r"[%3.2f$^\circ$N, %3.2fkm]" % (self.lat0, self.alt0)
-        figfile = os.path.join(path, "keox_%s_%s.%s" % (dt.strftime("%Y%m%d"), sufix, ext))
+        figfile = os.path.join(path, "keox_%s_%s.%s" % (dt.strftime("%Y%m%d"), suffix, ext))
         
         plotting.plot_mean_winds(times,
                                  longitudes,
@@ -307,7 +311,7 @@ class TimeAltitudePlot():
         data_w = np.vstack(self.datay_w)
         
         lon_h = r"[%3.2f$^\circ$E, %3.2fkm]" % (self.lon0, self.alt0)
-        figfile = os.path.join(path, "keoy_%s_%s.%s" % (dt.strftime("%Y%m%d"), sufix, ext))
+        figfile = os.path.join(path, "keoy_%s_%s.%s" % (dt.strftime("%Y%m%d"), suffix, ext))
         
         plotting.plot_mean_winds(times,
                                  latitudes,
@@ -324,9 +328,9 @@ class TimeAltitudePlot():
         data_w = np.vstack(self.dataz_w)
         
         lat_lon = r"[%3.2f$^\circ$E, %3.2f$^\circ$N]" % (self.lon0, self.lat0)
-        print(lat_lon, lon_h)
+        # print(lat_lon, lon_h)
         
-        figfile = os.path.join(path, "keoz_%s_%s.%s" % (dt.strftime("%Y%m%d"), sufix, ext))
+        figfile = os.path.join(path, "keoz_%s_%s.%s" % (dt.strftime("%Y%m%d"), suffix, ext))
         
         plotting.plot_mean_winds(times,
                                  altitudes,
@@ -638,7 +642,7 @@ def save_winds(df, output_file):
             group.create_dataset("v_std", data=df["v_std"][i])
             group.create_dataset("w_std", data=df["w_std"][i])
 
-def append_winds(df, output_file):
+def append_winds_hdf5(df, output_file, overwrite=False):
     
     # Extract time and spatial coordinate arrays from the input dictionary
     t = np.atleast_1d(df["t"])  # Expecting a 1D array (or single value) for time
@@ -659,6 +663,10 @@ def append_winds(df, output_file):
     
     filename = output_file + "_v%s.h5" %current_version
     
+    # If clean is True and file exists, remove it.
+    if overwrite and os.path.exists(filename):
+        os.remove(filename)
+        
     with h5py.File(filename, "a") as fp:
         # --- File-level metadata ---
         fp.attrs["Author"] = "Miguel Urco Cordero"
@@ -729,6 +737,151 @@ def append_winds(df, output_file):
                 dset.resize((current_len + n_new,) + dset.shape[1:])
                 dset[current_len:current_len + n_new, ...] = new_data
 
+def append_winds_netcdf(df, output_file, overwrite=False):
+    """
+    Append wind data and associated variables to a NetCDF file.
+    If the file does not exist, create it with the proper dimensions,
+    static spatial variables, and global attributes.
+    If overwrite is True, any existing file will be removed before writing new data.
+
+    Parameters:
+        df : dict
+            Dictionary containing:
+                - "t": Time values (1D array or single value).
+                - "lat_3D", "lon_3D", "alt_3D": 3D arrays with static spatial coordinates.
+                  The 1D coordinate arrays are extracted as:
+                      longitude = lon_3D[:, 0, 0]
+                      latitude  = lat_3D[0, :, 0]
+                      altitude  = alt_3D[0, 0, :]
+                - "mask": Mask array (assumed constant in time; the first slice is used).
+                - "version": Version information.
+                - Wind components "u", "v", "w" and standard deviations "u_std", "v_std", "w_std"
+                  with shape (n_time, n_longitude, n_latitude, n_altitude).
+        output_file : str
+            Base name for the output file (version and file extension will be appended).
+        overwrite : bool, optional
+            If True, any existing NetCDF file with the same name will be deleted before writing.
+
+    Returns:
+        None
+    """
+    import os
+    import datetime
+    import netCDF4
+    import numpy as np
+
+    # Extract data from the input dictionary.
+    t = np.atleast_1d(df["t"])  # Ensure time is a 1D array
+    lat_3D = df["lat_3D"]
+    lon_3D = df["lon_3D"]
+    alt_3D = df["alt_3D"]
+    mask = df["mask"][0]  # Use the first slice (assumed constant over time)
+
+    # Extract coordinate vectors from 3D arrays.
+    longitudes = lon_3D[:, 0, 0]
+    latitudes  = lat_3D[0, :, 0]
+    altitudes  = alt_3D[0, 0, :]
+
+    # Compute representative datetime for metadata purposes.
+    dt = datetime.datetime.utcfromtimestamp(np.mean(t))
+    
+    # Retrieve version and history information.
+    current_version = df["version"]
+    history_text = version_history.get_version_history(version_history_file)
+    
+    # Define the filename (with version information in the name).
+    filename = output_file + "_v%s.nc" % current_version
+
+    # Remove the file if overwrite is True.
+    if overwrite and os.path.exists(filename):
+        os.remove(filename)
+    
+    # Open file: create it if it does not exist; otherwise, open in append mode.
+    if os.path.exists(filename):
+        ds = netCDF4.Dataset(filename, "r+")
+        # Verify that the "time" dimension is unlimited.
+        if not ds.dimensions["time"].isunlimited():
+            ds.close()
+            raise ValueError("The file exists, but its time dimension is not unlimited. "
+                             "Please use overwrite=True to recreate the file with an unlimited time dimension.")
+        # Get the current length of the time dimension from the time variable.
+        base_length = ds.variables["time"].shape[0] if "time" in ds.variables else 0
+    else:
+        ds = netCDF4.Dataset(filename, "w", format="NETCDF4")
+        
+        # --- Create dimensions ---
+        ds.createDimension("time", None)  # Unlimited time dimension
+        ds.createDimension("longitude", len(longitudes))
+        ds.createDimension("latitude",  len(latitudes))
+        ds.createDimension("altitude",  len(altitudes))
+        
+        # --- Global attributes ---
+        ds.author = "Miguel Urco Cordero"
+        ds.email = "miguelcordero191@gmail.com"
+        ds.description = "4D wind data generated with HYPER from meteor radar measurements"
+        ds.reference = "Urco et al., 2024; https://doi.org/10.1029/2024JH000162"
+        ds.date = dt.strftime("%Y-%m-%d")
+        ds.version = current_version
+        ds.history = history_text
+        
+        # --- Create spatial coordinate variables ---
+        lon_var = ds.createVariable("longitude", "f4", ("longitude",))
+        lon_var[:] = longitudes
+        lon_var.units = "Degrees"
+        
+        lat_var = ds.createVariable("latitude", "f4", ("latitude",))
+        lat_var[:] = latitudes
+        lat_var.units = "Degrees"
+        
+        alt_var = ds.createVariable("altitude", "f4", ("altitude",))
+        alt_var[:] = altitudes
+        alt_var.units = "km"
+        
+        # Create the mask variable (dimensions: longitude, latitude, altitude)
+        mask_var = ds.createVariable("mask", "i1", ("longitude", "latitude", "altitude"))
+        mask_var[:] = mask
+        
+        # For a new file, the base length is initially zero.
+        base_length = 0
+
+    n_new = len(t)  # Number of new time steps
+
+    # --- Append or create the time coordinate variable using base_length ---
+    if "time" not in ds.variables:
+        time_var = ds.createVariable("time", "f8", ("time",))
+        time_var.units = "seconds since 1970-01-01"
+        time_var[:] = t
+    else:
+        time_var = ds.variables["time"]
+        time_var[base_length:base_length + n_new] = t
+
+    # Helper function to append or create a variable along the time dimension using base_length.
+    def append_variable(var_name, data, units):
+        # Expected data shape: (n_time, longitude, latitude, altitude)
+        n_new_local = data.shape[0]
+        if var_name not in ds.variables:
+            var = ds.createVariable(
+                var_name, "f4",
+                ("time", "longitude", "latitude", "altitude"),
+                zlib=True,
+            )
+            var.units = units
+            var[:] = data
+        else:
+            var = ds.variables[var_name]
+            # Use the stored base_length to ensure that the new data are appended at the proper index.
+            var[base_length:base_length + n_new_local, ...] = data
+
+    # --- Append new data for wind components ---
+    for var_name, unit in zip(["u", "v", "w"], ["m/s", "m/s", "m/s"]):
+        append_variable(var_name, df[var_name], unit)
+    
+    # --- Append new data for standard deviation variables ---
+    for var_name, unit in zip(["u_std", "v_std", "w_std"], ["m/s", "m/s", "m/s"]):
+        append_variable(var_name, df[var_name], unit)
+
+    ds.close()
+    
 if __name__ == '__main__':
     
     import argparse
@@ -743,12 +896,14 @@ if __name__ == '__main__':
     parser.add_argument('--plot-std', dest='plot_std', default=1, help='Plot uncertainties')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='Figure extension')
     
-    parser.add_argument('--time-step', dest='tstep', type=float, default=10*60, help='Time step in seconds')
+    parser.add_argument('--output-format', dest='output_format', default='ncdf', help='File format of wind files: either "ncdf" or "hdf5"')
+    
+    parser.add_argument('--time-step', dest='tstep', type=float, default=15*60, help='Time step in seconds')
     
     # New geographic grid arguments
     parser.add_argument('--lon-step', dest='lon_step', type=float, default=None, help='Longitude step in degrees')
     parser.add_argument('--lat-step', dest='lat_step', type=float, default=None, help='Latitude step in degrees')
-    parser.add_argument('--alt-step', dest='alt_step', type=float, default=None, help='Altitude step in km')
+    parser.add_argument('--alt-step', dest='alt_step', type=float, default=0.5, help='Altitude step in km')
     
     parser.add_argument('--lon-range', dest='lon_range', type=float, default=None, help='Longitude range in degrees')
     parser.add_argument('--lat-range', dest='lat_range', type=float, default=None, help='Latitude range in degrees')
@@ -791,6 +946,7 @@ if __name__ == '__main__':
     lat0        = args.lat0
     lon0        = args.lon0
     alt0        = args.alt0
+    output_format = args.output_format
     
     # Helper to parse comma-separated lists into arrays of floats
     def parse_coords(coord_str):
@@ -854,7 +1010,7 @@ if __name__ == '__main__':
             plotStd = TimeAltitudePlot(lon0=lon0, lat0=lat0, alt0=alt0)
         
         print("Generating winds ...")
-        for hourly_file in hourly_files:
+        for i, hourly_file in enumerate(hourly_files):
             
             coords = grid_4d.update(hourly_file)
             
@@ -870,19 +1026,30 @@ if __name__ == '__main__':
             print(".", end='', flush=True)
             
             output_file = os.path.join(rpath_, "winds3D_%s" % dt.strftime("%Y%m%d"))
-            append_winds(df, output_file)
+            
+            overwrite = False
+            if i == 0: overwrite = True
+            
+            if output_format == "hdf5":
+                append_winds_hdf5(df, output_file, overwrite=overwrite)
+            elif output_format == "ncdf":
+                append_winds_netcdf(df, output_file, overwrite=overwrite)
+            else:
+                raise ValueError("File format not supported")
+            
             plotData.update_chunk(df)
             
             if plot_std:
                 plotStd.update_chunk(df, plot_std=True)
         
         print("Plotting winds ...")
-        plotData.save_plot(path=figpath_)
+        plotData.save_plot(path=figpath_, suffix=df["version"])
         
         if plot_std:
             
             plotStd.save_plot(path=figpath_,
-                              sufix="std",
+                              suffix="std_%s" %df["version"],
                               cmap='inferno',
                               vmins=[0,0,0],
-                              vmaxs=[30,30,5])
+                              vmaxs=[30,30,5],
+                              )
