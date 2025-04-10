@@ -499,7 +499,9 @@ class TwoDPlanesPlot():
             
 def find_ensemble_files(hourly_file):
     
-    ensemble_files = sorted(glob.glob(hourly_file[:-6] + "*.h5"))
+    idx = hourly_file.find("i000")
+    
+    ensemble_files = sorted(glob.glob( "%s*%s" %(hourly_file[:idx], hourly_file[idx+4:]) ) )
     
     return ensemble_files
         
@@ -765,10 +767,6 @@ def append_winds_netcdf(df, output_file, overwrite=False):
     Returns:
         None
     """
-    import os
-    import datetime
-    import netCDF4
-    import numpy as np
 
     # Extract data from the input dictionary.
     t = np.atleast_1d(df["t"])  # Ensure time is a 1D array
@@ -888,7 +886,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/NewMexico/KenExperiment/hyper24", help='Path where the model weights are')
+    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/mcordero/Data/IAP/SIMONe/Germany/SpaceX/hyper48", help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
@@ -898,7 +896,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--output-format', dest='output_format', default='ncdf', help='File format of wind files: either "ncdf" or "hdf5"')
     
-    parser.add_argument('--time-step', dest='tstep', type=float, default=15*60, help='Time step in seconds')
+    parser.add_argument('--time-step', dest='tstep', type=float, default=30*60, help='Time step in seconds')
     
     # New geographic grid arguments
     parser.add_argument('--lon-step', dest='lon_step', type=float, default=None, help='Longitude step in degrees')
@@ -915,18 +913,18 @@ if __name__ == '__main__':
     
     # New optional direct coordinate inputs (as comma-separated lists)
     parser.add_argument('--t-coords', dest='t_coords', default=None)
-    parser.add_argument('--lon-coords', dest='lon_coords', default=None, type=str, help='Comma-separated list of longitude coordinates')
-    parser.add_argument('--lat-coords', dest='lat_coords', default=None, type=str, help='Comma-separated list of latitude coordinates')
-    parser.add_argument('--alt-coords', dest='alt_coords', default=None, type=str, help='Comma-separated list of altitude coordinates')
+    # parser.add_argument('--lon-coords', dest='lon_coords', default=None, type=str, help='Comma-separated list of longitude coordinates')
+    # parser.add_argument('--lat-coords', dest='lat_coords', default=None, type=str, help='Comma-separated list of latitude coordinates')
+    # parser.add_argument('--alt-coords', dest='alt_coords', default=None, type=str, help='Comma-separated list of altitude coordinates')
     
     # parser.add_argument('--t-coords', dest='t_coords', default="1739923200.0, 1739925000.0, 1739926800.0, 1739928600.0, 1739930400.0, 1739932200.0, 1739934000.0, 1739935800.0, 1739937600.0, 1739939400.0, 1739941200.0, 1739943000.0, 1739944800.0, 1739946600.0, 1739948400.0, 1739950200.0, 1739952000.0, 1739953800.0, 1739955600.0, 1739957400.0, 1739959200.0, 1739961000.0, 1739962800.0, 1739964600.0, 1739966400.0, 1739968200.0, 1739970000.0, 1739971800.0, 1739973600.0, 1739975400.0, 1739977200.0, 1739979000.0, 1739980800.0, 1739982600.0, 1739984400.0, 1739986200.0, 1739988000.0, 1739989800.0, 1739991600.0, 1739993400.0, 1739995200.0, 1739997000.0, 1739998800.0, 1740000600.0, 1740002400.0, 1740004200.0, 1740006000.0, 1740007800.0, 1740009600.0",
     #                     type=str, help='Comma-separated list of time coordinates')
-    # parser.add_argument('--lon-coords', dest='lon_coords', default="9.00000000e+00,  9.18000000e+00,  9.36000000e+00,  9.54000000e+00, 9.72000000e+00,  9.90000000e+00,  1.00800000e+01,  1.02600000e+01, 1.04400000e+01,  1.06200000e+01,  1.08000000e+01,  1.09800000e+01, 1.11600000e+01,  1.13400000e+01,  1.15200000e+01,  1.17000000e+01, 1.18800000e+01,  1.20600000e+01,  1.22400000e+01,  1.24200000e+01, 1.26000000e+01,  1.27800000e+01,  1.29600000e+01,  1.31400000e+01, 1.33200000e+01,  1.35000000e+01,  1.36800000e+01,  1.38600000e+01, 1.40400000e+01,  1.42200000e+01,  1.44000000e+01,  1.45800000e+01, 1.47600000e+01,  1.49400000e+01,  1.51200000e+01,  1.53000000e+01, 1.54800000e+01,  1.56600000e+01,  1.58400000e+01,  1.60200000e+01",
-    #                     type=str, help='Comma-separated list of longitude coordinates')
-    # parser.add_argument('--lat-coords', dest='lat_coords', default="51.93, 52.11, 52.29, 52.47, 52.65, 52.83, 53.01, 53.19, 53.37, 53.55, 53.73, 53.91, 54.09, 54.27, 54.45, 54.63, 54.81, 54.99, 55.17, 55.35, 55.53, 55.71, 55.89, 56.07, 56.25, 56.43, 56.61, 56.79",
-    #                     type=str, help='Comma-separated list of latitude coordinates')
-    # parser.add_argument('--alt-coords', dest='alt_coords', default="100.07407025,  98.67341399,  97.28674999,  95.91398446,94.55503898,  93.20983589,  91.87828907,  90.56032043,89.25584373,  87.96478917,  86.68707801,  85.42264065,84.17139057,  82.93326558,  81.70818754,  80.49608593", 
-    #                     type=str, help='Comma-separated list of altitude coordinates')
+    parser.add_argument('--lon-coords', dest='lon_coords', default="9.00000000e+00,  9.18000000e+00,  9.36000000e+00,  9.54000000e+00, 9.72000000e+00,  9.90000000e+00,  1.00800000e+01,  1.02600000e+01, 1.04400000e+01,  1.06200000e+01,  1.08000000e+01,  1.09800000e+01, 1.11600000e+01,  1.13400000e+01,  1.15200000e+01,  1.17000000e+01, 1.18800000e+01,  1.20600000e+01,  1.22400000e+01,  1.24200000e+01, 1.26000000e+01,  1.27800000e+01,  1.29600000e+01,  1.31400000e+01, 1.33200000e+01,  1.35000000e+01,  1.36800000e+01,  1.38600000e+01, 1.40400000e+01,  1.42200000e+01,  1.44000000e+01,  1.45800000e+01, 1.47600000e+01,  1.49400000e+01,  1.51200000e+01,  1.53000000e+01, 1.54800000e+01,  1.56600000e+01,  1.58400000e+01,  1.60200000e+01",
+                        type=str, help='Comma-separated list of longitude coordinates')
+    parser.add_argument('--lat-coords', dest='lat_coords', default="51.93, 52.11, 52.29, 52.47, 52.65, 52.83, 53.01, 53.19, 53.37, 53.55, 53.73, 53.91, 54.09, 54.27, 54.45, 54.63, 54.81, 54.99, 55.17, 55.35, 55.53, 55.71, 55.89, 56.07, 56.25, 56.43, 56.61, 56.79",
+                        type=str, help='Comma-separated list of latitude coordinates')
+    parser.add_argument('--alt-coords', dest='alt_coords', default="100.07407025,  98.67341399,  97.28674999,  95.91398446,94.55503898,  93.20983589,  91.87828907,  90.56032043,89.25584373,  87.96478917,  86.68707801,  85.42264065,84.17139057,  82.93326558,  81.70818754,  80.49608593", 
+                        type=str, help='Comma-separated list of altitude coordinates')
     
     args = parser.parse_args()
     
@@ -950,7 +948,8 @@ if __name__ == '__main__':
     
     # Helper to parse comma-separated lists into arrays of floats
     def parse_coords(coord_str):
-        return [float(item) for item in coord_str.split(',')] if coord_str is not None else None
+        coord = np.sort( [float(item) for item in coord_str.split(',')] ) if coord_str is not None else None
+        return coord
 
     t_coords = parse_coords(args.t_coords)
     lon_coords = parse_coords(args.lon_coords)
@@ -996,7 +995,7 @@ if __name__ == '__main__':
     for day_folder in day_folders:
         
         day_folder = os.path.join(mpath, day_folder)
-        hourly_files = sorted(glob.glob(os.path.join(day_folder, "*_i00*.h5")))
+        hourly_files = sorted(glob.glob(os.path.join(day_folder, "*_i000*.h5")))
         
         if len(hourly_files) < 1:
             print("No model files found in %s" % day_folder)
