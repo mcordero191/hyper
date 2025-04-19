@@ -259,22 +259,22 @@ if __name__ == '__main__':
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
-    parser.add_argument('--nensembles',             dest='nensembles', default=5, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
+    parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
     parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     
-    parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
+    parser.add_argument('--time-window', dest='dtime', default=48, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
-    parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
+    parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-4, help='', type=float)
     parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-6, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e-1, help='Slope recovery time loss weight', type=float)
     
-    parser.add_argument('--laaf',        dest='nn_laaf', default=1, type=int)
+    parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=1, type=int)
     
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
@@ -288,9 +288,9 @@ if __name__ == '__main__':
     parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
     
     parser.add_argument('-s', '--nn-init-std',    dest='nn_init_sigma', default=1.0, type=float)
-    parser.add_argument('-i', '--nn-w-init',    dest='nn_w_init', default='GlorotNormal', type=str)
+    parser.add_argument('-i', '--nn-w-init',    dest='nn_w_init', default='custom', type=str)
     
-    parser.add_argument('--verbose', dest='verbose', default=0, help='', type=int)
+    parser.add_argument('--verbose', dest='verbose', default=1, help='', type=int)
     parser.add_argument('--overwrite', dest='overwrite', default=0, help='', type=int)
     
     parser.add_argument('--lon-range', dest='dlon', default=None, help='degrees', type=float)
@@ -657,7 +657,7 @@ if __name__ == '__main__':
         
         if resource_path is None:
             # basepath, exp_name = os.path.split(path)
-            rpath = os.path.join(path, 'hyper%02d' %dt)
+            rpath = os.path.join(path, 'hyper_%d.%03d_%02d' %(hidden_layers, neurons_per_layer, dt) )
         else:
             rpath = resource_path
             
@@ -694,7 +694,7 @@ if __name__ == '__main__':
             meteor_data.plot_sampling(path=exp_path, suffix='pre')
             meteor_data.add_synthetic_noise(noise_sigma)
             
-            nblocks = 24//dt
+            nblocks = max(24//dt,1)
             
             for i in range(nblocks):
             

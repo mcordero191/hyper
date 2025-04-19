@@ -301,7 +301,11 @@ def read_icon_file(filename):
         epoch = datetime.datetime(1970, 1, 1)
         time_seconds = [t.total_seconds() for t in (time_dt - epoch)]
         
-        alt = nc.variables['z_ifc'][:] / 1000  # Remember to convert altitude from meters to kilometers
+        try:
+            alt = nc.variables['z_ifc'][:] / 1000  # Remember to convert altitude from meters to kilometers
+        except:
+            alt = nc.variables['z_mc'][:] / 1000
+        
         lat = nc.variables['lat'][:] 
         lon = nc.variables['lon'][:] 
         
@@ -411,7 +415,7 @@ def plot_horizontal_wind(ds, time_dt, altitudes_km, dec=1):
     plt.tight_layout()
     plt.show()
 
-def plot_mean_winds(*datasets, cmap="seismic", vmin=-100, vmax=100):
+def plot_mean_winds(*datasets, cmap="seismic", vmin=-100, vmax=100, version="", rpath=None):
     
     nplots = len(datasets)
     
@@ -419,6 +423,8 @@ def plot_mean_winds(*datasets, cmap="seismic", vmin=-100, vmax=100):
     
     locator = mdates.AutoDateLocator(minticks=3, maxticks=7)
     formatter = mdates.ConciseDateFormatter(locator)
+    
+    titles = ["HYPER", "ICON (%s)" %version]
     
     for i in range(nplots):
         
@@ -442,7 +448,7 @@ def plot_mean_winds(*datasets, cmap="seismic", vmin=-100, vmax=100):
         ax.xaxis.set_major_locator(locator)
         ax.xaxis.set_major_formatter(formatter)
         
-        ax.set_title("Zonal velocity")
+        ax.set_title("%s: Zonal velocity" %titles[i])
         ax.set_ylabel('Altitude (km)')
         ax.set_xlabel('Universal time')
         
@@ -452,7 +458,7 @@ def plot_mean_winds(*datasets, cmap="seismic", vmin=-100, vmax=100):
         ax.xaxis.set_major_locator(locator)
         ax.xaxis.set_major_formatter(formatter)
         
-        ax.set_title("Meridional velocity")
+        ax.set_title("%s: Meridional velocity" %titles[i])
         ax.set_ylabel('Altitude (km)')
         ax.set_xlabel('Universal time')
     
@@ -464,7 +470,12 @@ def plot_mean_winds(*datasets, cmap="seismic", vmin=-100, vmax=100):
     cbar_ax = fig.add_axes([0.94, 0.15, 0.01, 0.7])  # [left, bottom, width, height]
     fig.colorbar(im, cax=cbar_ax, pad=0.005, label="m/s")
     
-    plt.show()
+    if rpath is None:
+        plt.show()
+    else:
+        filename = os.path.join(rpath, "winds_%s.pdf" %version)
+        plt.savefig(filename)
+        plt.close()
 
 def estimate_time_delay(data1, data2, time_resolution=1.0):
     """
@@ -817,7 +828,7 @@ def plot_vector_corr_vs_lag(ds1, ds2, max_lag=10, time_resolution=1.0):
     
     return corr_values, lags
 
-def plot_vector_corr_and_dispersion_vs_lag(ds1, ds2, max_lag=10):
+def plot_vector_corr_and_dispersion_vs_lag(ds1, ds2, max_lag=10, version="", rpath=None):
     """
     Compute and plot the normalized vector correlation and dispersion between two 
     2D vector fields (shape: (time, altitude, 2)) as a function of time lag.
@@ -858,7 +869,7 @@ def plot_vector_corr_and_dispersion_vs_lag(ds1, ds2, max_lag=10):
     data1 = np.stack((ds1.u.values, ds1.v.values), axis=-1)
     data2 = np.stack((ds2.u.values, ds2.v.values), axis=-1)
     
-    lags = np.arange(-max_lag, max_lag + 1) - lag_shift
+    lags = np.arange(-max_lag, max_lag + 1) + lag_shift
     time_lags = (lags*time_resolution - time_shift)/60
     
     corr_values = np.empty(len(lags))
@@ -876,21 +887,31 @@ def plot_vector_corr_and_dispersion_vs_lag(ds1, ds2, max_lag=10):
     ax1.set_ylabel("Normalized vector correlation", color=color1)
     ax1.plot(time_lags, corr_values, marker='o', color=color1, label="Correlation")
     ax1.tick_params(axis='y', labelcolor=color1)
+    ax1.set_ylim(0,0.5)
     ax1.grid(True)
     
     ax2 = ax1.twinx()
     color2 = 'tab:red'
-    ax2.set_ylabel("Dispersion (RMS difference)", color=color2)
-    ax2.plot(time_lags, dispersion_values, marker='x', linestyle='--', color=color2, label="Dispersion")
+    ax2.set_ylabel("root-mean-square deviation (RMSD)", color=color2)
+    ax2.plot(time_lags, dispersion_values, marker='x', linestyle='--', color=color2, label="RMSD")
     ax2.tick_params(axis='y', labelcolor=color2)
+    ax2.set_ylim(35,55)
+    # ax2.grid(True)
     
-    plt.title("Vector Correlation and Dispersion")
+    plt.title("Correlation HYPER vs ICON (%s)" %version)
     fig.tight_layout()
-    plt.show()
+    
+    if rpath is None:
+        plt.show()
+    else:
+        filename = os.path.join(rpath, "corr_%s.pdf" %version)
+        plt.savefig(filename)
+        plt.close()
     
     # Identify the time lag with the maximum correlation.
     best_index = np.nanargmax(corr_values)
     best_lag = time_lags[best_index]
+    
     print("Estimated time shift (best correlation lag):", best_lag)
     print("Dispersion at best correlation lag:", dispersion_values[best_index])
     
@@ -899,9 +920,12 @@ def plot_vector_corr_and_dispersion_vs_lag(ds1, ds2, max_lag=10):
 if __name__=="__main__":
 
     # Load the wind dataset
-    file_path = "/Users/mcordero/Data/IAP/SIMONe/Germany/SpaceX/hyper24/winds/winds3D_20250219.h5"
-    file_path = "/Users/mcordero/Data/IAP/SIMONe/Germany/SpaceX/hyper48/winds/winds3D_20250219_v1.1.0.nc"
+    file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyper24/winds/winds3D_20250219.h5"
+    file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyper72/winds/winds3D_20250218_003000_v1.1.0.nc"
     
+    rpath = os.path.split(file_path)[0]
+    
+    version = "old"
     # Select the desired time step (e.g., the first time index)
     time_dt = datetime.datetime(2025,2,19,19,0,0)
     # Select the altitude index for the cut (modify as needed)
@@ -929,9 +953,10 @@ if __name__=="__main__":
     # np.save(file2, ds['lat'].values)
     # np.save(file3, ds['alt'].values)
     
-    
-    file_path = "/Users/mcordero/Data/IAP/SIMONe/Germany/SpaceX/ICON/UA-ICON_SIMONe_falcon_cb_20250219-20.nc"
-    file_path = "/Users/mcordero/Data/IAP/SIMONe/Germany/SpaceX/ICON/UA-ICON_NWP_atm_DOM01_80-100km_20250219-20.nc"
+    if version == "new":
+        file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/ICON/UA-ICON_NWP_atm_ML_DOM01_falcon2_20250219-20.nc"
+    else:
+        file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/ICON/UA-ICON_NWP_atm_DOM01_80-100km_20250219-20.nc"
     
     ds = read_icon_file(file_path)
     
@@ -941,10 +966,10 @@ if __name__=="__main__":
     
     # plot_horizontal_wind(ds, time_dt, altitudes_km, dec=1)
 
-    ds0 = ds0.where( (ds0.alt>=79) & (ds0.alt<=101), drop=True)
+    ds0 = ds0.where( (ds0.alt>=89) & (ds0.alt<=101), drop=True)
     ds = ds.where( ( ds.alt>=ds0.alt.min()-0.01) & (ds.alt<=ds0.alt.max()+0.01), drop=True)
     
-    plot_mean_winds( ds0, ds )
+    plot_mean_winds( ds0, ds, version=version, rpath=rpath)
     
     mean0 = ds0.mean(dim=["lon","lat"])
     mean1 = ds.mean(dim=["lon","lat"])
@@ -958,6 +983,6 @@ if __name__=="__main__":
     #
     # corr_values, lags = plot_vector_corr_vs_lag(mean0, mean1, max_lag=30)
     
-    corr_values, lags, dispersion = plot_vector_corr_and_dispersion_vs_lag(mean0, mean1, max_lag=30)
+    corr_values, lags, dispersion = plot_vector_corr_and_dispersion_vs_lag(mean0, mean1, max_lag=30, version=version, rpath=rpath)
     
     
