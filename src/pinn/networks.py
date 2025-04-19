@@ -7,13 +7,58 @@ Created on 14 Aug 2024
 import tensorflow as tf
 import keras
 
-from pinn.layers import BaseModel, Embedding, LaafLayer, DropoutLayer, Scaler, Linear
+from pinn.layers import Embedding, LaafLayer, DropoutLayer, Scaler, Linear
 
 # Define the Gaussian activation function
 def gaussian_activation(x):
     
     return tf.exp(-tf.square(x))
 
+class BaseModel(keras.Model):
+    
+    def __init__(self,
+                 add_nu=False,
+                 **kwargs
+                 ):
+                 
+        super().__init__()
+        self.add_nu = add_nu
+        
+        # self.parms = CustomParameters(add_nu=add_nu)
+        
+    def build(self, input_shape):
+        
+        # self.nu = self.add_weight(name='Nu',
+        #                 shape = (1,),
+        #                 initializer = 'ones',
+        #                 trainable = self.add_nu,
+        #                 constraint = keras.constraints.NonNeg())
+                
+        super().build(input_shape) 
+        
+    def call(self, inputs):
+        '''
+        inputs    :    [batch_size, dimensions] 
+                                    d0    :    time
+                                    d1    :    altitude
+                                    d2    :    x
+                                    d3    :    y
+        '''
+        
+        raise NotImplementedError("This is a base class")
+    
+    def build_graph(self, in_shape):
+        
+        x = keras.Input(shape=(in_shape,) )
+        
+        self.build((None,in_shape))
+        
+        return keras.Model(inputs=[x], outputs=self.call(x))
+
+    def update_mask(self, *args):
+        
+        pass
+    
 class FCNClass(BaseModel):
 
     def __init__(self,
@@ -66,7 +111,7 @@ class FCNClass(BaseModel):
                             trainable=True,   
                         )
         else:
-            self.alphas = tf.ones( (n_layers+1, ) )
+            self.alphas = tf.ones( (n_layers+1, ), name="alphas" )
         
         
         if self.dropout:
@@ -151,7 +196,7 @@ class resPINN(FCNClass):
         # if self.dropout:
         #     u = self.dropout_layers[1](u)
         
-        output = tf.constant(0.0) #self.linear_layers[0](u)
+        output = self.linear_layers[0](u)
         
         for i in range(0,self.n_layers):
             
@@ -163,9 +208,9 @@ class resPINN(FCNClass):
             if self.dropout:
                 u = self.dropout_layers[i+1](u)
             
-            output = output + self.linear_layers[i](u)
+            output = output + self.linear_layers[i+1](u)
         
-        output = self.linear_layers[i+1](output)#, alpha=self.alphas[i+2])
+        # output = self.linear_layers[i+1](output)#, alpha=self.alphas[i+2])
         
         output = self.scale(output)
         

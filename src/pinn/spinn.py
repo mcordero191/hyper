@@ -8,7 +8,8 @@ import numpy as np
 import tensorflow as tf
 import keras
 
-from pinn.layers import BaseModel, Scaler, Linear
+from pinn.layers import Scaler, Linear
+from pinn.networks import BaseModel
 
 data_type     = tf.float32
 

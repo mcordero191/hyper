@@ -33,6 +33,7 @@ from utils.histograms import ax_2dhist
 from utils.plotting import epoch2num
 from pinn.networks import genericPINN, resPINN
 from pinn.spinn import sPINN
+from pinn.NIFnet import NIFNet
 from pinn.deeponet import DeepONet
     
 # from pinn.bfgs import LBFGS
@@ -213,6 +214,16 @@ class App:
                           kernel_initializer = w_init,
                           add_nu = add_nu,
                           )
+            
+        elif self.nn_type == "nifnet":
+            
+            nn = NIFNet(noutputs=self.shape_out,
+                          hidden_units=self.width,
+                          num_blocks=self.nblocks,
+                          nlayers=self.depth,
+                          )
+            
+            
         # elif self.nn_type == 'deeponetori':
         #     nn = DeepONetOri(self.shape_out,
         #                   self.width,
@@ -258,7 +269,11 @@ class App:
         # dummy_input = tf.random.normal((1, shape_in))
         # _ = nn(dummy_input)
 
-        model = nn.build_graph( self.shape_in )
+        inp   = keras.Input(shape=(self.shape_in,))
+        out   = nn(inp)
+        model = keras.Model(inputs=inp, outputs=out)
+
+        # model = nn.build_graph( self.shape_in )
         self.model = nn
         self.counter = 0
         
@@ -350,7 +365,7 @@ class App:
         return(mean_grad)
     
     @tf.function(reduce_retracing=True)
-    def forward_pass(self, model, X, training=tf.constant(True)):
+    def forward_pass(self, model, X, training=True):
         
         # print("Tracing model!") 
         
@@ -384,7 +399,7 @@ class App:
         del tp
         
         div     = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
-        junk     = tf.constant(0.0, dtype=data_type)
+        junk     = 0.0
             
         return(div, junk, junk, junk, junk, junk)
     
@@ -459,7 +474,7 @@ class App:
         # mom = mom_x + mom_y
         
         #Potential temperature
-        junk = tf.constant(0.0, dtype=data_type)
+        junk = 0.0
             
         return(div, junk, mom_x, mom_y, junk, w)
     
@@ -572,7 +587,7 @@ class App:
                               theta_xx, theta_yy, theta_zz,
                               N=N, k=nu)
         
-        junk = tf.constant(0.0, dtype=data_type)
+        junk = 0.0
         
         return(div, temp, mom_x, mom_y, mom_z, w)
     
@@ -661,7 +676,7 @@ class App:
         # poi_y     = eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
         # poi_z     = eq_poisson(w_xx, w_yy, w_zz, omegay_x, omegax_y)
         
-        junk = tf.constant(0.0, dtype=data_type)
+        junk = 0.0
         d_x = junk
         d_y = junk
         d_z = junk
@@ -671,9 +686,9 @@ class App:
     # @tf.function
     def pde_vorticity_3O_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
         
-        # div     = tf.constant(0.0, dtype=data_type)
-        # mom     = tf.constant(0.0, dtype=data_type)
-        # div_w    = tf.constant(0.0, dtype=data_type)
+        # div     = 0.0
+        # mom     = 0.0
+        # div_w    = 0.0
         
         with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tpS:
             tpS.watch(t)
@@ -760,7 +775,7 @@ class App:
         
         del tpS
         
-        junk = tf.constant(0.0, dtype=data_type)
+        junk = 0.0
         
         #Divergence
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
@@ -779,9 +794,9 @@ class App:
     # @tf.function
     def pde_vorticity_3O(self, model, t, z, x, y, nu, rho, rho_ratio, N):
         
-        # div     = tf.constant(0.0, dtype=data_type)
-        # mom     = tf.constant(0.0, dtype=data_type)
-        # div_w    = tf.constant(0.0, dtype=data_type)
+        # div     = 0.0
+        # mom     = 0.0
+        # div_w    = 0.0
         
         with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tpS2:
             tpS2.watch(x)
@@ -887,7 +902,7 @@ class App:
         #Dw = 0
         # div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
         
-        junk = tf.constant(0.0, dtype=data_type)
+        junk = 0.0
         
         return(div, junk, junk, junk, mom_z, w)
 
@@ -1067,9 +1082,9 @@ class App:
         # mom_z   = eq_vorticity_LF(omegaz_t,
         #                          omegaz_xx, omegaz_yy, omegaz_zz,
         #                          b_x, a_y,
-        #                          tf.constant(0.0, dtype=data_type),
+        #                          0.0,
         #                          nu,
-        #                          tf.constant(0.0, dtype=data_type))
+        #                          0.0)
         
         ## Rotational formulation
         mom_x   = 1e-3*eq_vorticity_RF_F(omegax_t,
@@ -1095,7 +1110,7 @@ class App:
         # theta_zero  =  tf.reduce_sum(theta) #Temperature perturbations must have zero-mean
         #
         # thermal     = heat + theta_zero
-        junk = tf.constant(0.0, dtype=data_type)
+        junk = 0.0
         
         # print("Finish tracing pde hydro!")
         
@@ -1206,9 +1221,9 @@ class App:
         # mom_z   = eq_vorticity_LF(omegaz_t,
         #                          omegaz_xx, omegaz_yy, omegaz_zz,
         #                          b_x, a_y,
-        #                          tf.constant(0.0, dtype=data_type),
+        #                          0.0,
         #                          nu,
-        #                          tf.constant(0.0, dtype=data_type))
+        #                          0.0)
         
         ## Rotational formulation
         mom_x   = 1e-3*eq_vorticity_RF_F(omegax_t,
@@ -1234,16 +1249,16 @@ class App:
         # theta_zero  =  tf.reduce_sum(theta) #Temperature perturbations must have zero-mean
         #
         # thermal     = heat + theta_zero
-        junk = tf.constant(0.0, dtype=data_type)
+        junk = 0.0
         
         return(div, div_w, mom_x, mom_y, mom_z, w)
     
     # @tf.function
     def pde_vorticity_4O_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
         
-        # div     = tf.constant(0.0, dtype=data_type)
-        # mom     = tf.constant(0.0, dtype=data_type)
-        # div_w    = tf.constant(0.0, dtype=data_type)
+        # div     = 0.0
+        # mom     = 0.0
+        # div_w    = 0.0
         
         with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tpS2:
             tpS2.watch(t)
@@ -1328,18 +1343,18 @@ class App:
         
         rho_mean  =  tf.reduce_sum(rho)
         
-        junk = tf.constant(0.0, dtype=data_type)
+        junk = 0.0
         
         return(div, div_w, junk, junk, mom_z, rho_mean)
 
     # @tf.function
     def pde_vorticity_4O(self, model, t, z, x, y, nu, rho, rho_ratio, N):
         
-        # div     = tf.constant(0.0, dtype=data_type)
-        # mom_x   = tf.constant(0.0, dtype=data_type)
-        # mom_y   = tf.constant(0.0, dtype=data_type)
-        # mom_z   = tf.constant(0.0, dtype=data_type)
-        # temp    = tf.constant(0.0, dtype=data_type)
+        # div     = 0.0
+        # mom_x   = 0.0
+        # mom_y   = 0.0
+        # mom_z   = 0.0
+        # temp    = 0.0
         
         with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tpS2:
             tpS2.watch(x)
@@ -1526,9 +1541,9 @@ class App:
         # mom_z   = eq_vorticity_LF(omegaz_t,
         #                          omegaz_xx, omegaz_yy, omegaz_zz,
         #                          b_x, a_y,
-        #                          tf.constant(0.0, dtype=data_type),
+        #                          0.0,
         #                          nu,
-        #                          tf.constant(0.0, dtype=data_type))
+        #                          0.0)
         
         ## Rotational formulation
         mom_x   = eq_vorticity_RF_F(omegax_t,
@@ -1543,8 +1558,8 @@ class App:
         
         mom_z   = eq_vorticity_RF_F(omegaz_t,
                                     Fy_x, Fx_y,
-                                    tf.constant(0.0, dtype=data_type),
-                                    tf.constant(0.0, dtype=data_type),
+                                    0.0,
+                                    0.0,
                                     )
         
         # mom = mom_x + mom_y + mom_z
@@ -1634,8 +1649,8 @@ class App:
         
         # t, z, x, y, nu, rho, rho_ratio, N = tf.split(X, num_or_size_splits=8, axis=1)
         
-        nu_scaling = self.model.nu
-        nu         = nu/(nu_scaling+1e-6) #scaling
+        # nu_scaling = self.model.nu
+        # nu         = nu/(nu_scaling+1e-6) #scaling
         
         div, div_vor, mom_x, mom_y, mom_z, temp = self.pde_func(model, t, z, x, y, nu, rho, rho_ratio, N)
         
@@ -1665,7 +1680,7 @@ class App:
         loss_mom        = tf.reduce_mean(tf.square(outputs[2])) + tf.reduce_mean(tf.square(outputs[3])) + tf.reduce_mean(tf.square(outputs[4]))
         # loss_w          = 1e0/tf.reduce_mean( tf.square(outputs[5]) + 1.0 )  #Non zero vertical wind
         
-        loss_w = tf.constant(0.0, dtype=data_type)
+        loss_w = 0.0
         
         # print("Finish tracing loss_pde!")
         
@@ -1779,10 +1794,10 @@ class App:
         http://dx.doi.org/10.1098/rspa.2020.0334
         '''
         if self.laaf:
-            # slt = tf.constant(0.0, dtype=data_type)
-            slt = tf.constant(1.0, dtype=data_type)/tf.reduce_mean(tf.exp(self.model.alphas))
+            # slt = 0.0
+            slt = 1.0/tf.reduce_mean(tf.exp(self.model.alphas))
         else:
-            slt = tf.constant(0.0, dtype=data_type)
+            slt = 0.0
         
         return slt
     
@@ -1791,10 +1806,10 @@ class App:
                  model,
                  X_data,
                  X_pde,
-                 w_data = tf.constant(1.0),
-                 w_pde  = tf.constant(1.0),
-                 w_srt  = tf.constant(1.0),
-                 w_vertical = tf.constant(1e0),
+                 w_data = 1.0,
+                 w_pde  = 1.0,
+                 w_srt  = 1.0,
+                 w_vertical = 1.0,
                 ):
         
         # print("Tracing loss_glb!") 
@@ -1818,7 +1833,7 @@ class App:
         
         return loss_total, loss_data, loss_pde, loss_mom
     
-    @tf.function
+    # @tf.function
     def train_step(self, *args, **kwargs):
         
         
@@ -1859,7 +1874,7 @@ class App:
         grad_pde  = tp.gradient(loss_pde, trainable_params)
         # grad_mom  = tp.gradient(loss_mom, trainable_params)
         # grad_temp = tp.gradient(loss_temp, trainable_params)
-        # grad_srt  = tf.constant(0.0, dtype=data_type) #tp.gradient(loss_srt, trainable_params)
+        # grad_srt  = 0.0 #tp.gradient(loss_srt, trainable_params)
         
         del tp
         
@@ -1870,7 +1885,7 @@ class App:
         grad_pde_mean  = self.mean_grads(grad_pde)
         # grad_mom_mean  = self.mean_grads(grad_mom)
         # grad_temp_mean = self.mean_grads(grad_temp)
-        #grad_srt_mean  = tf.constant(0.0, dtype=data_type) #self.mean_grads(grad_srt)
+        #grad_srt_mean  = 0.0 #self.mean_grads(grad_srt)
         
         #grads  = [grad_mean, grad_data_mean,  grad_pde_mean, grad_srt_mean]
         
@@ -2026,7 +2041,7 @@ class App:
             
             print(".", end='', flush=True)
             
-            self.model.update_mask(epochs)
+            # self.model.update_mask(epochs)
             
             losses = self.train_step(self.model,
                                      X_data,
@@ -2311,7 +2326,7 @@ class App:
         
         mask = self.invalid_mask(t, x, y, z)[:,0]
         
-        outputs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=tf.constant(False))
+        outputs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=False)
         outputs = outputs.numpy()
         
         if filter_output:
@@ -2357,7 +2372,7 @@ class App:
             tp.watch(y)
             tp.watch(z)
             
-            outs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=tf.constant(False))
+            outs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=False)
             
             u = outs[:,0:1]
             v = outs[:,1:2]
@@ -2422,7 +2437,7 @@ class App:
                 tp.watch(y)
                 tp.watch(z)
                 
-                outs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=tf.constant(False))
+                outs = self.forward_pass(self.model, tf.concat([t, z, x, y], axis=1), training=False)
                 
                 u = outs[:,0:1]
                 v = outs[:,1:2]
@@ -2460,7 +2475,7 @@ class App:
         return (Y)
     
     @tf.function
-    def rmse(self, X, sigma=tf.constant(1.0, dtype=data_type)):
+    def rmse(self, X, sigma=1.0):
         '''
         X = [t, z, x, y, d, d_err, kx, ky, kz, u, v, w]
         
@@ -2497,7 +2512,7 @@ class App:
         if tf.math.reduce_all(tf.math.is_nan(u)) == True:
             return (tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type), tf.constant(np.nan, dtype=data_type))
             
-        outputs = self.forward_pass(self.model, X[:,:4], training=tf.constant(False))
+        outputs = self.forward_pass(self.model, X[:,:4], training=False)
         
         ue = outputs[:,0:1]
         ve = outputs[:,1:2]
@@ -3558,7 +3573,7 @@ class App:
     lb = property(get_lb, None)
     ub = property(get_ub, None)
         
-def eq_continuity(u_x, v_y, w_z, w=tf.constant(0., dtype=data_type), rho_ratio=tf.constant(0., dtype=data_type)):
+def eq_continuity(u_x, v_y, w_z, w=0.0, rho_ratio=0.0):
     """
     Mass continuity equation in 3D for an incomprensible flow
     
@@ -3599,7 +3614,7 @@ def grad_div(u_xx, v_xy, w_xz,
 #                         = rho_z / rho
 #     """
 #     #Scale (1e-2): u_x = w_z = 10*1e-3 m/s/km
-#     y = rho_t + (u*rho_x + v*rho_y + w*rho_z) + ( rho+tf.constant(1.0, dtype=data_type) )*(u_x + v_y + w_z)
+#     y = rho_t + (u*rho_x + v*rho_y + w*rho_z) + ( rho+1.0 )*(u_x + v_y + w_z)
 #     # y = u_x + v_y + w_z
 #
 #     return(y)
@@ -3608,9 +3623,9 @@ def eq_horizontal_momentum(u, v, w,
                            u_t, u_x, u_y, u_z,
                            u_xx, u_yy, u_zz,
                            p_x,
-                           F    = tf.constant(0.0, dtype=data_type),
-                           nu   = tf.constant(0.0, dtype=data_type),
-                           rho  = tf.constant(1.0, dtype=data_type),
+                           F    = 0.0,
+                           nu   = 0.0,
+                           rho  = 1.0,
                            ):
     """
     Momentum equation in 3D for an incomprensible flow
@@ -3636,11 +3651,11 @@ def eq_vertical_momentum(u, v, w,
                          w_t, w_x, w_y, w_z,
                          w_xx, w_yy, w_zz,
                          p_z,
-                         F      = tf.constant(0.0, dtype=data_type),
-                         nu     = tf.constant(0.0, dtype=data_type),
-                         rho    = tf.constant(1.0, dtype=data_type),
-                         N      = tf.constant(0.0, dtype=data_type),
-                         theta  = tf.constant(0.0, dtype=data_type),
+                         F      = 0.0,
+                         nu     = 0.0,
+                         rho    = 1.0,
+                         N      = 0.0,
+                         theta  = 0.0,
                          ):
     """
     Momentum equation in 3D for an incomprensible flow
@@ -3667,8 +3682,8 @@ def eq_vertical_momentum(u, v, w,
 def eq_temperature(u, v, w,
                    theta_t, theta_x, theta_y, theta_z,
                    theta_xx, theta_yy, theta_zz,
-                   N    = tf.constant(0.0, dtype=data_type),
-                   k    = tf.constant(0.0, dtype=data_type),
+                   N    = 0.0,
+                   k    = 0.0,
                    ):
     """
     Momentum equation in 3D for an incomprensible flow
@@ -3692,9 +3707,9 @@ def eq_temperature(u, v, w,
 def eq_vorticity_LF(omega_t,
                     b_x, a_y,
                     omega_xx, omega_yy, omega_zz,
-                    theta_j = tf.constant(1.0, dtype=data_type),
-                    nu  = tf.constant(0.0, dtype=data_type),
-                    N   = tf.constant(0.0, dtype=data_type),
+                    theta_j = 1.0,
+                    nu  = 0.0,
+                    N   = 0.0,
                    ):
     """
     Vorticity equation using the Laplacian formulation 
@@ -3716,9 +3731,9 @@ def eq_vorticity_LF(omega_t,
 def eq_vorticity_RF(omega_t,
                     q_x, p_y,
                     b_x, a_y,
-                    theta_j = tf.constant(1.0, dtype=data_type),
-                    nu  = tf.constant(0.0, dtype=data_type),
-                    N   = tf.constant(0.0, dtype=data_type),
+                    theta_j = 1.0,
+                    nu  = 0.0,
+                    N   = 0.0,
                    ):
     """
     Vorticity equation using the Rotational formulation. Assuming Div omega = 0
@@ -3740,8 +3755,8 @@ def eq_vorticity_RF(omega_t,
     return(y)
 
 def eq_vorticity_RF_F(omega_t, F_k_j, F_j_k,
-                    theta_j = tf.constant(0.0, dtype=data_type),
-                    N   = tf.constant(0.0, dtype=data_type),
+                    theta_j = 0.0,
+                    N   = 0.0,
                    ):
     """
     Vorticity equation using the Rotational formulation. Assuming Div omega = 0
@@ -3823,12 +3838,11 @@ def restore(filename, log_index=None, include_res_layer=None, activation=None, s
                    'laaf',
                    'dropout',
                    'residual_layer',
-                   # 'nblocks',
                    ]
     
     keys_str    = ['act', 'opt', 'f_scl_in', 'nn_type', 'NS_type', 'version']
         
-    kwargs = {'nblocks':3}
+    kwargs = {}
     
     # print("Opening NN file: %s ..." %filename)
     

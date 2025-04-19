@@ -252,19 +252,19 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
     parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=3, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
-    parser.add_argument('--nblocks',                  dest='n_blocks', default=0, help='', type=int)
+    parser.add_argument('--nblocks',                  dest='n_blocks', default=3, help='', type=int)
     
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
     parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
-    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
+    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=0, help='Apply clustering filter to the meteor data', type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VP_div", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     
-    parser.add_argument('--time-window', dest='dtime', default=48, help='hours', type=int)
+    parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-4, help='', type=float)
@@ -275,20 +275,20 @@ if __name__ == '__main__':
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e-1, help='Slope recovery time loss weight', type=float)
     
     parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
-    parser.add_argument('--dropout',     dest='nn_dropout', default=1, type=int)
+    parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
     
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
-    parser.add_argument('--architecture', dest='nn_type', default='respinn', help='select the network architecture: gpinn, respinn, ...')
+    parser.add_argument('--architecture', dest='nn_type', default='nifnet', help='select the network architecture: gpinn, respinn, ...')
     parser.add_argument('--version',     dest='nn_version', default=3.00, type=float)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     
     parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
     
     parser.add_argument('-s', '--nn-init-std',    dest='nn_init_sigma', default=1.0, type=float)
-    parser.add_argument('-i', '--nn-w-init',    dest='nn_w_init', default='custom', type=str)
+    parser.add_argument('-i', '--nn-w-init',    dest='nn_w_init', default='HeNormal', type=str)
     
     parser.add_argument('--verbose', dest='verbose', default=1, help='', type=int)
     parser.add_argument('--overwrite', dest='overwrite', default=0, help='', type=int)
@@ -384,7 +384,7 @@ if __name__ == '__main__':
     if sevenfold:
         nn_version += 0.7
     
-    home_directory = "/Users/radar"
+    home_directory = "/Users/mcordero"
     
     if exp is not None:
         if exp.upper()  == 'OPERATIONAL':
@@ -657,7 +657,7 @@ if __name__ == '__main__':
         
         if resource_path is None:
             # basepath, exp_name = os.path.split(path)
-            rpath = os.path.join(path, 'hyper_%d.%03d_%02d' %(hidden_layers, neurons_per_layer, dt) )
+            rpath = os.path.join(path, 'hyper%s%d.%03d_%02d' %(nn_type[:4].upper(), hidden_layers, neurons_per_layer, dt) )
         else:
             rpath = resource_path
             
@@ -764,6 +764,7 @@ if __name__ == '__main__':
                 
                 for j in range(num_ensembles):
                     kwargs["ensemble"] = j
+                    # train_hyper(*args, **kwargs)
                     
                     #Start a child process to make sure Tensorflow frees memory after training
                     p = Process(target=train_hyper, args=args, kwargs=kwargs)

@@ -9,7 +9,9 @@ import numpy as np
 import tensorflow as tf
 import keras
 
-from pinn.layers import BaseModel, Scaler, Embedding, Densenet, StackLayer, Linear, EinsumLayer
+from pinn.layers import Scaler, Embedding, Densenet, StackLayer, Linear, EinsumLayer
+from pinn.networks import BaseModel
+
 # from pinn.spinn import Shift, GaussianKernel
 
 data_type     = tf.float32

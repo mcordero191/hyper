@@ -49,9 +49,9 @@ class PositionalEncoding(keras.layers.Layer):
         # self.position_encodings = [keras.layers.Dense(self.new_dim, trainable=False) for _ in range(4)]
 
 
-    def build(self, input_shape):
-        
-        pass
+    # def build(self, input_shape):
+    #
+    #     pass
         # n_dim = input_shape[1]
         
         
@@ -80,21 +80,23 @@ class PositionalEncoding(keras.layers.Layer):
         
         return pos_encodings
     
-@keras.saving.register_keras_serializable(package="hyper")
+# @keras.saving.register_keras_serializable(package="hyper")
 class DropoutLayer(keras.layers.Layer):
     
     def __init__(self, n=5000, **kwargs):
         
         super().__init__(**kwargs)
     
-        self.n = tf.Variable(1.0*n, trainable=False)
-        self.i = tf.Variable(0.0, trainable=False)
+        self.max_n = n
         
     def build(self, input_shape):
     
         in_dim = input_shape[-1]
         
         self.in_dim = in_dim
+        
+        self.n = tf.Variable(1.0*self.max_n, trainable=False)
+        self.i = tf.Variable(0.0, trainable=False)
         
         self.a = self.add_weight(
             shape=(self.in_dim,),
@@ -184,7 +186,7 @@ class Embedding(keras.layers.Layer):
         #                               bias_initializer=kernel_initializer,
         #                               )
         
-    def call(self, inputs, alpha=tf.constant(1.0) ):
+    def call(self, inputs, alpha=1.0 ):
         '''
         Inputs: [npoints, nd]
         
@@ -238,14 +240,14 @@ class Embedding(keras.layers.Layer):
         
         return(x)
 
-@keras.saving.register_keras_serializable(package="hyper")
+# @keras.saving.register_keras_serializable(package="hyper")
 class Densenet(keras.layers.Layer):
 
     def __init__(self,
                  n_neurons,
                  n_layers=1,
                  kernel_initializer = 'LecunNormal',
-                 activation  = tf.sin,
+                 activation  = "sine",
                  trainable=True,
                  skip_connection=False,
                  **kwargs
@@ -279,9 +281,12 @@ class Densenet(keras.layers.Layer):
             
         self.inner_layers = layers
         
-    def call(self, u, alphas=tf.ones(10)):
+    def call(self, u, alphas=None):
         '''
         '''
+        if alphas is None:
+            alphas = tf.ones(len(self.inner_layers))
+            
         for i, layer in enumerate(self.inner_layers):
             
             u = layer(u)
@@ -333,7 +338,7 @@ class LaafLayer(keras.layers.Layer):
                                 trainable = True,
                                 )
         
-    def call(self, inputs, alpha=tf.constant(1.0)):
+    def call(self, inputs, alpha=1.0):
         '''
         '''
         
@@ -371,18 +376,16 @@ class Linear(keras.layers.Layer):
             trainable=True,
         )
         
-        if self.add_bias:
-            self.b = self.add_weight(
-                shape=(1, self.noutputs),
-                initializer='zeros',
-                trainable=True
-            )
-        else:
-            self.b = tf.constant(0.0)
+        # if self.add_bias:
+        self.b = self.add_weight(
+            shape=(1, self.noutputs),
+            initializer='zeros',
+            trainable=self.add_bias,
+        )
         
         # self.built = True
         
-    def call(self, inputs, alpha=tf.constant(1.0)):
+    def call(self, inputs, alpha=1.0):
         '''
         Inputs [npoints, nnodes]
         
@@ -476,7 +479,6 @@ class Scaler(keras.layers.Layer):
         
         self.values = values
         # self.add_nu = add_nu
-        self.scaling = tf.constant(self.values, name='output_scaling', dtype=data_type)
         
     def build(self, input_shape):
         
@@ -493,6 +495,16 @@ class Scaler(keras.layers.Layer):
             initializer = 'zeros',
             trainable=True,
         )
+        
+        # non‑trainable “values” tensor
+        self.scaling = self.add_weight(
+            shape=(n_in,),
+            initializer=keras.initializers.Constant(self.values),
+            trainable=False,
+            name="output_scaling"
+        )
+        
+        # self.scaling = tf.constant(self.values, name='output_scaling', dtype=data_type)
         
         # self.nu = self.add_weight(name='Nu',
         #                 shape = (1,),
@@ -525,49 +537,3 @@ class CustomParameters(keras.layers.Layer):
             trainable=add_nu,
             constraint = keras.constraints.NonNeg()
         )
-
-
-class BaseModel(keras.Model):
-    
-    def __init__(self,
-                 add_nu=False,
-                 **kwargs
-                 ):
-                 
-        super().__init__()
-        self.add_nu = add_nu
-        
-        # self.parms = CustomParameters(add_nu=add_nu)
-        
-    def build(self, input_shape):
-        
-        self.nu = self.add_weight(name='Nu',
-                        shape = (1,),
-                        initializer = 'ones',
-                        trainable = self.add_nu,
-                        constraint = keras.constraints.NonNeg())
-                
-        super().build(input_shape) 
-        
-    def call(self, inputs):
-        '''
-        inputs    :    [batch_size, dimensions] 
-                                    d0    :    time
-                                    d1    :    altitude
-                                    d2    :    x
-                                    d3    :    y
-        '''
-        
-        raise NotImplementedError("This is a base class")
-    
-    def build_graph(self, in_shape):
-        
-        x = keras.Input(shape=(in_shape,) )
-        
-        self.build((None,in_shape))
-        
-        return keras.Model(inputs=[x], outputs=self.call(x))
-
-    def update_mask(self, *args):
-        
-        pass
