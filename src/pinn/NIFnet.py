@@ -139,7 +139,7 @@ class ShapeNet(keras.layers.Layer):
             
         return x
 
-class NIFNet(keras.Model):
+class FiLMNet(keras.Model):
     
     def __init__(self, num_blocks, nlayers=2, noutputs=3, w0=1.0, hidden_units=128, **kwargs):
         
@@ -173,3 +173,117 @@ class NIFNet(keras.Model):
     def update_mask(self, in_shape):
         
         pass
+    
+# === Multi-layer FiLM ShapeNet ===
+class MultiShapeNet(keras.layers.Layer):
+    
+    def __init__(self, num_blocks, nlayers=2, w0=1.0, hidden_units=128):
+        
+        super().__init__()
+        self.blocks = [ResidualBlock(hidden_units, nlayers, w0) for _ in range(num_blocks)]
+        
+        self.pre_layer = keras.layers.Dense(
+            hidden_units,
+            kernel_initializer=SIRENFirstLayerInitializer(w0),
+            bias_initializer=SIRENBiasInitializer(),
+            activation=SIRENActivation(w0),
+        )
+
+    def call(self, x, gammas, betas):
+        
+        x = self.pre_layer(x)
+        for i, block in enumerate(self.blocks):
+            x = gammas[i] * x + betas[i]
+            x = block(x)
+        return x
+
+# === ParameterNet for Multi-layer FiLM ===
+class MultiParameterNet(keras.layers.Layer):
+    
+    def __init__(self, num_blocks, num_modulations, nlayers=2, w0=1.0, hidden_units=128):
+        
+        super().__init__()
+        self.blocks = [ResidualBlock(hidden_units, nlayers, w0) for _ in range(num_blocks)]
+        
+        self.pre_layer = keras.layers.Dense(
+            hidden_units,
+            kernel_initializer=SIRENFirstLayerInitializer(w0),
+            bias_initializer=SIRENBiasInitializer(),
+            activation=SIRENActivation(w0),
+        )
+        
+        self.film_layer = keras.layers.Dense(
+            2 * num_modulations * hidden_units,  # gamma + beta for each layer
+            kernel_initializer='glorot_normal',
+            bias_initializer='zeros'
+        )
+        self.hidden_units = hidden_units
+        self.num_modulations = num_modulations
+
+    def call(self, t):
+        
+        x = self.pre_layer(t)
+        
+        for block in self.blocks:
+            x = block(x)
+            
+        film_params = self.film_layer(x)
+        film_params = tf.reshape(film_params, (-1, self.num_modulations, 2 * self.hidden_units))
+        gamma, beta = tf.split(film_params, num_or_size_splits=2, axis=-1)
+        
+        return gamma, beta
+
+# === Full Models ===
+class MultiFiLMNet(keras.Model):
+    
+    def __init__(self, num_blocks=4, nlayers=2, hidden_units=128, noutputs=3, w0=1.0):
+        
+        super().__init__()
+        
+        self.shapenet = MultiShapeNet(num_blocks, nlayers, w0, hidden_units)
+        self.parameternet = MultiParameterNet(num_blocks, num_blocks, nlayers, w0, hidden_units)
+        self.final = keras.layers.Dense(noutputs)
+
+    def call(self, inputs):
+        
+        t = inputs[:, :1]
+        x = inputs[:, 1:4]
+        
+        gamma, beta = self.parameternet(t)
+        features = self.shapenet(x, gamma, beta)
+        
+        return self.final(features)
+    
+# === Cross-Attention ShapeNet ===
+class AttentionShapeNet(keras.layers.Layer):
+    
+    def __init__(self, hidden_units=128, w0=1.0):
+        super().__init__()
+        self.spatial_proj = keras.layers.Dense(hidden_units)
+        self.temporal_proj = keras.layers.Dense(hidden_units)
+        self.attention = keras.layers.Attention(use_scale=True)
+        self.final_dense = keras.layers.Dense(hidden_units, activation=SIRENActivation(w0))
+
+    def call(self, spatial, temporal):
+        q = self.spatial_proj(spatial)
+        k = self.temporal_proj(temporal)
+        v = k
+        attended = self.attention([q, k, v])
+        return self.final_dense(attended)
+
+class AttentionFusionNet(keras.Model):
+    
+    def __init__(self, hidden_units=128, noutputs=3, w0=1.0):
+        super().__init__()
+        self.shapenet = keras.layers.Dense(hidden_units, activation=SIRENActivation(w0))
+        self.temporalnet = keras.layers.Dense(hidden_units, activation=SIRENActivation(w0))
+        self.attn_block = AttentionShapeNet(hidden_units, w0)
+        self.final = keras.layers.Dense(noutputs)
+
+    def call(self, inputs):
+        t = inputs[:, :1]
+        x = inputs[:, 1:4]
+        spatial_embed = self.shapenet(x)
+        temporal_embed = self.temporalnet(t)
+        fused = self.attn_block(spatial_embed, temporal_embed)
+        return self.final(fused)

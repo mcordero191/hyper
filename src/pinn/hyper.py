@@ -33,7 +33,7 @@ from utils.histograms import ax_2dhist
 from utils.plotting import epoch2num
 from pinn.networks import genericPINN, resPINN
 from pinn.spinn import sPINN
-from pinn.NIFnet import NIFNet
+from pinn.NIFnet import MultiFiLMNet, FiLMNet
 from pinn.deeponet import DeepONet
     
 # from pinn.bfgs import LBFGS
@@ -215,14 +215,21 @@ class App:
                           add_nu = add_nu,
                           )
             
-        elif self.nn_type == "nifnet":
+        elif self.nn_type == "filmnet":
             
-            nn = NIFNet(noutputs=self.shape_out,
+            nn = FiLMNet(noutputs=self.shape_out,
                           hidden_units=self.width,
                           num_blocks=self.nblocks,
                           nlayers=self.depth,
                           )
             
+        elif self.nn_type == "multifilmnet":
+            
+            nn = FiLMNet(noutputs=self.shape_out,
+                          hidden_units=self.width,
+                          num_blocks=self.nblocks,
+                          nlayers=self.depth,
+                          )
             
         # elif self.nn_type == 'deeponetori':
         #     nn = DeepONetOri(self.shape_out,
