@@ -27,6 +27,7 @@ class Grid4D():
                  lon_range=None,
                  lat_range=None,
                  alt_range=None,
+                 time_range=None,
                  lon_ref=None,
                  lat_ref=None,
                  alt_ref=None,
@@ -45,6 +46,7 @@ class Grid4D():
         self.lon_range = lon_range
         self.lat_range = lat_range
         self.alt_range = alt_range
+        self.time_range = time_range
         
         self.lon_ref = lon_ref
         self.lat_ref = lat_ref
@@ -93,7 +95,11 @@ class Grid4D():
             self.tstep = max(int(trange/300)*300/(24*2), 300) #Minimun 5min = 300seconds
             
         self.tmin = tmin
-        self.tmax = tmax
+        
+        if self.time_range is None:
+            self.tmax = tmax
+        else:
+            self.tmax = tmin + self.time_range
         
         def m_to_deg_lon(meters, lat0):
             """Convert meters to degrees longitude at a given center latitude (lat0 in degrees)."""
@@ -886,7 +892,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyper_5.256_48", help='Path where the model weights are')
+    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyperMULT3.128_24", help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
@@ -897,11 +903,12 @@ if __name__ == '__main__':
     parser.add_argument('--output-format', dest='output_format', default='ncdf', help='File format of wind files: either "ncdf" or "hdf5"')
     
     parser.add_argument('--time-step', dest='tstep', type=float, default=15*60, help='Time step in seconds')
-    
+    parser.add_argument('--time-range', dest='time_range', type=float, default=None)
+                        
     # New geographic grid arguments
     parser.add_argument('--lon-step', dest='lon_step', type=float, default=None, help='Longitude step in degrees')
     parser.add_argument('--lat-step', dest='lat_step', type=float, default=None, help='Latitude step in degrees')
-    parser.add_argument('--alt-step', dest='alt_step', type=float, default=1.0, help='Altitude step in km')
+    parser.add_argument('--alt-step', dest='alt_step', type=float, default=0.5, help='Altitude step in km')
     
     parser.add_argument('--lon-range', dest='lon_range', type=float, default=None, help='Longitude range in degrees')
     parser.add_argument('--lat-range', dest='lat_range', type=float, default=None, help='Latitude range in degrees')
@@ -934,13 +941,17 @@ if __name__ == '__main__':
     ena_plot    = args.ena_plotting
     plot_std    = args.plot_std
     ext         = args.ext
+    
     tstep       = args.tstep
     lon_step    = args.lon_step
     lat_step    = args.lat_step
     alt_step    = args.alt_step
+    
+    time_range  = args.time_range
     lon_range   = args.lon_range
     lat_range   = args.lat_range
     alt_range   = args.alt_range
+    
     lat0        = args.lat0
     lon0        = args.lon0
     alt0        = args.alt0
@@ -983,6 +994,7 @@ if __name__ == '__main__':
                      lon_range=lon_range,
                      lat_range=lat_range,
                      alt_range=alt_range,
+                     time_range=time_range,
                      lon_ref=lon0,
                      lat_ref=lat0,
                      alt_ref=alt0,

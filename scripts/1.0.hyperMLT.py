@@ -185,7 +185,7 @@ def train_hyper(df,
              w_srt   = w_srt,
              ns_pde  = N_pde,
              sampling_method = sampling_method,
-             # saving_rate = 10000,
+             saving_rate = 500,
              # NS_type  = NS_type,
              )
 
@@ -251,8 +251,8 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=3, help='# kernel layers', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=2, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
     parser.add_argument('--nblocks',                  dest='n_blocks', default=3, help='', type=int)
     
@@ -260,7 +260,7 @@ if __name__ == '__main__':
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
     parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
-    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=0, help='Apply clustering filter to the meteor data', type=int)
+    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--pde',        dest='NS_type', default="VP_div", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     
@@ -281,7 +281,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
-    parser.add_argument('--architecture', dest='nn_type', default='nifnet', help='select the network architecture: gpinn, respinn, ...')
+    parser.add_argument('--architecture', dest='nn_type', default='multifilmnet', help='select the network architecture: gpinn, respinn, ...')
     parser.add_argument('--version',     dest='nn_version', default=3.00, type=float)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     

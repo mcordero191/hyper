@@ -225,7 +225,7 @@ class App:
             
         elif self.nn_type == "multifilmnet":
             
-            nn = FiLMNet(noutputs=self.shape_out,
+            nn = MultiFiLMNet(noutputs=self.shape_out,
                           hidden_units=self.width,
                           num_blocks=self.nblocks,
                           nlayers=self.depth,
