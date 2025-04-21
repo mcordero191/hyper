@@ -428,7 +428,7 @@ class MultiParameterNet(keras.layers.Layer):
 class MultiFiLMNet(keras.Model):
     
     def __init__(self, num_blocks=4, nlayers=2, hidden_units=128, noutputs=3,
-                 num_fourier=16, w0=1.0, period=24.0):
+                 num_fourier=16, w0=30.0, period=24.0):
         
         super().__init__()
         
@@ -438,6 +438,8 @@ class MultiFiLMNet(keras.Model):
             hidden_units, num_fourier, w0, period)
         
         self.final = keras.layers.Dense(noutputs)
+        
+        self.scaler = Scaler()
 
     def call(self, inputs):
         # inputs: (batch,4) = [t, x, y, z]
@@ -445,8 +447,11 @@ class MultiFiLMNet(keras.Model):
         xyz = inputs[:, 1:4]
         
         gamma, beta = self.param_net(t)
+        
         h = self.shape_net(xyz, gamma, beta)
         
-        return self.final(h)
+        h = self.final(h)
+        
+        return self.scaler(h)
     
     

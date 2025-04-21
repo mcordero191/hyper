@@ -246,7 +246,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='SpaceX', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='Tonga1', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
@@ -262,7 +262,7 @@ if __name__ == '__main__':
     parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
     parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VP_div", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     
     parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
