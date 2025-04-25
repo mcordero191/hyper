@@ -15,6 +15,53 @@ from utils import version_history
 
 version_history_file = "./hyper_history.json"
 
+def get_folder_suffix(short_naming,
+                      dt, NS_type,
+                        activation, 
+                        num_hidden_layers,
+                        num_neurons_per_layer, 
+                        n_nodes,
+                        n_blocks, 
+                        w_pde, 
+                        w_srt, 
+                        learning_rate,
+                        N_pde, 
+                        laaf, 
+                        w_init, 
+                        w_pde_update_rate,
+                        dropout=0,
+                        sampling_method="",
+                        init_sigma = None,
+                        ensemble = 0,
+                        version = "1.0.0",
+                        nn_type = "",
+                        ):
+
+    if short_naming:
+        suffix = ""
+    else:
+        suffix = "_%s_%sl%02d.%02d.%03d_w%2.1elr%2.1eur%2.1e_%02d" %(
+                                                            nn_type[:4].upper(),
+                                                            NS_type,
+                                                            n_blocks,
+                                                            num_hidden_layers,
+                                                            num_neurons_per_layer,
+                                                            # n_nodes,
+                                                            w_pde,
+                                                            # w_srt,
+                                                            learning_rate,
+                                                            # N_pde,
+                                                            # laaf,
+                                                            # dropout,
+                                                            # w_init[:2],
+                                                            # init_sigma,
+                                                            w_pde_update_rate,
+                                                            # sampling_method[:3],
+                                                            dt,
+                                                            )
+        
+    return suffix
+
 def get_filename_suffix(short_naming,
                         ini_date, dt, noise_sigma, NS_type,
                         activation, num_hidden_layers,
@@ -25,14 +72,16 @@ def get_filename_suffix(short_naming,
                         sampling_method="",
                         init_sigma = None,
                         ensemble = 0,
-                        version = "1.0.0"
+                        version = "1.0.0",
+                        nn_type = "",
                         ):
 
     if short_naming:
         suffix = '%s_i%03d_v%s' %(ini_date.strftime('%Y%m%d_%H0000'), ensemble, version)
     else:
-        suffix = "%s_w%02dn%3.2f%sl%02d%03dw%2.1elr%2.1eur%2.1e%3.2f_i%03d_v%s" %(
+        suffix = "%s_%s_w%02dn%3.2f%sl%02d%03d%02dw%2.1elr%2.1eur%2.1e%3.2f_i%03d_v%s" %(
                                                             ini_date.strftime('%Y%m%d_%H0000'),
+                                                            nn_type[:4].upper(),
                                                             dt,
                                                             noise_sigma,
                                                             NS_type,
@@ -40,7 +89,7 @@ def get_filename_suffix(short_naming,
                                                             num_hidden_layers,
                                                             num_neurons_per_layer,
                                                             # n_nodes,
-                                                            # n_blocks,
+                                                            n_blocks,
                                                             w_pde,
                                                             # w_srt,
                                                             learning_rate,
@@ -116,7 +165,7 @@ def train_hyper(df,
         # df_testing  = df.drop(df_training.index) 
         df_testing  = df.sample(frac=0.01, random_state=0)
     
-    suffix = get_filename_suffix(short_naming,
+    suffix = get_filename_suffix(0,
                                 data_date, dt, noise_sigma, NS_type,
                                 activation, num_hidden_layers,
                                 num_neurons_per_layer, n_nodes,
@@ -127,6 +176,7 @@ def train_hyper(df,
                                 init_sigma = init_sigma,
                                 ensemble = ensemble,
                                 version = version,
+                                nn_type=nn_type,
                                 )
     
     ###########################
@@ -254,7 +304,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
     parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=2, help='# kernel layers', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
-    parser.add_argument('--nblocks',                  dest='n_blocks', default=3, help='', type=int)
+    parser.add_argument('--nblocks',                  dest='n_blocks', default=6, help='', type=int)
     
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
@@ -267,8 +317,8 @@ if __name__ == '__main__':
     parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
-    parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-4, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-6, help='', type=float)
+    parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
@@ -302,7 +352,7 @@ if __name__ == '__main__':
     parser.add_argument('--alt-center', dest='alt_center', default=None, help='km', type=float)
     
     parser.add_argument('--output-file', dest='filename_model', default=None, help='')
-    parser.add_argument('--output-file-short-naming', dest='short_naming', default=1, type=int)
+    parser.add_argument('--output-file-short-naming', dest='short_naming', default=0, type=int)
     parser.add_argument('--realtime', dest='realtime', default=0, help='', type=int)
     
     parser.add_argument('--transfer-learning', dest='transfer_learning', default=0, help='', type=int)
@@ -384,7 +434,7 @@ if __name__ == '__main__':
     if sevenfold:
         nn_version += 0.7
     
-    home_directory = "/Users/mcordero"
+    home_directory = "/Users/radar"
     
     if exp is not None:
         if exp.upper()  == 'OPERATIONAL':
@@ -651,13 +701,33 @@ if __name__ == '__main__':
     if paths is None:
         paths = [path]
     
+    suffix = get_folder_suffix(short_naming,
+                                nn_type=nn_type,
+                                dt=dt,
+                                NS_type=NS_type,
+                                activation=nn_activation,
+                                num_hidden_layers=hidden_layers,
+                                num_neurons_per_layer=neurons_per_layer,
+                                n_nodes=n_nodes,
+                                n_blocks=n_blocks,
+                                w_pde=w_pde,
+                                w_srt=w_srt,
+                                learning_rate=learning_rate,
+                                N_pde=N_pde,
+                                laaf=nn_laaf,
+                                w_init=nn_w_init,
+                                w_pde_update_rate=w_pde_update_rate,
+                                dropout  = nn_dropout,
+                                sampling_method = sampling_method,
+                                )
+    
     for path in paths:
         
         path = os.path.realpath(path)
         
         if resource_path is None:
             # basepath, exp_name = os.path.split(path)
-            rpath = os.path.join(path, 'hyper%s%d.%03d_%02d' %(nn_type[:4].upper(), hidden_layers, neurons_per_layer, dt) )
+            rpath = os.path.join(path, 'hyper%s' %suffix)
         else:
             rpath = resource_path
             

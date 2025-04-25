@@ -364,9 +364,16 @@ class MultiShapeNet(keras.layers.Layer):
         super().__init__()
         
         self.pre = keras.layers.Dense(hidden_units,
-            kernel_initializer=SIRENFirstLayerInitializer(w0),
-            bias_initializer=SIRENBiasInitializer(),
-            activation=SIRENActivation(w0))
+                                    kernel_initializer=SIRENFirstLayerInitializer(w0),
+                                    bias_initializer=SIRENBiasInitializer(),
+                                    activation=SIRENActivation(w0),
+                                    )
+        
+        # self.pre = keras.layers.Dense(hidden_units,
+        #                             kernel_initializer="he_normal",
+        #                             bias_initializer="zeros",
+        #                             activation=None,
+        #                             )
         
         self.blocks = [ResidualBlock(hidden_units, nlayers, w0)
                        for _ in range(num_blocks)]
@@ -377,8 +384,8 @@ class MultiShapeNet(keras.layers.Layer):
         
         for i, blk in enumerate(self.blocks):
             # apply per-block FiLM: gamma[:,i,:] and beta[:,i,:]
-            h = gammas[:,:,i] * h + betas[:,:,i]
             h = blk(h)
+            h = gammas[:,:,i] * h + betas[:,:,i]
             
         return h
 
@@ -386,16 +393,23 @@ class MultiShapeNet(keras.layers.Layer):
 class MultiParameterNet(keras.layers.Layer):
     
     def __init__(self, num_blocks, nlayers=2, hidden_units=128,
-                 num_fourier=16, w0=1.0, period=24.0):
+                 num_fourier=16, w0=1.0, period=2.0):
         
         super().__init__()
         # Fourier embed -> project to hidden_units
-        self.fourier = FourierFeatureEmbedding(num_fourier, w0, period)
+        self.fourier = FourierFeatureEmbedding()#num_fourier, period)
         
         self.pre = keras.layers.Dense(hidden_units,
-            kernel_initializer=SIRENFirstLayerInitializer(w0),
-            bias_initializer=SIRENBiasInitializer(),
-            activation=SIRENActivation(w0))
+                                    kernel_initializer=SIRENFirstLayerInitializer(w0),
+                                    bias_initializer=SIRENBiasInitializer(),
+                                    activation=SIRENActivation(w0),
+                                    )
+        
+        # self.pre = keras.layers.Dense(hidden_units,
+        #                             kernel_initializer="he_normal",
+        #                             bias_initializer="zeros",
+        #                             activation=None,
+        #                             )
         
         self.blocks = [ResidualBlock(hidden_units, nlayers, w0)
                        for _ in range(num_blocks)]
@@ -428,10 +442,16 @@ class MultiParameterNet(keras.layers.Layer):
 class MultiFiLMNet(keras.Model):
     
     def __init__(self, num_blocks=4, nlayers=2, hidden_units=128, noutputs=3,
-                 num_fourier=16, w0=30.0, period=24.0):
+                 num_fourier=None, w0=1.0, period=None):
         
         super().__init__()
         
+        if num_fourier is None:
+            num_fourier = hidden_units//2
+            
+        if period is None:
+            period = num_fourier
+            
         self.shape_net = MultiShapeNet(num_blocks, nlayers, w0, hidden_units)
         
         self.param_net = MultiParameterNet(num_blocks, nlayers,

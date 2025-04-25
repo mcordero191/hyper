@@ -1023,6 +1023,8 @@ if __name__ == '__main__':
         print("Generating winds ...")
         for i, hourly_file in enumerate(hourly_files):
             
+            print("Working with %s" %hourly_file)
+            
             coords = grid_4d.update(hourly_file)
             
             if len(coords['t']) < 1:
