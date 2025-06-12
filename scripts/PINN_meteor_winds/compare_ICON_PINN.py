@@ -494,7 +494,7 @@ def plot_spectra(F1s, F2s, k, filename='./test.png'):
     
 def main(path_ICON_model, 
          path_meteor_data,
-         model_name,
+         this_file,
          subfolder,
          log_index,
          units,
@@ -511,12 +511,12 @@ def main(path_ICON_model,
     if units == 'km':
         scaling_factor = 1e-3
         
-    path_data = os.path.split( os.path.realpath(path_meteor_data) )[0]
-    path_PINN = os.path.join(path_data, 'winds', subfolder)
+    # path_data = os.path.split( os.path.realpath(path_meteor_data) )[0]
+    # path_PINN = os.path.join(path_data, 'winds', subfolder)
     
-    filename = os.path.join(path_PINN, model_name)
+    path_PINN, filename = os.path.split(this_file)
     
-    figpath = os.path.join(path_PINN, 'final_plots_4_%s' %(os.path.splitext(model_name)[0]))
+    figpath = os.path.join(path_PINN, 'plots')
     
     if not os.path.exists(figpath):os.mkdir(figpath)
         
@@ -528,12 +528,12 @@ def main(path_ICON_model,
     #     return
     
     alt_range = 18
-    lon_range = 5
-    lat_range = 3
+    lon_range = 8
+    lat_range = 4
     
-    decX = 4
-    decY = 4
-    decZ = 2
+    decX = 2
+    decY = 2
+    decZ = 1
     
     # if not (plot_fields):
     #     decX = 5
@@ -541,7 +541,7 @@ def main(path_ICON_model,
     #     decZ = 1
     
     
-    nn = pinn.restore(filename, log_index=log_index)
+    nn = pinn.restore(this_file, log_index=log_index)
     
     lat_center = nn.lat_ref
     lon_center = nn.lon_ref
@@ -1001,21 +1001,22 @@ if __name__ == '__main__':
     path_ICON_model  = '/Users/radar/Data/IAP/Models/UA ICON/nest3_20160815'
     path_meteor_data = '/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90'
     # model_name       = 'model_20160815-000000_w03_n1.0_NS[VV_div]_o3_atanh_l06_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
-    model_name       = 'model_20160815-000000_w03_n1.0_NS[VV]_o3_atanh_l06_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
+    # model_name       = 'model_20160815-000000_w03_n1.0_NS[VV]_o3_atanh_l06_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
     # model_name      = 'model_20160815-000000_w24_n1.0_NS[VV_div]_o3_atanh_l06_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
     # model_name      = 'model_20160815-000000_w24_n1.0_NS[VV]_o3_atanh_l06_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
     # model_name      = 'model_20160815-000000_w24_n1.0_NS[VV]_o3_atanh_l12_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
-    subfolder       = 'resDOL1v2PINN_221.01'
-    
-    model_name      = 'model_20160815-000000_w24_n1.0_NS[VV_div]_o3_atanh_l12_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
-    
-    model_name      = 'model_20160815-000000_w24_n1.0_NS[VV]_o3_atanh_l12_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
-    subfolder       = 'res2DOL1v2PINN_221.01'
-    
-    #Paper
-    model_name      = 'model_20160815-000000_w03_n1.0_NS[VV]_o3_atanh_l06_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS1.0e+04_0_uni_None.h5'
-    subfolder       = 'fcDOL1v2PINN_221.02_paper'
-    
+    # subfolder       = 'resDOL1v2PINN_221.01'
+    #
+    # model_name      = 'model_20160815-000000_w24_n1.0_NS[VV_div]_o3_atanh_l12_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
+    #
+    # model_name      = 'model_20160815-000000_w24_n1.0_NS[VV]_o3_atanh_l12_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_uni_None.h5'
+    # subfolder       = 'res2DOL1v2PINN_221.01'
+    #
+    # #Paper
+    # model_name      = 'model_20160815-000000_w03_n1.0_NS[VV]_o3_atanh_l06_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS1.0e+04_0_uni_None.h5'
+    # subfolder       = 'fcDOL1v2PINN_221.02_paper'
+    #
+
     # model_name      = 'model_20160815-000000_w03_n1.0_NS[VV_noNu]_o3_asine_l05_d512_w1.0e+00_w1.0e-10_lr1.0e-03_NS5.0e+03_0_1_uni_0.5.h5'
     # subfolder       = 'fcDOL1v2PINN_251.00'
     #
@@ -1024,14 +1025,14 @@ if __name__ == '__main__':
     #
     # model_name      = 'model_20160815-000000_w24_n6.0_NS[VV_noNu]_o3_asine_l05_d128_w1.0e+00_w1.0e-05_lr1.0e-03_NS1.0e+04_0_1_uni_1.5.h5'
     # subfolder       = 'fcDOL2v2PINN_313.01'
+    #
+    # model_name  =   'model_20160815-000000_w24_n6.0_NS[VP_div]_o3_asine_l04_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_1_He_None.h5'
+    # subfolder   =   'MRL1v3.00_ur=1e-4_PINN_1.31'
+    #
+    # model_name  =   'model_20160815-000000_w03_n0.0_NS[VP_div]_o3_asine_l04_n128_d016_w1.0e+00_w1.0e-03_lr1.0e-03_NS5.0e+03_0_0_He_None_ur=1.0e-03.h5'
     
-    model_name  =   'model_20160815-000000_w24_n6.0_NS[VP_div]_o3_asine_l04_d256_w1.0e+00_w1.0e+00_lr1.0e-03_NS5.0e+03_0_1_He_None.h5'
-    subfolder   =   'MRL1v3.00_ur=1e-4_PINN_1.31'
     
-    model_name  =   'model_20160815-000000_w03_n0.0_NS[VP_div]_o3_asine_l04_n128_d016_w1.0e+00_w1.0e-03_lr1.0e-03_NS5.0e+03_0_0_He_None_ur=1.0e-03.h5'
-    
-    
-    subfolder   =   'nnDEEPONET_12.01'
+    subfolder   =   'hWIND_VV_hydro_noNul03.02.256_w1.0e-05lr1.0e-03lf0ur1.0e-05T24'
     model_name      = None
     
     log_index       = None
@@ -1042,22 +1043,22 @@ if __name__ == '__main__':
     save_cuts       = False
     
     path_data = os.path.split( os.path.realpath(path_meteor_data) )[0]
-    path_PINN = os.path.join(path_data, 'winds', subfolder)
+    path_PINN = os.path.join(path_meteor_data,  subfolder)
     
     if model_name is None:
-        models = glob.glob1(path_PINN, 'h*[!s].h5')
-        models = sorted(models)
+        files = glob.glob(os.path.join(path_PINN, '*/*.h5'))
+        files = sorted(files)
     else:
-        models = [model_name] 
+        files = [model_name] 
     
     
-    for model_name in models[10:]:
+    for this_file in files:
         
-        print("\nProcessing %s\n" %model_name)
+        print("\nProcessing %s\n" %this_file)
         
         main(path_ICON_model, 
              path_meteor_data,
-             model_name,
+             this_file,
              subfolder,
              log_index,
              units,

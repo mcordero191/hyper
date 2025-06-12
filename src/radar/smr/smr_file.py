@@ -56,7 +56,7 @@ def get_xyz_bounds(x, y, z, factor=3.0):
     
     mask_x = np.abs(x - x0) < factor*xsigma
     mask_y = np.abs(y - y0) < factor*ysigma
-    mask_z = np.abs(z - z0) < 1.5*factor*zsigma
+    mask_z = np.abs(z - z0) < factor*zsigma
     
     valid = (mask_x & mask_y & mask_z)
     
@@ -94,7 +94,7 @@ def get_xyz_bounds(x, y, z, factor=3.0):
 
 from scipy.spatial import KDTree
 
-def remove_close_clusters(df, spatial_threshold=5e3, temporal_threshold=30):
+def remove_close_clusters(df, spatial_threshold=0.5e3, temporal_threshold=5):
     """
     Removes points that are too close in both time and space from a DataFrame.
 
@@ -168,7 +168,7 @@ def remove_close_clusters(df, spatial_threshold=5e3, temporal_threshold=30):
     
 def filter_data(df, tini=0, dt=24,
                 sevenfold=False,
-                overlapping_time = 30*60,
+                overlapping_time = 2*60*60,
                 central_date=None,
                 ena_clustering=1,
                 **kwargs
@@ -1441,7 +1441,7 @@ class SMRReader(object):
             
         fp.close()
     
-    def filter(self, path=None, **kwargs):
+    def filter(self, path=None, outlier_sigma=5, **kwargs):
         
         df = self.unfiltered_df.copy()
         
@@ -1462,7 +1462,7 @@ class SMRReader(object):
             return
             
         #Remove outliers based on mean wind
-        df_winds, df = mean_wind_grad(df) 
+        df_winds, df = mean_wind_grad(df, outlier_sigma=outlier_sigma) 
         
         if path is not None:
         

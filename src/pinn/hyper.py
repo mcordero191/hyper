@@ -26,15 +26,16 @@ import keras
 data_type     = tf.float32
 # tf.keras.backend.set_floatx('float64')
 
-time_base = 1.468e9
+time_base = 1467997200.0 #1.468e9
 
 from georeference.geo_coordinates import lla2xyh
 from utils.histograms import ax_2dhist
 from utils.plotting import epoch2num
 from pinn.networks import genericPINN, resPINN
 from pinn.spinn import sPINN
-from pinn.NIFnet import MultiFiLMNet, FiLMNet
+from pinn.NIFnet import MultiFiLMNet, FiLMNet, MultiFiLMPotentialNet
 from pinn.deeponet import DeepONet
+from pinn.windnet import WindNet, MultiScaleWindNetShared
     
 # from pinn.bfgs import LBFGS
 
@@ -127,7 +128,7 @@ class App:
         # self.N_pde   = ns_pde    #number of samples
         
         self.r_seed  = r_seed
-        # self.random_seed(self.r_seed)
+        self.random_seed(self.r_seed)
         
         self.msis       = msis
         
@@ -166,7 +167,8 @@ class App:
         # hiddens_shape = (self.depth-1) * [self.width]
         
         # build
-        if self.nn_type == 'gpinn':            
+        if self.nn_type == 'gpinn':  
+                      
             nn = genericPINN( self.shape_out,
                               self.width,
                               self.depth,
@@ -174,16 +176,40 @@ class App:
                               add_nu     = add_nu,
                               kernel_initializer = w_init
                             )
-        #
-        # elif self.nn_type == 'ipinn':            
-        #     nn = iPINN( self.shape_out,
-        #                       self.width,
-        #                       self.depth,
-        #                       activation  = act,
-        #                       add_nu     = add_nu,
-        #                       kernel_initializer = w_init
-                            # )    
-        elif self.nn_type == 'respinn':            
+        
+        elif self.nn_type == 'windnet':  
+                      
+            nn = WindNet( self.shape_out,
+                          hf_hidden     = self.width,
+                          hf_layers     = self.depth,
+                          num_blocks    = self.nblocks,
+                          ena_deeponet  = 0,
+                          add_nu        = add_nu,
+                        )    
+        elif self.nn_type == 'multiwindnet':  
+            #MultiScaleWindNetShared
+            #MultiScaleWindNet
+            nn = MultiScaleWindNetShared( self.shape_out,
+                                      hidden_units  = self.width,
+                                      nlayers       = self.depth,
+                                      nblocks       = self.nblocks,
+                                      add_nu        = add_nu,
+                                    )   
+        
+        
+        elif self.nn_type == 'deeponet':  
+                      
+            nn = WindNet( self.shape_out,
+                          hf_hidden     = self.width,
+                          hf_layers     = self.depth,
+                          num_blocks    = self.nblocks,
+                          ena_deeponet  = 1,
+                          add_nu        = add_nu,
+                          
+                        )  
+            
+        elif self.nn_type == 'respinn':   
+                     
             nn = resPINN( self.shape_out,
                               self.width,
                               self.depth,
@@ -195,7 +221,8 @@ class App:
                               stddev=init_sigma,
                             )    
             
-        elif self.nn_type == 'spinn':            
+        elif self.nn_type == 'spinn':   
+                     
             nn = sPINN( self.shape_out,
                               self.width,
                               self.depth,
@@ -205,7 +232,8 @@ class App:
                               kernel_initializer = w_init
                             )
             
-        elif self.nn_type == 'deeponet':
+        elif self.nn_type == 'deeponet0':
+            
             nn = DeepONet(self.shape_out,
                           self.width,
                           self.depth,
@@ -217,10 +245,11 @@ class App:
             
         elif self.nn_type == "filmnet":
             
-            nn = FiLMNet(noutputs=self.shape_out,
-                          hidden_units=self.width,
-                          num_blocks=self.nblocks,
-                          nlayers=self.depth,
+            nn = FiLMNet(noutputs       = self.shape_out,
+                          hidden_units  = self.width,
+                          num_blocks    = self.nblocks,
+                          nlayers       = self.depth,
+                          add_nu        = add_nu,
                           )
             
         elif self.nn_type == "multifilmnet":
@@ -230,6 +259,15 @@ class App:
                           num_blocks=self.nblocks,
                           nlayers=self.depth,
                           )
+        
+        elif self.nn_type == "hmfilmnet":
+            
+            nn = MultiFiLMPotentialNet(noutputs=self.shape_out,
+                                      hidden_units=self.width,
+                                      num_blocks=self.nblocks,
+                                      nlayers=self.depth,
+                                      use_helmholtz=True,
+                                      )
             
         # elif self.nn_type == 'deeponetori':
         #     nn = DeepONetOri(self.shape_out,
@@ -275,10 +313,13 @@ class App:
         
         # dummy_input = tf.random.normal((1, shape_in))
         # _ = nn(dummy_input)
-
+        
         inp   = keras.Input(shape=(self.shape_in,))
         out   = nn(inp)
         model = keras.Model(inputs=inp, outputs=out)
+
+        # 2) Build by doing one dummy forward
+        _ = model(tf.zeros([1,4]))
 
         # model = nn.build_graph( self.shape_in )
         self.model = nn
@@ -286,9 +327,9 @@ class App:
         
         if verbose:
             
-            model.summary(expand_nested=True)
+            model.summary(expand_nested=True, show_trainable=True)
             
-            nn.summary(expand_nested=True)
+            nn.summary(expand_nested=True, show_trainable=True)
             
             print("\n************************************************************")
             print("****************     MAIN PROGRAM START     ****************")
@@ -676,6 +717,7 @@ class App:
         div = eq_continuity(u_x, v_y, w_z)#, w=w, rho_ratio=rho_ratio)
 
         div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
         
         # d_x, d_y, d_z = grad_div(u_xx, v_xy, w_xz, u_xy, v_yy, w_yz, u_xz, v_yz, w_zz)
         
@@ -688,7 +730,7 @@ class App:
         d_y = junk
         d_z = junk
         
-        return(div, div_w, d_x, d_y, d_z, w)
+        return(div, div_w, d_x, d_y, d_z, hor_spec)
     
     # @tf.function
     def pde_vorticity_3O_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -745,9 +787,9 @@ class App:
         
         #### Divergence ###############
         
-        # omegax_x = tpS.gradient(omegax, x)
-        # omegay_y = tpS.gradient(omegay, y)
-        # omegaz_z = tpS.gradient(omegaz, z)
+        omegax_x = tpS.gradient(omegax, x)
+        omegay_y = tpS.gradient(omegay, y)
+        omegaz_z = tpS.gradient(omegaz, z)
         
         # omegax_y = tpS.gradient(omegax, y)
         # omegax_z = tpS.gradient(omegax, z)
@@ -787,7 +829,8 @@ class App:
         #Divergence
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
         
-        # div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
         
         # poi_x     = eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
         # poi_y     = eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
@@ -796,7 +839,7 @@ class App:
         ## Rotational formulation
         mom_z   = eq_vorticity_RF_F(omegaz_t, Fy_x, Fx_y)
         
-        return(div, junk, junk, junk, mom_z, w)
+        return(div, div_w, junk, junk, mom_z, hor_spec)
 
     # @tf.function
     def pde_vorticity_3O(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -868,9 +911,9 @@ class App:
                 v_y = tpS.gradient(v, y)
                 w_z = tpS.gradient(w, z)
                 
-                # omegax_x = tpS.gradient(omegax, x)
-                # omegay_y = tpS.gradient(omegay, y)
-                # omegaz_z = tpS.gradient(omegaz, z)
+                omegax_x = tpS.gradient(omegax, x)
+                omegay_y = tpS.gradient(omegay, y)
+                omegaz_z = tpS.gradient(omegaz, z)
         
                 ############################
                 
@@ -907,11 +950,12 @@ class App:
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
         
         #Dw = 0
-        # div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
         
         junk = 0.0
         
-        return(div, junk, junk, junk, mom_z, w)
+        return(div, div_w, junk, junk, mom_z, hor_spec)
 
     # @tf.function
     def pde_vorticity_3O_hydrostatic(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -1094,11 +1138,11 @@ class App:
         #                          0.0)
         
         ## Rotational formulation
-        mom_x   = 1e-3*eq_vorticity_RF_F(omegax_t,
+        mom_x   = 1e-2*eq_vorticity_RF_F(omegax_t,
                                     Fz_y, Fy_z,
                                     )
         
-        mom_y   = 1e-3*eq_vorticity_RF_F(omegay_t,
+        mom_y   = 1e-2*eq_vorticity_RF_F(omegay_t,
                                     Fx_z, Fz_x,
                                     )
         
@@ -1119,9 +1163,11 @@ class App:
         # thermal     = heat + theta_zero
         junk = 0.0
         
+        hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
+        
         # print("Finish tracing pde hydro!")
         
-        return(div, div_w, mom_x, mom_y, mom_z, w)
+        return(div, div_w, mom_x, mom_y, mom_z, hor_spec)
     
     # @tf.function
     def pde_vorticity_3O_hydro_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -1200,7 +1246,10 @@ class App:
         
         #Divergence
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
+        
         div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
+        
+        hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
         
         # poi_x   = eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
         # poi_y   = eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
@@ -1233,11 +1282,11 @@ class App:
         #                          0.0)
         
         ## Rotational formulation
-        mom_x   = 1e-3*eq_vorticity_RF_F(omegax_t,
+        mom_x   = 1e-2*eq_vorticity_RF_F(omegax_t,
                                     Fz_y, Fy_z,
                                     )
         
-        mom_y   = 1e-3*eq_vorticity_RF_F(omegay_t,
+        mom_y   = 1e-2*eq_vorticity_RF_F(omegay_t,
                                     Fx_z, Fz_x,
                                     )
         
@@ -1258,7 +1307,7 @@ class App:
         # thermal     = heat + theta_zero
         junk = 0.0
         
-        return(div, div_w, mom_x, mom_y, mom_z, w)
+        return(div, div_w, mom_x, mom_y, mom_z, hor_spec)
     
     # @tf.function
     def pde_vorticity_4O_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -1638,7 +1687,7 @@ class App:
         
         self.pde_func = func
         
-    @tf.function
+    # @tf.function
     def pde(self, model, X):
         '''
         X = [t, z, x, y, nu, rho, rho_ratio, N]
@@ -1656,10 +1705,10 @@ class App:
         
         # t, z, x, y, nu, rho, rho_ratio, N = tf.split(X, num_or_size_splits=8, axis=1)
         
-        # nu_scaling = self.model.nu
-        # nu         = nu/(nu_scaling+1e-6) #scaling
+        nu_scaling = self.model.nu
+        nu         = tf.math.exp(nu_scaling) #scaling
         
-        div, div_vor, mom_x, mom_y, mom_z, temp = self.pde_func(model, t, z, x, y, nu, rho, rho_ratio, N)
+        div, div_vor, mom_x, mom_y, mom_z, hor_grad = self.pde_func(model, t, z, x, y, nu, rho, rho_ratio, N)
         
         div     = tf.constant(2**10, dtype=data_type)*div       #2**10 <> 1.0e3
         div_vor = tf.constant(2**20, dtype=data_type)*div_vor
@@ -1669,7 +1718,13 @@ class App:
         
         # print("Finish tracing pde!")
         
-        return (div, div_vor, mom_x, mom_y, mom_z, temp)
+        return (div, div_vor, mom_x, mom_y, mom_z, hor_grad)
+    
+    def loss_horizontal_spectra(self, u_x, u_y, v_x, v_y, w_x, w_y):
+        
+        spec = tf.reduce_mean( tf.square( tf.concat([u_x, u_y, v_x, v_y, w_x, w_y], axis=-1) ), axis=-1 )
+        
+        return spec
     
     # @tf.function
     def loss_pde(self, model, X):
@@ -1685,13 +1740,12 @@ class App:
         loss_div        = tf.reduce_mean(tf.square(outputs[0]))
         loss_div_vor    = tf.reduce_mean(tf.square(outputs[1]))
         loss_mom        = tf.reduce_mean(tf.square(outputs[2])) + tf.reduce_mean(tf.square(outputs[3])) + tf.reduce_mean(tf.square(outputs[4]))
-        # loss_w          = 1e0/tf.reduce_mean( tf.square(outputs[5]) + 1.0 )  #Non zero vertical wind
-        
-        loss_w = 0.0
+        loss_hor_spec   = -tf.reduce_mean( outputs[5] )  #Non zero vertical wind
+
         
         # print("Finish tracing loss_pde!")
         
-        return (loss_div, loss_div_vor, loss_mom, loss_w)
+        return (loss_div, loss_div_vor, loss_mom, loss_hor_spec)
     
     # @tf.function
     def loss_data(self, model, X):
@@ -1726,6 +1780,12 @@ class App:
         
         df0 = f  + tf.reduce_sum(u0*k, axis=1, keepdims=True)
         
+        # # give w an extra boost:
+        # w_sens = tf.abs(k[:,2:3])                 # (batch,) = |k_z|
+        # alpha = 10.0  # tune this so that vertical errors contribute
+        #
+        # weights = 1.0 + alpha * w_sens
+
         # loss = tf.square(tf.reduce_mean(tf.abs(df0/f_err)))
         loss = tf.reduce_mean(tf.square(df0/f_err))
         
@@ -1792,8 +1852,9 @@ class App:
         
         
         return (loss)
+  
     
-    def loss_slope_recovery_term(self):
+    def loss_slope_recovery_term(self, target_alpha=5.0):
         '''
         Jagtap AD, Kawaguchi K,Karniadakis GE. 2020
         Locally adaptive activation functions with slope recovery for deep and physics-informed neural networks.
@@ -1801,14 +1862,51 @@ class App:
         http://dx.doi.org/10.1098/rspa.2020.0334
         '''
         if self.laaf:
-            # slt = 0.0
-            slt = 1.0/tf.reduce_mean(tf.exp(self.model.alphas))
+            
+            alphas = []
+            for var in self.model.trainable_variables:
+                if var.name.endswith("log_sigma"):
+                    # amplify the σ‐gradient by 10×
+                    alphas.append(tf.reshape(var, [-1]))
+            
+            if len(alphas) > 0:
+                alpha_tensor = tf.concat(alphas, axis=0)
+                # slt = -tf.reduce_mean(tf.square(alpha_tensor/target_alpha))
+                slt = tf.reduce_mean( tf.square(alpha_tensor - target_alpha ) )
+            else:
+                slt = tf.reduce_mean(tf.square(self.model.alphas-target_alpha))
+
         else:
             slt = 0.0
         
         return slt
-    
-    # @tf.function
+
+    def loss_spectra(self):
+        
+        X = self.spec_coord["X"]
+        kx = self.spec_coord["kx"]
+        ky = self.spec_coord["ky"]
+        shape4D = self.spec_coord["shape4D"]
+        
+        if self.model.ena_hnet < 1:
+            return tf.constant(0.0)
+        
+        _, uvw_hf = self.model(X, return_hf=True)
+        
+        uv = tf.cast(uvw_hf[:,0], tf.complex64) + 1j * tf.cast(uvw_hf[:,1], tf.complex64)
+        
+        uv = tf.reshape(uv, shape4D)
+        
+        UV = tf.signal.fft2d(uv[:,0,:,:]) 
+
+        # turbulence penalty (choose a target_slope, e.g. –5/3):
+        L_turb = turbulence_loss(UV, kx, ky, target_slope=-5/3)
+
+        # gravity‐wave penalty:
+        # L_gwav = gravity_wave_loss(UV, shell_idx, N_shells=8)
+        
+        return L_turb #+ L_gwav
+        
     def loss_glb(self, 
                  model,
                  X_data,
@@ -1816,33 +1914,35 @@ class App:
                  w_data = 1.0,
                  w_pde  = 1.0,
                  w_srt  = 1.0,
-                 w_vertical = 1.0,
+                 w_spec = 1e6,
+                 **kwargs
                 ):
         
         # print("Tracing loss_glb!") 
         
         loss_data = self.loss_data(model, X_data)
         
-        loss_div, loss_div_vor, loss_mom, loss_w = self.loss_pde(model, X_pde)
+        loss_div, loss_div_vor, loss_mom, loss_hor_grad = self.loss_pde(model, X_pde)
         
         #Scaling losses based on gradients magnitudes
         loss_pde = loss_div + loss_div_vor + loss_mom
         
         loss_srt = self.loss_slope_recovery_term()
         
+        # loss_spec = 0.0
+        # loss_spec = self.loss_spectra()
         # loss_w  = self.loss_w(model, X_pde)
         
         # loss_total = tf.square(w_data)*loss_data + tf.square(w_div)*loss_div + tf.square(w_mom)*loss_mom + tf.square(w_temp)*loss_div_vor + tf.square(w_srt)*loss_srt
         
-        loss_total = w_data*loss_data + w_pde*loss_pde + w_srt*loss_srt + w_vertical*loss_w
+        loss_total = w_data*loss_data + w_pde*loss_pde + w_srt*loss_srt + w_spec*loss_hor_grad
         
         # print("Finish tracing loss_glb!") 
         
-        return loss_total, loss_data, loss_pde, loss_mom
+        return loss_total, loss_data, loss_pde, loss_mom, w_spec*loss_hor_grad, w_srt*loss_srt
     
-    # @tf.function
+    @tf.function
     def train_step(self, *args, **kwargs):
-        
         
         trainable_variables = self.model.trainable_variables
         
@@ -1855,7 +1955,7 @@ class App:
         gradients = tp.gradient(loss_total, trainable_variables)
         
         # Clip the gradients to prevent them from exploding or vanishing
-        # gradients = [tf.clip_by_norm(grad, clip_norm=1.0) for grad in gradients]
+        gradients = [tf.clip_by_norm(grad, clip_norm=1.0) for grad in gradients]
     
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
         
@@ -1916,6 +2016,21 @@ class App:
             
         if self.alt_ref is None:
             self.alt_ref    = np.int32( alt.mean()*2 )/2.0
+    
+    def _get_training_domain(self, X_data):
+        
+        # Get raw min and max
+        x_min = tf.reduce_min(X_data, axis=0)[:4]
+        x_max = tf.reduce_max(X_data, axis=0)[:4]
+        
+        scale = tf.stack( [3600, 1e3, 1e3, 1e3] )
+        # Convert units
+        # Round
+        min_rounded = tf.math.floor( x_min/scale )*scale
+        
+        max_rounded = tf.math.ceil( x_max/scale )*scale
+                
+        return(min_rounded, max_rounded)
         
     def train(self,
               df_training,
@@ -1971,16 +2086,12 @@ class App:
         X_data  = self.convert_df2tensors(df_training)
         X_testing = self.convert_df2tensors(df_testing)
         
-        lb = tf.reduce_min (X_data, axis = 0)[:4]
-        ub = tf.reduce_max (X_data, axis = 0)[:4]
-        
-        self.lbi = lb #+ rb*0.1
-        self.ubi = ub #- rb*0.1
+        self.lbi, self.ubi = self._get_training_domain(X_data)
         
         self.mn = tf.reduce_mean(X_data, axis = 0)[:4]
         
-        print("         lower bounds    :", self.lbi.numpy())
-        print("         upper bounds    :", self.ubi.numpy())
+        print("         lower bounds    :", self.lbi.numpy()/np.array([60*60., 1e3, 1e3, 1e3]) )
+        print("         upper bounds    :", self.ubi.numpy()/np.array([60*60., 1e3, 1e3, 1e3]) )
         
         w_data  = tf.convert_to_tensor(self.w_data, data_type)
         w_div   = tf.convert_to_tensor(self.w_div, data_type)
@@ -2037,6 +2148,7 @@ class App:
         
         self._select_pde_function(self.NS_type)
         self.select_PDE_sampling(method=sampling_method, N=ns_pde)
+        self.gen_frequency_grid()
         
         t0 = time.time()
         
@@ -2048,9 +2160,10 @@ class App:
             
             print(".", end='', flush=True)
             
-            # self.model.update_mask(epochs)
+            self.model.update_mask(epochs)
             
-            losses = self.train_step(self.model,
+            losses = self.train_step(
+                                     self.model,
                                      X_data,
                                      X_pde,
                                      w_data=w_data,
@@ -2062,8 +2175,8 @@ class App:
             ep_loss_data    = losses[1]
             ep_loss_pde     = losses[2]
             ep_loss_mom     = losses[3]
-            ep_loss_temp    = losses[3]
-            ep_loss_srt     = losses[3]
+            ep_loss_temp    = losses[4]
+            ep_loss_srt     = losses[5]
             
             ep_loss_u = np.nan
             ep_loss_v = np.nan
@@ -2096,25 +2209,25 @@ class App:
             
                 t0 = time.time()
                 
-                print("\nepoch: %d, elps: %ds" #, nu_scaling: %.2e, rho_scaling: %.2e" 
+                print("\nepoch: %d, elps: %ds"#, nu_scaling: %.2e" #, rho_scaling: %.2e" 
                     % (ep, 
                        elps,
-                       # self.nu_scaling,
+                        # self.nu_scaling,
                        # self.rho_scaling,
                        )
                     )
                 
-                print("\t\t\tTotal \tData \tPDE  \tMomentum " )
+                print("\t\t\tTotal \tData \tPDE  \tMomentum \tGrad{u} \tSRT " )
                  
                  
-                print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e" 
+                print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e\t\t%.1e\t%.1e" 
                     % (
                        ep_loss,
                        ep_loss_data,
                        ep_loss_pde,
                        ep_loss_mom,
-                       # ep_loss_temp,
-                        # ep_loss_srt
+                        ep_loss_temp,
+                        ep_loss_srt
                        )
                     )
                 
@@ -2138,28 +2251,39 @@ class App:
                        )
                     )
                 
-                # print("\t\t\tu \t\tv \t\tw" )
-                #
-                # print("\tTV  : \t\t%.2e \t%.2e \t%.2e" 
-                #     % (tv_u,
-                #        tv_v,
-                #        tv_w,
-                #        )
-                #     )
-                #
-                # print("\tTVe : \t\t%.2e \t%.2e \t%.2e" 
-                #     % (tv_ue,
-                #        tv_ve,
-                #        tv_we,
-                #        )
-                #     )
-                #
-                # print("\trmse: \t\t%.2e \t%.2e \t%.2e" 
-                #     % (ep_loss_u,
-                #        ep_loss_v,
-                #        ep_loss_w,
-                #        )
-                #     )
+                print("\t\t\tu \t\tv \t\tw" )
+                
+                print("\tTV  : \t\t%.2e \t%.2e \t%.2e" 
+                    % (tv_u,
+                       tv_v,
+                       tv_w,
+                       )
+                    )
+                
+                print("\tTVe : \t\t%.2e \t%.2e \t%.2e" 
+                    % (tv_ue,
+                       tv_ve,
+                       tv_we,
+                       )
+                    )
+                
+                print("\trmse: \t\t%.2e \t%.2e \t%.2e" 
+                    % (ep_loss_u,
+                       ep_loss_v,
+                       ep_loss_w,
+                       )
+                    )
+                
+                # print("\tHF: log_sigma =", float(self.model.high_net.four_feat.log_sigma.value))
+                print("\n\tena_hf =", self.model.gates.numpy())
+                
+                alphas = []
+                for var in self.model.trainable_variables:
+                    if var.name.endswith("log_sigma"):
+                        # amplify the σ‐gradient by 10×
+                        alphas.append("%.2f" %var.value.numpy())
+                
+                print("\tlog_sigma =", alphas)
             
             #Save logs
             self.ep_log.append(ep)
@@ -2192,7 +2316,7 @@ class App:
             if (ep+1) % saving_rate == 0:
                 self.save(filename, ep)
             
-            # if ep < 200 -1:
+            # if ep < 400:
             #     continue
             
             #Compute PDE weight adaptively
@@ -2314,6 +2438,73 @@ class App:
         return (outputs)
     
     def infer(self, t,
+          lon=None, lat=None, alt=None, 
+          x=None, y=None, z=None,
+          num_blocks: int = 20,
+          return_xyz=False,
+          return_valid_mask=False,
+          filter_output=True):
+    
+        # 1. Compute Cartesian coords if needed
+        new_t = t - self._time_base
+        if x is None or y is None or z is None:
+            x, y, z = lla2xyh(lat, lon, alt,
+                             self.lat_ref, self.lon_ref, self.alt_ref)
+    
+        # 2. Flatten and convert to tensors
+        t = tf.convert_to_tensor(new_t.reshape(-1,1), dtype=data_type)
+        x = tf.convert_to_tensor(x.reshape(-1,1),     dtype=data_type)
+        y = tf.convert_to_tensor(y.reshape(-1,1),     dtype=data_type)
+        z = tf.convert_to_tensor(z.reshape(-1,1),     dtype=data_type)
+    
+        # 3. Stack all coords into [N,4]
+        coords = tf.concat([t, z, x, y], axis=1)
+        N = coords.shape[0]
+        
+        block_size = min( int(np.ceil(N / num_blocks)), 10000)
+    
+        outputs_blocks = []
+        masks_blocks   = []
+    
+        # 4. Loop over blocks
+        for start in range(0, N, block_size):
+            end = min(start + block_size, N)
+    
+            coords_block = coords[start:end]
+            # recompute mask on this block
+            mask_block = self.invalid_mask(
+                coords_block[:,0:1],  # t
+                coords_block[:,2:3],  # x
+                coords_block[:,3:4],  # y
+                coords_block[:,1:2]   # z
+            )[:,0]
+    
+            # 5. Model inference
+            out_block = self.forward_pass(self.model,
+                                          coords_block,
+                                          training=False).numpy()
+    
+            if filter_output:
+                out_block[mask_block, :] = np.nan
+    
+            outputs_blocks.append(out_block)
+            masks_blocks.append(~mask_block)
+    
+            # 6. (Optional) free any TF‐only tensors before next loop
+            # tf.keras.backend.clear_session()
+    
+        # 7. Reassemble full output
+        outputs = np.vstack(outputs_blocks)
+        valid_mask = np.concatenate(masks_blocks)
+    
+        if return_xyz:
+            return outputs, x.numpy(), y.numpy(), z.numpy()
+        if return_valid_mask:
+            return outputs, valid_mask
+    
+        return outputs
+
+    def infer_ori(self, t,
               lon=None, lat=None, alt=None, 
               x=None, y=None, z=None,
               return_xyz=False,
@@ -2699,7 +2890,124 @@ class App:
         else:
             raise ValueError("The selected method=%s is not valid" %method)
     
-    def _set_random_sampling(self, N):
+    def _set_random_sampling(self, N, boundary_frac=0.02):
+        """
+        Raissi et al 2019. JCP
+        Leiteritz and Pfluger 2021 
+        """
+        
+        tmin = self.lbi[0].numpy()
+        tmax = self.ubi[0].numpy()
+        
+        xmin = self.lbi[2].numpy()
+        xmax = self.ubi[2].numpy()
+        
+        ymin = self.lbi[3].numpy()
+        ymax = self.ubi[3].numpy()
+        
+        zmin = self.lbi[1].numpy()
+        zmax = self.ubi[1].numpy()
+        
+        #Set mean and width
+        self.pde_x0 = (xmax+xmin)/2.0
+        self.pde_y0 = (ymax+ymin)/2.0
+        self.pde_z0 = (zmax+zmin)/2.0
+        self.pde_t0 = (tmax+tmin)/2.0
+        
+        self.pde_xw = (xmax-xmin)/2.0
+        self.pde_yw = (ymax-ymin)/2.0
+        self.pde_zw = (zmax-zmin)/2.0
+        self.pde_tw = (tmax-tmin)/2.0
+        
+        self.pde_N = N
+        # how many fixed boundary samples per face
+        self.boundary_N = max(1, int(boundary_frac * N))
+
+    def _gen_random_samples(self, *args):
+        
+        rng = np.random.default_rng()
+        # compute interior count
+        interior_N = self.pde_N - 6 * self.boundary_N
+        interior_N = max(0, interior_N)
+
+        def uniform_pts(n):
+            shape = (n,1)
+            
+            x_np = self.pde_xw*rng.uniform(-1.0,1.0,size=shape) + self.pde_x0
+            y_np = self.pde_yw*rng.uniform(-1.0,1.0,size=shape) + self.pde_y0
+            z_np = self.pde_zw*rng.uniform(-1.0,1.0,size=shape) + self.pde_z0
+            t_np = self.pde_tw*rng.uniform(-1.0,1.0,size=shape) + self.pde_t0
+            
+            # **ensure** everything is float32
+
+            return {
+                'x': x_np.astype(np.float32),
+                'y': y_np.astype(np.float32),
+                'z': z_np.astype(np.float32),
+                't': t_np.astype(np.float32),
+            }
+
+        # 1) interior random samples
+        pts = uniform_pts(interior_N)
+        Xs = [pts['t'], pts['z'], pts['x'], pts['y']]
+
+        # 2) boundary faces
+        # each face: fix one coord at ±1, vary the other two + t
+        faces = []
+        for coord, (center, width) in [('x',(self.pde_x0,self.pde_xw)),
+                                       ('y',(self.pde_y0,self.pde_yw)),
+                                       ('z',(self.pde_z0,self.pde_zw))]:
+            for sign in (-1.0, +1.0):
+                # other two coords random
+                other = {'x','y','z'} - {coord}
+                pts_b = uniform_pts(self.boundary_N)
+                face = {
+                    't': pts_b['t'],
+                    coord: center + sign*width*np.ones_like(pts_b['t'], dtype=np.float32),
+                }
+                # fill in other coords from pts_b
+                for o in other:
+                    face[o] = pts_b[o]
+                faces.append(face)
+
+        # collect all samples
+        for face in faces:
+            Xs[0] = tf.concat([Xs[0], face['t']], axis=0)
+            Xs[1] = tf.concat([Xs[1], face['z']], axis=0)
+            Xs[2] = tf.concat([Xs[2], face['x']], axis=0)
+            Xs[3] = tf.concat([Xs[3], face['y']], axis=0)
+
+        # now Xs hold t,z,x,y for interior + boundaries = self.pde_N total
+        t, z, x, y = Xs
+
+        # build any auxiliary vars (nu, rho, etc.) exactly as before:
+        zeros = tf.zeros_like(t, dtype=tf.float32)
+        ones  = tf.ones_like(t, dtype=tf.float32)
+        
+        N       = ones
+        nu = 1e1*ones
+        rho = ones
+        rho_ratio = zeros
+        
+        if self.msis is not None:
+            N       = self.msis.get_N(z) 
+            rho     = self.msis.get_rho(z)
+            rho_z   = self.msis.get_rho_z(z)
+            rho_ratio = rho_z/rho
+            
+            # ... wrap to tensors ...
+            N       = tf.convert_to_tensor(N.reshape(-1,1), dtype=data_type)
+            # nu      = tf.convert_to_tensor(nu.reshape(-1,1), dtype=data_type)
+            rho     = tf.convert_to_tensor(rho.reshape(-1,1), dtype=data_type)
+            rho_z   = tf.convert_to_tensor(rho_z.reshape(-1,1), dtype=data_type)
+            rho_ratio = tf.convert_to_tensor(rho_ratio.reshape(-1,1), dtype=data_type)
+
+        # finally
+        X = tf.concat([t, z, x, y, nu, rho, rho_ratio, N], axis=1)
+        
+        return X
+    
+    def _set_random_sampling_ori(self, N):
         
         """
         Raissi et al 2019. JCP
@@ -2734,7 +3042,7 @@ class App:
         # print("\nNumber of collocation points (t,x,y,z): [%d, %d, %d, %d] = %d" %(Nt, Nx, Ny, Nz, Nt*Nx*Ny*Nz) )
         # print("Time range: %e s - %e s = %e min" %(tmin, tmax, (tmax-tmin)/60.0) )
         
-    def _gen_random_samples(self, *args):
+    def _gen_random_samples_ori(self, *args):
         
         """
         Raissi et al 2019. JCP
@@ -3056,6 +3364,113 @@ class App:
         
         return(X)
     
+    def _gen_uniform_grid(self, Nt=16, Nx=16, Ny=16, Nz=1):
+        """
+        Build a uniform 4D grid: t ∈ [t_min, t_max], x ∈ [x_min, x_max], etc.
+        Returns:
+          T_grid, X_grid, Y_grid, Z_grid each of shape (Nt, Nx, Ny, Nz).
+          kx_vals, ky_vals : the discrete horizontal wavenumber arrays (for Nx, Ny).
+          omega_vals        : the discrete angular‐frequency array (for Nt).
+        """
+    
+        # 1A) Create 1D coordinate arrays
+        t_min, t_max = -1.0, 1.0
+        x_min, x_max = -1.0, 1.0
+        y_min, y_max = -1.0, 1.0
+        z_min, z_max = 0.0, 1.0
+    
+        # Uniform samples in each dimension
+        t_vals = np.linspace(t_min, t_max, Nt, endpoint=False)  # shape (Nt,)
+        x_vals = np.linspace(x_min, x_max, Nx, endpoint=False)  # shape (Nx,)
+        y_vals = np.linspace(y_min, y_max, Ny, endpoint=False)  # shape (Ny,)
+        z_vals = np.linspace(z_min, z_max, Nz, endpoint=False)  # shape (Nz,)
+    
+        # 1B) Build 4D meshgrid for model evaluation
+        #   Each of shape (Nt, Nx, Ny, Nz)
+        T_grid, Z_grid, X_grid, Y_grid = np.meshgrid( t_vals, z_vals, x_vals, y_vals, indexing='ij' )
+    
+        shape4D = T_grid.shape
+        
+        T_grid = T_grid.reshape(-1,1)
+        Z_grid = Z_grid.reshape(-1,1)
+        X_grid = X_grid.reshape(-1,1)
+        Y_grid = Y_grid.reshape(-1,1)
+        
+        X = tf.concat( (T_grid, Z_grid, X_grid, Y_grid), axis=1)
+        
+        # 1C) Pre‐compute the horizontal wavenumbers for FFTs:
+        #     If x_range = [x_min, x_max], total length Lx = x_max – x_min,
+        #     then kx_i = 2π * i / Lx for i = 0..Nx/2, and negative‐frequencies for i > Nx/2.
+        Lx = x_max - x_min
+        Ly = y_max - y_min
+        Lt = t_max - t_min
+        
+        # note: we will use np.fft.fftfreq(Nx, d=Δx) * 2π  to get “angular” kx array
+        kx_vals = 2.0 * np.pi * np.fft.fftfreq(Nx, d=Lx/Nx)  # shape (Nx,)
+        ky_vals = 2.0 * np.pi * np.fft.fftfreq(Ny, d=Ly/Ny)  # shape (Ny,)
+        # 1D temporal frequencies (angular) for FFT along time:
+        omega_vals = 2.0 * np.pi * np.fft.fftfreq(Nt, d=Lt/Nt)  # shape (Nt,)
+        
+        kx = tf.cast(kx_vals, tf.float32)
+        ky = tf.cast(ky_vals, tf.float32)
+        omega = tf.cast(omega_vals, tf.float32)
+        
+        return (X, kx, ky, omega, shape4D)
+
+    def gen_frequency_grid(self, Nt=16, Nx=32, Ny=32, Nz=1, N_shells=8):
+        """
+        Returns:
+          • kx      : tf.float32, shape=(Nx,), the horizontal wavenumbers along x in rad/km
+          • ky      : tf.float32, shape=(Ny,), the horizontal wavenumbers along y in rad/km
+          • omega   : tf.float32, shape=(T,),  the temporal frequencies in rad/hour
+          • k_mag   : tf.float32, shape=(Nx,Ny), where k_mag[i,j] = sqrt(kx[i]^2 + ky[j]^2)
+          • shell_idx : tf.int32, shape=(Nx*Ny,), each in [0..N_shells-1], assigning each (i,j) to a radial bin
+    
+        Inputs:
+          • Nx, Ny : integers (grid sizes along x,y)
+          • dx, dy : floats  (grid spacing in km, e.g. dx = 3.0 means 3 km per grid cell in x)
+          • T      : integer (number of time steps in your sliding “snapshot”)
+          • dt     : float   (time spacing in hours, e.g. dt = 0.5 means 30 min)
+          • N_shells : integer (number of radial bins in k‐space)
+        """
+        
+        X, kx, ky, omega, shape4D = self._gen_uniform_grid(Nt, Nx, Ny, Nz)
+        
+        # 2) Build 2D meshgrid of |k|
+        #    We want kx_grid[i,j] = kx[i], ky_grid[i,j] = ky[j].
+        #    Then k_mag[i,j] = sqrt(kx[i]^2 + ky[j]^2).
+        kx_grid, ky_grid = tf.meshgrid(kx, ky, indexing='ij')  # both shape=(Nx,Ny)
+        k_mag = tf.sqrt(kx_grid**2 + ky_grid**2)                # shape=(Nx,Ny)
+        
+        # 3) Assign each (i,j) index to one of N_shells radial bins.
+        #    We might simply linearly partition the range [0, k_max] into N_shells bands.
+        k_flat = tf.reshape(k_mag, [Nx*Ny])   # shape=(Nx*Ny,)
+        k_max = tf.reduce_max(k_flat)
+        
+        # create radial “bin edges” from 0..k_max, exclusive of k_max in last bin:
+        bin_edges = tf.linspace(0.0, k_max + 1e-12, N_shells+1)  # length=(N_shells+1,)
+        # now assign each k_flat[i] to an integer m in [0..N_shells-1]:
+        #   for each k, find the index m such that bin_edges[m] ≤ k < bin_edges[m+1].
+        #   We can use tf.searchsorted.
+        shell_idx = tf.cast(
+            tf.searchsorted(bin_edges, k_flat, side='right') - 1,
+            tf.int32
+        )  # shape=(Nx*Ny,), values in [0..N_shells-1]
+        
+        d = {
+            "X" : X,
+            "kx" : kx,
+            "ky" : ky,
+            "omega" : omega,
+            "kmag" : k_mag,
+            "shell_idx" : shell_idx,
+            "shape4D" : shape4D,
+            }
+        
+        self.spec_coord = d
+        
+        return
+
     def plot_pde_samples(self, t, x, y, z):
         
         # print("         lower bounds:", tf.reduce_min(self.t_pde).numpy(), tf.reduce_min(self.z_pde).numpy())
@@ -3806,6 +4221,122 @@ def eq_poisson(ui_xx, ui_yy, ui_zz,
     y = ui_xx + ui_yy + ui_zz + omegaz_y - omegay_z
     
     return(y)
+
+def turbulence_loss(W_hat, kx, ky, target_slope=-5/3, k_min=None, k_max=None):
+    """
+    Compute a 2D‐spectrum slope penalty (“Kolmogorov‐like”) from W_hat.
+
+    Inputs:
+      • W_hat      : complex64 tensor of shape (T, N_x, N_y), = FFT₂( u + i v ) over time slices.
+      • kx, ky     : float32 tensors of shape (N_x,) and (N_y,), containing the 2π*(...) frequencies 
+                     along x and y.  (We got these from make_frequency_grids().)
+      • target_slope : float32 (e.g. -5/3 for classical Kolmogorov).  We will penalize
+                       (observed_slope – target_slope)^2 in log‐log space.
+      • k_min, k_max : optional floats.  If provided, only “bins” with k_min ≤ k ≤ k_max 
+                       contribute to the slope estimate.
+
+    Returns:
+      • penalty : float32 scalar = (observed_slope – target_slope)^2
+    """
+
+    # 1) Compute the time‐averaged 2D spectrum E2d(kx,ky) = (1/T) ∑_t |W_hat[t]|^2
+    # W_hat is shape = (T, N_x, N_y)
+    P2d = tf.math.real(W_hat * tf.math.conj(W_hat))        # shape (T, Nx, Ny), real
+    E2d = tf.reduce_mean(P2d, axis=0)                      # shape (Nx, Ny), float32
+
+    # 2) Build k_mag grid from kx, ky, if not given.  (We call make_frequency_grids() previously.)
+    # We assume kx, ky were produced by make_frequency_grids(), so
+    #    kx.shape = (N_x,),  ky.shape = (N_y,).
+    kx_grid, ky_grid = tf.meshgrid(kx, ky, indexing='ij')   # both shape=(Nx,Ny)
+    k_mag = tf.sqrt(kx_grid**2 + ky_grid**2)                 # shape=(Nx,Ny)
+
+    # 3) Flatten and mask out zero (or out‐of‐range) bins
+    k_flat = tf.reshape(k_mag, [-1])     # shape=(Nx*Ny,)
+    E_flat = tf.reshape(E2d,  [-1])      # shape=(Nx*Ny,)
+
+    # Only keep points where E>0 and optionally k_min ≤ k ≤ k_max:
+    eps = 1e-12
+    mask = tf.logical_and(E_flat > eps,
+                          tf.logical_and(
+                              True if (k_min is None) else (k_flat >= k_min),
+                              True if (k_max is None) else (k_flat <= k_max),
+                          ))
+    k_sel = tf.boolean_mask(k_flat, mask)   # (M,)
+    E_sel = tf.boolean_mask(E_flat, mask)   # (M,)
+
+    # 4) Linear regression in log–log space: log(E_sel) ≈ α · log(k_sel) + const.
+    log_k = tf.math.log(k_sel)               # (M,)
+    log_E = tf.math.log(E_sel)               # (M,)
+
+    mean_log_k = tf.reduce_mean(log_k)
+    mean_log_E = tf.reduce_mean(log_E)
+
+    cov_num = tf.reduce_mean((log_k - mean_log_k) * (log_E - mean_log_E))
+    var_den = tf.reduce_mean((log_k - mean_log_k) ** 2 )
+
+    # if var_den is zero (all k_sel identical), we’ll clamp:
+    slope = cov_num / (var_den + eps)       # scalar
+    
+    # 5) penalty = (slope – target_slope)^2
+    penalty = tf.square(slope - tf.cast(target_slope, tf.float32))
+
+    return penalty
+
+def gravity_wave_loss(W_hat, shell_idx, N_shells, eps=1e-12):
+    """
+    Compute the “narrow ridge” penalty for gravity waves in (ω,k)-space.
+
+    Inputs:
+      • W_hat      : complex64 tensor, shape = (T, N_x, N_y), = FFT₂( u + i v ).
+      • shell_idx  : int32 tensor, shape = (N_x*N_y,), each ∈ [0..N_shells-1],
+                     assigning each (i,j) pixel to a radial bin.
+      • N_shells   : Python int (number of radial bins).
+      • eps        : small float to avoid division by zero.
+
+    Returns:
+      • L_gwave : float32 scalar = ∑_{m=0}^{N_shells−1} P(m),
+                   where P(m) = (E_tot(m) − E_max(m)) / (E_tot(m) + eps).
+    """
+    # Shapes:
+    T   = tf.shape(W_hat)[0]
+    Nx  = tf.shape(W_hat)[1]
+    Ny  = tf.shape(W_hat)[2]
+    Nxy = Nx * Ny
+
+    # 1) Flatten spatial dims: W_hat_flat[t, idx] = W_hat[t, i, j], where idx = i*Ny + j
+    W_flat = tf.reshape(W_hat, [T, Nxy])   # shape = (T, N_x*N_y), complex64
+
+    # 2) Build a one‐hot “membership” matrix of shape (Nxy, N_shells).
+    #    We want each spatial index idx to go to shell = shell_idx[idx].
+    one_hot_shell = tf.one_hot(shell_idx, depth=N_shells, dtype=W_flat.dtype)
+    # shape = (N_x*N_y, N_shells), complex64 if W_flat is complex64.
+
+    # 3) For each t, sum W_flat[t, idx] over all idx in each shell m:
+    #    S_bin[t, m] = ∑_{idx : shell_idx[idx] = m} W_flat[t, idx].
+    # 
+    #    This is simply a matrix‐multiply:
+    #       S_bin = W_flat @ one_hot_shell  (using complex64 arithmetic).
+    S_bin = tf.matmul(W_flat, one_hot_shell)    # shape = (T, N_shells), complex64
+
+    # 4) Compute the 1D FFT in time for each radial bin m:
+    #    We first transpose to shape (N_shells, T) so that we do FFT on the time‐axis.
+    #    Then do tf.signal.fft (which is a 1D FFT on the last axis).
+    S_bin_T = tf.transpose(S_bin, perm=[1, 0])  # shape = (N_shells, T)
+    S_hat_time = tf.signal.fft(S_bin_T)         # shape = (N_shells, T), complex64
+
+    # 5) Build the temporal power spectrum:
+    #    E_time2[m, ω] = | S_hat_time[m, ω] |^2  (float32)
+    E_time2 = tf.math.real(S_hat_time * tf.math.conj(S_hat_time))  # shape=(N_shells, T)
+
+    # 6) For each shell m, compute total energy and max‐frequency energy:
+    E_tot = tf.reduce_sum(E_time2, axis=1)    # shape = (N_shells,), float32
+    E_max = tf.reduce_max(E_time2, axis=1)    # shape = (N_shells,), float32
+
+    # 7) Form P(m) = (E_tot[m] − E_max[m]) / (E_tot[m] + eps), then sum:
+    Pm = (E_tot - E_max) / (E_tot + eps)      # shape = (N_shells,)
+    L_gwave = tf.reduce_sum(Pm)               # scalar
+
+    return L_gwave
 
 def get_log_file(filename, index=None):
     

@@ -58,7 +58,7 @@ class Grid4D():
         self.lat_coords = lat_coords
         self.alt_coords = alt_coords
 
-    def read_coords(self, model_file):
+    def read_coords(self, model_file, overlapping=2*60*60):
         
         nn = hyper.restore(model_file)
         
@@ -83,8 +83,8 @@ class Grid4D():
         zmin = nn.lb[1]
         zmax = nn.ub[1]
         
-        tmin = int(nn.lb[0]/300)*300 + 30*60
-        tmax = int(nn.ub[0]/300)*300 - 30*60
+        tmin = int(nn.lb[0]/300)*300 + overlapping
+        tmax = int(nn.ub[0]/300)*300 - overlapping
         
         trange = tmax - tmin
         xrange = xmax - xmin
@@ -892,17 +892,17 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyperMULT3.128_24", help='Path where the model weights are')
+    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90/hyper_MULT_VP_divl03.02.128_w1.0e-06lr1.0e-04ur1.0e-06T24film0s", help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
     parser.add_argument('-p', '--plotting', dest='ena_plotting', default=1, help='Enable plotting')
-    parser.add_argument('--plot-std', dest='plot_std', default=1, help='Plot uncertainties')
+    parser.add_argument('--plot-std', dest='plot_std', default=0, help='Plot uncertainties')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='Figure extension')
     
     parser.add_argument('--output-format', dest='output_format', default='ncdf', help='File format of wind files: either "ncdf" or "hdf5"')
     
-    parser.add_argument('--time-step', dest='tstep', type=float, default=15*60, help='Time step in seconds')
+    parser.add_argument('--time-step', dest='tstep', type=float, default=5*60, help='Time step in seconds')
     parser.add_argument('--time-range', dest='time_range', type=float, default=None)
                         
     # New geographic grid arguments

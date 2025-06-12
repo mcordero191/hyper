@@ -35,12 +35,13 @@ def get_folder_suffix(short_naming,
                         ensemble = 0,
                         version = "1.0.0",
                         nn_type = "",
+                        postfix = "",
                         ):
 
     if short_naming:
         suffix = ""
     else:
-        suffix = "_%s_%sl%02d.%02d.%03d_w%2.1elr%2.1eur%2.1e_%02d" %(
+        suffix = "%s_%sl%02d.%02d.%03d_w%2.1elr%2.1elf%dur%2.1eT%02d%s" %(
                                                             nn_type[:4].upper(),
                                                             NS_type,
                                                             n_blocks,
@@ -51,13 +52,14 @@ def get_folder_suffix(short_naming,
                                                             # w_srt,
                                                             learning_rate,
                                                             # N_pde,
-                                                            # laaf,
+                                                            laaf,
                                                             # dropout,
                                                             # w_init[:2],
                                                             # init_sigma,
                                                             w_pde_update_rate,
                                                             # sampling_method[:3],
                                                             dt,
+                                                            postfix,
                                                             )
         
     return suffix
@@ -74,12 +76,13 @@ def get_filename_suffix(short_naming,
                         ensemble = 0,
                         version = "1.0.0",
                         nn_type = "",
+                        postfix = "",
                         ):
 
     if short_naming:
-        suffix = '%s_i%03d_v%s' %(ini_date.strftime('%Y%m%d_%H0000'), ensemble, version)
+        suffix = '%s_i%03d%s_v%s' %(ini_date.strftime('%Y%m%d_%H0000'), ensemble, postfix, version)
     else:
-        suffix = "%s_%s_w%02dn%3.2f%sl%02d%03d%02dw%2.1elr%2.1eur%2.1e%3.2f_i%03d_v%s" %(
+        suffix = "%s_%s_w%02dn%3.2f%sl%02d%03d%02dw%2.1elr%2.1eur%2.1e%3.2f_i%03d%s_v%s" %(
                                                             ini_date.strftime('%Y%m%d_%H0000'),
                                                             nn_type[:4].upper(),
                                                             dt,
@@ -102,6 +105,7 @@ def get_filename_suffix(short_naming,
                                                             # sampling_method[:3],
                                                             init_sigma,
                                                             ensemble,
+                                                            postfix,
                                                             version
                                                             )
         
@@ -148,24 +152,27 @@ def train_hyper(df,
                 ensemble = 0,
                 overwrite = 0,
                 verbose = False,
+                postfix = "",
                 ):
     
     # config_gpu(gpu_flg = 1)
-    # seed = 191
-    # np.random.seed(seed)
+    seed = 191
+    np.random.seed(seed)
     
     version = version_history.get_current_version(version_history_file)
     
-    data_date =  datetime.datetime.utcfromtimestamp(df['times'].mean()) 
-    
-    df_training = df#.sample(frac=0.95, random_state=191)
+    # data_date =  datetime.datetime.utcfromtimestamp(df['times'].mean()) 
+    mean_seconds = df['times'].mean()
+    data_date = datetime.datetime.fromtimestamp(mean_seconds, tz=datetime.timezone.utc)
+
+    df_training = df.sample(frac=0.98, random_state=191)
     df_training.sort_index(inplace=True)
     
     if df_testing is None:
-        # df_testing  = df.drop(df_training.index) 
-        df_testing  = df.sample(frac=0.01, random_state=0)
+        df_testing  = df.drop(df_training.index) 
+        # df_testing  = df.sample(frac=0.01, random_state=0)
     
-    suffix = get_filename_suffix(0,
+    suffix = get_filename_suffix(short_naming,
                                 data_date, dt, noise_sigma, NS_type,
                                 activation, num_hidden_layers,
                                 num_neurons_per_layer, n_nodes,
@@ -176,7 +183,8 @@ def train_hyper(df,
                                 init_sigma = init_sigma,
                                 ensemble = ensemble,
                                 version = version,
-                                nn_type=nn_type,
+                                nn_type = nn_type,
+                                postfix = postfix,
                                 )
     
     ###########################
@@ -290,24 +298,24 @@ if __name__ == '__main__':
     from multiprocessing import Process
     
     #delay in mins
-    delay = 0#120+120+240
+    delay = 0# 80*30/60
     
     import argparse
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='Tonga1', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='vortex', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=2, help='# kernel layers', type=int)
-    parser.add_argument('-c', '--nodes',              dest='n_nodes', default=0, help='# nodes', type=int)
-    parser.add_argument('--nblocks',                  dest='n_blocks', default=6, help='', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=64, help='# kernel', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=1, help='# kernel layers', type=int)
+    parser.add_argument('-b', '--nblocks',            dest='n_blocks', default=4, help='', type=int)
+    parser.add_argument('-c', '--nodes',              dest='n_nodes', default=64, help='# nodes', type=int)
     
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
-    parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
+    parser.add_argument('--ns',                       dest='nepochs', default=10000, help='', type=int)
     
     parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
     parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
@@ -318,7 +326,7 @@ if __name__ == '__main__':
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-5, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-6, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
@@ -331,8 +339,8 @@ if __name__ == '__main__':
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
-    parser.add_argument('--architecture', dest='nn_type', default='multifilmnet', help='select the network architecture: gpinn, respinn, ...')
-    parser.add_argument('--version',     dest='nn_version', default=3.00, type=float)
+    parser.add_argument('--architecture', dest='nn_type', default='multiwindnet', help='select the network architecture: gpinn, respinn, ...')
+    parser.add_argument('--postfix',     dest='postfix', default="shared", type=str)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     
     parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
@@ -398,7 +406,7 @@ if __name__ == '__main__':
     neurons_per_layer   = args.neurons_per_layer
     
     nn_type         = str.upper(args.nn_type)
-    nn_version      = args.nn_version
+    postfix         = args.postfix
     nn_activation   = args.nn_activation
     nn_laaf         = args.nn_laaf
     nn_dropout      = args.nn_dropout
@@ -536,12 +544,12 @@ if __name__ == '__main__':
         
         elif exp.upper()  == 'VORTEX':
             
-            tini            = 20
-            dt              = 3
-            
-            dlon            = 400e3
-            dlat            = 400e3
-            dh              = 25e3
+            # tini            = 20
+            # dt              = 3
+            #
+            # dlon            = 400e3
+            # dlat            = 400e3
+            # dh              = 25e3
             
             lon_center      = 16.25
             lat_center      = 69.25
@@ -554,8 +562,8 @@ if __name__ == '__main__':
         
         elif exp.upper()  == 'VORTEX2':
             
-            tini            = 20
-            dt              = 3
+            # tini            = 20
+            # dt              = 3
             
             # dlon            = 400e3
             # dlat            = 400e3
@@ -684,11 +692,11 @@ if __name__ == '__main__':
             
         elif exp.upper()  == 'ICON2015':
             
-            tini            = 0
-            dt              = 3
+            # tini            = 0
+            # dt              = 3
             
             path            = "%s/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"  %home_directory
-            noise_sigma     = 0.2
+            noise_sigma     = 0.1
             
         elif exp.upper()  == 'ICON2016':
             
@@ -698,6 +706,10 @@ if __name__ == '__main__':
         else:
             raise ValueError('Experiment option not implemented ...')
     
+    if delay > 0:
+        print("%s: Proc paused for %.0fmin" %(datetime.datetime.now(), delay) )
+        time.sleep(delay*60)
+        
     if paths is None:
         paths = [path]
     
@@ -719,6 +731,7 @@ if __name__ == '__main__':
                                 w_pde_update_rate=w_pde_update_rate,
                                 dropout  = nn_dropout,
                                 sampling_method = sampling_method,
+                                postfix = postfix,
                                 )
     
     for path in paths:
@@ -727,7 +740,7 @@ if __name__ == '__main__':
         
         if resource_path is None:
             # basepath, exp_name = os.path.split(path)
-            rpath = os.path.join(path, 'hyper%s' %suffix)
+            rpath = os.path.join(path, 'h%s' %suffix)
         else:
             rpath = resource_path
             
@@ -765,6 +778,7 @@ if __name__ == '__main__':
             meteor_data.add_synthetic_noise(noise_sigma)
             
             nblocks = max(24//dt,1)
+            overlapping_time = (dt*0.1)*60*60
             
             for i in range(nblocks):
             
@@ -775,7 +789,8 @@ if __name__ == '__main__':
                                dlon=dlon, dlat=dlat, dh=dh,
                                sevenfold=sevenfold,
                                ena_clustering=ena_clustering,
-                               # path=exp_path,
+                               overlapping_time=overlapping_time,
+                                path=exp_path,
                               )
                 
                 # meteor_data.save(exp_path)
@@ -814,7 +829,7 @@ if __name__ == '__main__':
                             "filename_model":filename_model,
                             "transfer_learning":transfer_learning,
                             "filename_model_tl":filename_model_tl,
-                            "short_naming":short_naming,
+                            # "short_naming":short_naming,
                             "activation":nn_activation,
                             "init_sigma":nn_init_sigma,
                             "NS_type":NS_type,

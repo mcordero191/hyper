@@ -3,6 +3,7 @@ Created on 22 Apr 2024
 
 @author: mcordero
 '''
+import numpy as np
 import tensorflow as tf
 import keras
 
@@ -10,75 +11,20 @@ data_type     = tf.float32
 
 keras.saving.get_custom_objects().clear()
 
-class PositionalEncoding(keras.layers.Layer):
+class SIRENLayerInitializer(keras.initializers.Initializer):
     
-    def __init__(self,
-                 new_dim,
-                 kernel_initializer="GlorotNormal",
-                 stddev = None,
-                 cte = 1e3,
-                 width = 40,
-                 ):
+    def __init__(self, w0=1.0):
         
-        width = new_dim//4
-        
-        super(PositionalEncoding, self).__init__()
-        
-        if stddev is not None:
-            # kernel_initializer = keras.initializers.RandomNormal(0.0, stddev)
-            width = new_dim*stddev
+        self.w0 = w0
 
-        self.new_dim = new_dim
-        self.kernel_initializer = kernel_initializer
+    def __call__(self, shape, dtype=None):
         
-        # Define projection layer to map the final positional encoding to new_dim
-        self.projection = keras.layers.Dense(self.new_dim,
-                                             kernel_initializer=self.kernel_initializer,
-                                             use_bias=False,
-                                             trainable=True,
-                                             )
+        in_feats = shape[1]
+        limit = tf.sqrt( 2.0 / in_feats) / self.w0
+        # limit = tf.sqrt(6.0 / in_feats) / self.w0
         
-        # Precompute div_term for sinusoidal encoding
-        # div_term = tf.exp(tf.range(0, self.new_dim // 2, dtype=tf.float32) * -(np.log(10000.0) / (self.new_dim // 2)))
-        div_term = width*tf.pow(cte, -2*tf.range(0, self.new_dim // 2, dtype=tf.float32) / self.new_dim )
-        
-        # self.div_term = tf.tile(div_term, [n_dim, 1])   # Shape (n_dim, new_dim/2)
-        self.div_term = div_term[tf.newaxis,tf.newaxis, :]  # Shape (1, new_dim/2)
+        return tf.random.uniform(shape, -limit, limit, dtype=dtype)
 
-        # Define separate position encodings for each dimension
-        # self.position_encodings = [keras.layers.Dense(self.new_dim, trainable=False) for _ in range(4)]
-
-
-    # def build(self, input_shape):
-    #
-    #     pass
-        # n_dim = input_shape[1]
-        
-        
-    def call(self, inputs):
-        
-        # batch_size = tf.shape(inputs)[0]  # Number of samples
-        
-        n_dim = inputs.shape[1]  # Number of positional dimensions (4: time, x, y, z)
-        
-        # Calculate sinusoidal encodings for each positional dimension
-        pos_values = inputs[:,:,tf.newaxis]  # Shape (N, n_dim, 1)
-        pos_values = pos_values * self.div_term
-        
-        encoding_sin = tf.sin(pos_values)  # Shape (N, n_dim, new_dim/2)
-        encoding_cos = tf.cos(pos_values)  # Shape (N, n_dim, new_dim/2)
-
-        # Concatenate sine and cosine encodings
-        pos_encodings = tf.concat([encoding_sin, encoding_cos], axis=-1)  # Shape (batch_size, n_dim, new_dim)
-        
-        # Aggregate encodings across all positional dimensions
-        pos_encodings = tf.reshape(pos_encodings, (-1,n_dim*self.new_dim))
-        
-        # Apply projection to ensure final output dimension is new_dim
-        pos_encodings = self.projection(pos_encodings)  # Shape (batch_size, new_dim)
-        
-        
-        return pos_encodings
     
 # @keras.saving.register_keras_serializable(package="hyper")
 class DropoutLayer(keras.layers.Layer):
@@ -122,7 +68,7 @@ class DropoutLayer(keras.layers.Layer):
         
         #v260: high slope
         wcut = tf.constant(1.1)*self.i/n + tf.constant(0.1)
-        s    = 20*(tf.linspace(1.0, 0.0, self.in_dim) + wcut - 1.0)
+        s    = 50*(tf.linspace(1.0, 0.0, self.in_dim) + wcut - 1.0)
         
         a = tf.where(s > 1.0, 1.0, s)
         a = tf.where(a < 0.0, 0.0, a)
@@ -142,7 +88,222 @@ class DropoutLayer(keras.layers.Layer):
     def get_config(self):
         
         return {"in_dim": self.in_dim}
+
+class GaussianRFF(keras.layers.Layer):
+    """
+    Normalized Random Fourier Features generated in build():
+      φ(x) = sqrt(2/D) [sin(w_i·x + b_i), cos(w_i·x + b_i)] for i=1..D/2
+    where w_i are random directions scaled by learnable σ, and b_i random phases.
+    """
+    def __init__(self, out_dim: int = 256, init_log_sigma: float = 0.0, **kwargs):
+        
+        super().__init__(**kwargs)
+        
+        assert out_dim % 2 == 0, "out_dim must be even"
+        # D = half of final features (sin+cos)
+        self.D = out_dim // 2
+        
+        self.init_log_sigma = init_log_sigma
+        # placeholders for weights
+        self.w_dir = None
+        self.b = None
+        self.log_sigma = None
+
+    def build(self, input_shape):
+        # input_shape: (batch_size, d)
+        d = input_shape[-1]
+        # initialize random directions w_dir: shape (d, D)
+        w0 = np.random.randn(d, self.D).astype(np.float32)
+        
+        self.w_dir = self.add_weight(
+            name='w_dir',
+            shape=(d, self.D),
+            initializer=tf.constant_initializer(w0),
+            trainable=False
+        )
+        # random phase offsets b: shape (D,)
+        b0 = np.random.uniform(0, 2*np.pi, size=(self.D,)).astype(np.float32)
+        
+        self.b = self.add_weight(
+            name='b',
+            shape=(self.D,),
+            initializer=tf.constant_initializer(b0),
+            trainable=False
+        )
+        # learnable log sigma scalar
+        # self.log_sigma = self.add_weight(
+        #     name='log_sigma',
+        #     shape=(),
+        #     initializer=tf.constant_initializer(self.init_log_sigma),
+        #     trainable=True
+        # )
+        
+        # normalize to unit variance
+        self.coef = np.sqrt(2.0 / self.D)
+        
+        super().build(input_shape)
+
+    def call(self, inputs, alpha):
+        # xyz: (batch, d)
+        # compute scaled directions
+        
+        sigma = tf.exp(alpha)
+        
+        w = sigma * self.w_dir   # (d, D)
+        
+        # project input
+        proj = tf.matmul(inputs, w) + self.b  # (batch, D)
+        
+        return self.coef * tf.concat([tf.sin(proj), tf.cos(proj)], axis=-1)  # (batch, 2D)
+
+
+# === 1) Positional Encoding (NeRF style) ===
+class PositionalEncoding(keras.layers.Layer):
+    """
+    NeRF-style positional encoding: for each input dim, encodes
+    [x, sin(2^k π x), cos(2^k π x)] for k=0..num_freqs-1.
+    """
+    def __init__(self, num_freqs: int = 10, include_input: bool = False, **kwargs):
+        
+        super().__init__(**kwargs)
+        
+        self.num_freqs = num_freqs
+        self.include_input = include_input
+        # frequency bands: [1, 2, 4, ..., 2^(num_freqs-1)]
+        self.freq_bands = tf.constant([2.0**(i-num_freqs+5) for i in range(num_freqs)], dtype=tf.float32)
+        
+        # self.freq_bands = np.logspace(-1, np.log10(2**num_freqs), num_freqs)
+
+    def call(self, inputs, alpha=1.0):
+        
+        # inputs: (batch, d)
+        batch = tf.shape(inputs)[0]
+        d = tf.shape(inputs)[1]
+        
+        out = []
+        if self.include_input:
+            out.append(inputs)
+        # expand for broadcasting: (batch, d, 1)
+        x_exp = tf.expand_dims(inputs, -1)
+        # (batch, d, num_freqs)
+        scaled = x_exp * self.freq_bands[None, None, :] * np.pi
+        
+        sin = tf.sin(scaled)
+        cos = tf.cos(scaled)
+        # flatten sin/cos: (batch, d * num_freqs)
+        sin_flat = tf.reshape(sin, (batch, d * self.num_freqs))
+        cos_flat = tf.reshape(cos, (batch, d * self.num_freqs))
+        
+        out.extend([sin_flat, cos_flat])
+        
+        return tf.concat(out, axis=-1)
+
+# === 2) Trainable Fourier Features (spatial only) ===
+class TrainableFourierFeatures(keras.layers.Layer):
+    """
+    Learns a set of spatial frequencies w_i, then embeds xyz via
+    [sin(2π w_i x), cos(2π w_i x), ...] across all spatial dims.
+    """
+    def __init__(self, num_fourier: int = 32, init_scale: float = 10.0, **kwargs):
+        
+        super().__init__(**kwargs)
+        
+        self.num_freqs = num_fourier
+        
+        # initialize frequencies log-uniformly in [1/init_scale, init_scale]
+        freqs = np.logspace(-1, np.log10(init_scale), num_fourier)
+        
+        # self.freqs = tf.Variable(freqs, trainable=True, dtype=tf.float32,
+        #                          name='trainable_spatial_freqs')
     
+        self.freqs = self.add_weight(
+                name="trainable_spatial_freqs",
+                shape=(num_fourier,),
+                initializer=tf.constant_initializer(freqs),
+                trainable=True
+                )
+        
+    def call(self, inputs):
+        # xyz: (batch,3)
+        batch = tf.shape(inputs)[0]
+        d = tf.shape(inputs)[1]
+        
+        # angles: (batch, 3, num_fourier)
+        angles = inputs[..., None] * self.freqs[None, None, :] * np.pi
+        
+        sin = tf.sin(angles)  # (batch,3,num_fourier)
+        cos = tf.cos(angles)
+        
+        # flatten sin/cos: (batch, d * num_freqs)
+        sin_flat = tf.reshape(sin, (batch, d * self.num_freqs))
+        cos_flat = tf.reshape(cos, (batch, d * self.num_freqs))
+        
+        # flatten to (batch, 6*num_fourier)
+        feats = tf.concat([sin_flat, cos_flat], axis=-1)
+        
+        return feats
+
+class HybridEmbedding(keras.layers.Layer):
+    """
+    Combines NeRF positional encoding (for all dims) with trainable spatial
+    Fourier features, then projects to a hidden dimension for a SIREN backbone.
+    """
+    def __init__(self,
+                 hidden_units: int,
+                 pe_freqs: int = 10,
+                 rff_features: int = 32,
+                 rff_scale: float = 10.0,
+                 w0: float = 1.0,
+                 include_input: bool = False,
+                 **kwargs):
+        
+        super().__init__(**kwargs)
+        
+        self.w0 = w0
+        self.hidden_units = hidden_units
+        self.pe_freqs = pe_freqs
+        self.rff_features = rff_features
+        self.include_input = include_input
+        # layers without project
+        self.pos_enc = PositionalEncoding(num_freqs=pe_freqs,
+                                          include_input=include_input)
+        
+        self.rff = TrainableFourierFeatures(num_fourier=rff_features,
+                                            init_scale=rff_scale)
+        # project will be created in build()
+        # self.project = keras.layers.Dense(
+        #                                     self.hidden_units,
+        #                                     kernel_initializer=SIRENLayerInitializer(self.w0),
+        #                                     bias_initializer=keras.initializers.Zeros()
+        #                                 )
+
+    # def build(self, input_shape):
+    #     # input_shape: (batch, 4)
+    #     # number of coordinate dims (t,x,y,z)
+    #     d = input_shape[-1]
+    #     # compute positional encoding dimension
+    #     pe_dim = (d if self.include_input else 0) + 2 * d * self.pe_freqs
+    #     # compute trainable Fourier feature dimension for x,y,z
+    #     rff_dim = 2 * 3 * self.rff_features
+    #     # total embedding dimension
+    #     self.embed_dim = pe_dim + rff_dim
+    #     # now create projection layer with known input dim
+    #
+    #     # build the projection to set its weights
+    #     self.project.build((None, self.embed_dim))
+    #     super().build(input_shape)
+
+    def call(self, inputs, alpha: float = 1.0):
+        
+        # inputs: (batch,4) = [t, x, y, z]
+        pe_feats = self.pos_enc(inputs)         # (batch, pe_dim)
+        # xyz = inputs[:, 1:4]                   # (batch,3)
+        rff_feats = self.rff(inputs)              # (batch, rff_dim)
+        feats = tf.concat([pe_feats, rff_feats], axis=-1)  # (batch, embed_dim)
+        
+        # project into SIREN hidden_units, including scaling
+        return (self.w0 * alpha * feats)
+
 
 @keras.saving.register_keras_serializable(package="hyper")
 class Embedding(keras.layers.Layer):
@@ -153,13 +314,18 @@ class Embedding(keras.layers.Layer):
                  bias_initializer = "zeros",
                  activation  = None, #'LeakyReLU',
                  stddev = 1.0,
+                 w0=1.0,
                  **kwargs
                  ):
         
         super().__init__(**kwargs)
         
+        self.w0 = w0
+        
         if stddev is not None:
             kernel_initializer = keras.initializers.RandomNormal(0.0, stddev)
+        
+        kernel_initializer = SIRENLayerInitializer(w0)
         
         # bias_initializer = 'GlorotNormal'
         # bias_initializer = keras.initializers.RandomNormal(0.0, np.pi/12)
@@ -194,7 +360,7 @@ class Embedding(keras.layers.Layer):
         '''
         #Scaling factor when GlorotNormal distribution is used
         #otherwise the frequency components are too small
-        inputs = alpha*inputs
+        inputs = self.w0*alpha*inputs
         
         x0 = self.layer0(inputs)
         # x1 = self.layer1(inputs)
@@ -301,14 +467,15 @@ class LaafLayer(keras.layers.Layer):
                  n_neurons,
                  kernel_initializer = 'GlorotNormal',
                  activation  = None, #'LeakyReLU',
+                 w0=1.0,
                  **kwargs
                  ):
         
         super().__init__(**kwargs)
         
-        
+        self.w0 = w0
         self.n_neurons = n_neurons
-        self.kernel_initializer = kernel_initializer
+        self.kernel_initializer = SIRENLayerInitializer(w0) #kernel_initializer
         
         if activation == 'sine':
             self.activation = tf.sin
@@ -329,7 +496,6 @@ class LaafLayer(keras.layers.Layer):
                                 shape = (nfeatures, self.n_neurons),
                                 initializer = self.kernel_initializer,
                                 trainable = True,
-                                # regularizer = keras.regularizers.L2(0.001),
                                 )
         
         self.b = self.add_weight(
@@ -338,12 +504,14 @@ class LaafLayer(keras.layers.Layer):
                                 trainable = True,
                                 )
         
-    def call(self, inputs, alpha=1.0):
+    def call(self, inputs, alpha=0.0):
         '''
         '''
         
-        u = tf.matmul(inputs, self.w) + self.b
-        u = self.activation(alpha*u)
+        sigma = tf.exp(alpha)
+        
+        u = tf.matmul(inputs, sigma*self.w) + self.b
+        u = self.activation(u)
         
         return(u)
 
@@ -392,7 +560,6 @@ class Linear(keras.layers.Layer):
         Outputs [npoints, noutputs] 
         '''
         # npoints, nnodes = inputs.shape
-        
         
         u = tf.matmul(inputs, self.w) + self.b
         u = alpha*u
@@ -470,7 +637,8 @@ class ConcatLayer(keras.layers.Layer):
 class Scaler(keras.layers.Layer):
     
     def __init__(self,
-                 values=[1e1,1e1,1e0],
+                 values=[1e0, 1e0, 1e0, 1e0],
+                 add_bias=True,
                  # add_nu = False,
                  **kwargs
                  ):
@@ -478,6 +646,7 @@ class Scaler(keras.layers.Layer):
         super().__init__(**kwargs)
         
         self.values = values
+        self.add_bias = add_bias
         # self.add_nu = add_nu
         
     def build(self, input_shape):
@@ -490,16 +659,19 @@ class Scaler(keras.layers.Layer):
             trainable=True,
         )
         
-        self.b = self.add_weight(
-            shape = (n_in,),
-            initializer = 'zeros',
-            trainable=True,
-        )
+        if self.add_bias:
+            self.b = self.add_weight(
+                shape = (n_in,),
+                initializer = 'zeros',
+                trainable=True,
+            )
+        else:
+            self.b = 0.0
         
         # non‑trainable “values” tensor
         self.scaling = self.add_weight(
             shape=(n_in,),
-            initializer=keras.initializers.Constant(self.values),
+            initializer=keras.initializers.Constant(self.values[:n_in]),
             trainable=False,
             name="output_scaling"
         )
@@ -516,24 +688,11 @@ class Scaler(keras.layers.Layer):
         
     def call(self, inputs):
         
-        w = tf.multiply(self.scaling, self.w)
+        # w = tf.multiply(self.scaling, self.w)
         
-        u = tf.multiply(inputs, w) + self.b
+        u = tf.multiply(inputs, self.w) + self.b
         
         #2023/11/22 v230.xx 
-        # u = tf.multiply(u, self.scaling)
+        u = tf.multiply(u, self.scaling)
         
         return u
-
-class CustomParameters(keras.layers.Layer):
-    
-    def __init__(self, add_nu=False):
-        
-        super().__init__()
-        
-        self.nu = self.add_weight(
-            shape=(1,),
-            initializer="ones",
-            trainable=add_nu,
-            constraint = keras.constraints.NonNeg()
-        )

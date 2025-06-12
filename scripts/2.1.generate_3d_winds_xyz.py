@@ -35,9 +35,9 @@ class Grid4D():
         self.yrange = yrange
         self.zrange = zrange
     
-    def read_coords(self, model_file):
+    def read_coords(self, model_file, log_index=None):
         
-        nn = hyper.restore(model_file)
+        nn = hyper.restore(model_file, log_index=log_index)
     
         self.lon_ref = nn.lon_ref
         self.lat_ref = nn.lat_ref
@@ -85,9 +85,9 @@ class Grid4D():
         
         self.t_grid = times
     
-    def update(self, model_file):
+    def update(self, model_file, log_index=None):
         
-        self.read_coords(model_file)
+        self.read_coords(model_file, log_index=log_index)
         self.set_spatial_grid()
         self.set_temporal_grid()
         
@@ -513,7 +513,7 @@ class TwoDPlanesPlot():
                                  cmap=cmap,
                                  )
 
-def winds_from_model(ensemble_files, coords):
+def winds_from_model(ensemble_files, coords, log_index=None):
     
     t = coords["t"]
     x = coords["x"]
@@ -564,7 +564,7 @@ def winds_from_model(ensemble_files, coords):
     
     for i, ifile in enumerate(ensemble_files):
         
-        nn = hyper.restore(ifile)
+        nn = hyper.restore(ifile, log_index=log_index)
     
         outputs, mask = nn.infer(T_mesh, X_mesh, Y_mesh, Z_mesh,
                            filter_output=False,
@@ -605,7 +605,7 @@ def winds_from_model(ensemble_files, coords):
         
     for i, ifile in enumerate(ensemble_files):
         
-        nn = hyper.restore(ifile)
+        nn = hyper.restore(ifile, log_index=log_index)
     
         outputs = nn.infer(T_mesh, X_mesh, Y_mesh, Z_mesh,
                            filter_output=False)
@@ -699,21 +699,21 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/mcordero/Data/IAP/SIMONe/Norway/Vortex2/hyper03", help='Path where the model weights are')
+    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hMULT_VV_noNul04.01.032_w1.0e-05lr1.0e-03lf0ur1.0e-06T24shared/", help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
     
     parser.add_argument('-p', '--plotting', dest='ena_plotting', default=1, help='enable plotting')
-    parser.add_argument('--plot-std', dest='plot_std', default=1, help='plot uncertainties')
+    parser.add_argument('--plot-std', dest='plot_std', default=0, help='plot uncertainties')
     
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figure extension')
     
     parser.add_argument('--time-step', dest='tstep', default=5*60, help='in seconds')
     
-    parser.add_argument('--x-step', dest='xstep', default=20, help='in km')
-    parser.add_argument('--y-step', dest='ystep', default=20, help='in km')
-    parser.add_argument('--z-step', dest='zstep', default=1, help='in km')
+    parser.add_argument('--x-step', dest='xstep', default=100, help='in km')
+    parser.add_argument('--y-step', dest='ystep', default=100, help='in km')
+    parser.add_argument('--z-step', dest='zstep', default=0.5, help='in km')
     
     parser.add_argument('--x-range', dest='xrange', default=None, help='in km')
     parser.add_argument('--y-range', dest='yrange', default=None, help='in km')
@@ -722,6 +722,8 @@ if __name__ == '__main__':
     parser.add_argument('--lat-ref', dest='lat0', default=None, help='')
     parser.add_argument('--lon-ref', dest='lon0', default=None, help='')
     parser.add_argument('--alt-ref', dest='alt0', default=None, help='')
+    
+    parser.add_argument('--log-index', dest='log_index', default=8999, help='')
     
     args = parser.parse_args()
     
@@ -747,6 +749,8 @@ if __name__ == '__main__':
     lat0        = args.lat0
     lon0        = args.lon0
     alt0        = args.alt0
+    
+    log_index   = args.log_index
     
     cmap = 'seismic'
     
@@ -786,7 +790,7 @@ if __name__ == '__main__':
         
         day_folder = os.path.join(mpath, day_folder)
         
-        hourly_files = sorted( glob.glob( os.path.join(day_folder, "*_i000.h5") ) )
+        hourly_files = sorted( glob.glob( os.path.join(day_folder, "*_i000*.h5") ) )
         
         if len(hourly_files) < 1:
             print("No model files found in %s" %day_folder)
@@ -803,7 +807,7 @@ if __name__ == '__main__':
         for hourly_file in hourly_files:
             
             #Update the temporal and spatial grid if required
-            coords = grid_4d.update(hourly_file)
+            coords = grid_4d.update(hourly_file, log_index=log_index)
             
             dt = datetime.datetime.utcfromtimestamp(np.mean(coords['t']))
             
@@ -816,7 +820,7 @@ if __name__ == '__main__':
             
             
             #Produce u, v, w, and std(u), std(v), std(w)
-            df = winds_from_model(ensemble_files, coords)
+            df = winds_from_model(ensemble_files, coords, log_index=log_index)
             
             print(".", end='', flush=True)
             

@@ -3,8 +3,6 @@ Created on 21 Nov 2022
 
 @author: mcordero
 '''
-import time
-
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -191,7 +189,7 @@ def get_msis_mean_values(dt, alt, glat, glon,
         
     """
     
-    hours = np.arange(0, time_range, 1.0)
+    hours = np.arange(0, time_range, 4.0)
     times = [dt + datetime.timedelta(hours=x) for x in hours]
     
     rho, T = run_msis(times, alt, glat, glon)
@@ -442,7 +440,7 @@ class MSIS():
         '''
         # ini_date = datetime.datetime.utcfromtimestamp(epoch)
         
-        self.ini_date = ini_date
+        self.ini_date = ini_date.date()
         self.time_range = time_range
         self.alts = np.arange(min_alt, max_alt, 5, dtype=np.float64)
         self.glat = glat

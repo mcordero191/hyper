@@ -18,7 +18,7 @@ def read_upleg(vortex=1, upleg = 1,
     
     if vortex == 2:
         
-        filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex2/VortEx2_TrajectoryUTC_0_1Hz.txt'
+        filename = '/Users/radar/Data/IAP/SIMONe/Norway/VorTex2/VortEx2_TrajectoryUTC_0_1Hz.txt'
         lat = 69.45
         lon = 15.75
         ref_label = 'UPLEG'
@@ -50,7 +50,7 @@ def read_upleg(vortex=1, upleg = 1,
         
         if upleg == 0:
             
-            filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/DNLEGAVG_AVG.txt'
+            filename = '/Users/radar/Data/IAP/SIMONe/Norway/VorTex/DNLEGAVG_AVG.txt'
             lat = 70.35
             lon = 14.25
             ref_label = 'DWLEG'
@@ -59,7 +59,7 @@ def read_upleg(vortex=1, upleg = 1,
         
         if upleg == 1:
             
-            filename = '/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex/UPLEG34_sigma0_1Bin_size_1km.txt'
+            filename = '/Users/radar/Data/IAP/SIMONe/Norway/VorTex/UPLEG34_sigma0_1Bin_size_1km.txt'
             lat = 69.45
             lon = 15.75
             ref_label = 'UPLEG'
@@ -94,8 +94,8 @@ def read_upleg(vortex=1, upleg = 1,
     return(df)
 
 def create_grid(hmin = 80,
-                hmax = 100,
-                hstep = 0.25,
+                hmax = 110,
+                hstep = 0.5,
                 epoch=None,
                 lon0=None,
                 lat0=None
@@ -125,7 +125,7 @@ def format_grid(times, lat, lon, alt):
     
     return coords
 
-def winds_from_model(exp_folder, coords):
+def winds_from_model(exp_folder, coords, log_index=None):
     
     T = coords["times"]
     X = coords["lon"]
@@ -156,15 +156,18 @@ def winds_from_model(exp_folder, coords):
     v0 = np.zeros(T.shape, dtype=np.float32)
     w0 = np.zeros(T.shape, dtype=np.float32)
     
-    file_ensembles = glob.glob1(exp_folder, "h*.h5")
+    file_ensembles = glob.glob1(exp_folder, "h*i000*.h5")
     
     N =  len(file_ensembles)
+    
+    if N < 0:
+        raise ValueError("No files in %s" %exp_folder)
     
     for i, ifile in enumerate(file_ensembles):
     
         filename = os.path.join(exp_folder, ifile)
         
-        nn = hyper.restore(filename)
+        nn = hyper.restore(filename, log_index=log_index)
     
         outputs = nn.infer(t, x, y, z, filter_output=True)
         
@@ -265,23 +268,23 @@ def save_winds(df, path):
 
 def save_flat_winds(df, path):
     
-    times = df["times"]
+    times = df["times"][0,0,0,:]
     
-    lat = df["lat"]
-    lon = df["lon"]
-    alt = df["alt"]
+    lat = df["lat"][0,0,0,:]
+    lon = df["lon"][0,0,0,:]
+    alt = df["alt"][0,0,0,:]
     
-    dt = datetime.datetime.utcfromtimestamp(times[0,0,0,0])
+    dt = datetime.datetime.utcfromtimestamp(times[0])
     
-    output_file = os.path.join(path, "winds_%s.h5" %dt.strftime("%Y%m%d") )
+    output_file = os.path.join(path, "winds%s_%2.1fN%2.1fE.h5" %(dt.strftime("%Y%m%d"), lon[0], lat[0]) )
     
     # Open the file in write mode
-    with h5py.File(output_file, "a") as fp:
+    with h5py.File(output_file, "w") as fp:
         
-        if "lat" not in fp: fp.create_dataset("lat", data=lat[0,0,0,:])
-        if "lon" not in fp: fp.create_dataset("lon", data=lon[0,0,0,:])
-        if "alt" not in fp: fp.create_dataset("alt", data=alt[0,0,0,:])
-        if "epoch" not in fp: fp.create_dataset("epoch", data=times[0,0,0,:])
+        if "lat" not in fp: fp.create_dataset("lat", data=lat)
+        if "lon" not in fp: fp.create_dataset("lon", data=lon)
+        if "alt" not in fp: fp.create_dataset("alt", data=alt)
+        if "epoch" not in fp: fp.create_dataset("epoch", data=times)
                 
         # Define a group name for each timestamp
         group = fp#.create_group(group_name)  # Create a group for the timestamp
@@ -301,8 +304,8 @@ def plot_profiles(df, figpath,
                   prefix = 'wind',
                   xlabel = 'Velocity (m/s)',
                   labels = ['u', 'v', 'w'],
-                  vmin = -100,
-                  vmax = 100,
+                  vmin = -120,
+                  vmax = 120,
                 ):
     
     times = df["times"]
@@ -389,7 +392,7 @@ def plot_profiles(df, figpath,
             ax.set_xlabel(xlabel)
             ax.set_ylabel('Height (km)')
             ax.grid(True)
-            ax.set_ylim(80,100)
+            ax.set_ylim(80,110)
     
     plt.legend()
     
@@ -408,46 +411,54 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    # parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/Norway/VorTex2/winds/c20241110", help='Data path')
-    parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/NewMexico/MRA/hyper24/c20240118", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='path', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hMULT_VV_noNul04.01.032_w1.0e-05lr1.0e-03lf0ur1.0e-06T24shared/c20230323", help='Data path')
+    # parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/NewMexico/MRA/hyper24/c20240118", help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
-    parser.add_argument('-u', '--upleg', dest='upleg', default=1, help='')
-                       
+    parser.add_argument('-u', '--upleg', dest='upleg', default=0, help='')
+    parser.add_argument('--log-index', dest='log_index', default=8999, help='')           
+    
     args = parser.parse_args()
     
     path   = args.path
     rpath  = args.rpath
     ext    = args.ext
     upleg  = args.upleg
+    log_index  = args.log_index
+    
+    ref_label = "UPLEG" if upleg else "DOWNLEG"
+    
+    suffix = "" if log_index is None else str(log_index)
     
     if rpath is None:
-        rpath = os.path.join(path, "plots")
+        rpath = os.path.join(path, "plots%s" %suffix)
         
     if not os.path.isdir(rpath):
         os.mkdir(rpath)
         
-    df_vortex = read_upleg(vortex=0, upleg=upleg, 
-                           lat=34.45,
-                           lon=-107.55,
-                           dt=datetime.datetime(2024,1,18,12,56,0)
+    df_vortex = read_upleg(vortex=1, upleg=upleg, 
+                           # lat=34.45,
+                           # lon=-107.55,
+                           # dt=datetime.datetime(2024,1,18,12,56,0)
                            )
     
     print("Creating GRID ...")
-    # coords = create_grid(
-    #                     epoch = df_vortex["epoch"][0],
-    #                     lon0  = df_vortex["lon"][0],
-    #                     lat0  = df_vortex["lat"][0],
-    #                     )
+    coords = create_grid(
+                        epoch = df_vortex["epoch"][0],
+                        lon0  = df_vortex["lon"][0],
+                        lat0  = df_vortex["lat"][0],
+                        )
     
-    coords = format_grid(df_vortex["epoch"], df_vortex["lat"], df_vortex["lon"], df_vortex["alt"])
+    # coords = format_grid(df_vortex["epoch"], df_vortex["lat"], df_vortex["lon"], df_vortex["alt"])
     
     print("Generating winds ...")
     #Produce u, v, w, and std(u), std(v), std(w)
-    df = winds_from_model(path, coords)
+    df = winds_from_model(path, coords, log_index=log_index)
+    
+    print("Plotting winds ...")
+    plot_profiles(df, rpath, df_ref=df_vortex, ext=ext, ref_label=ref_label)
     
     print("Saving winds ...")
     save_flat_winds(df, rpath)
     
-    print("Plotting winds ...")
-    plot_profiles(df, rpath, df_ref=df_vortex, ext=ext)
+    

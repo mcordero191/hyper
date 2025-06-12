@@ -24,6 +24,16 @@
       "timestamp": "2025-04-15T",
       "version": "1.2.0",
       "description": "Hidden layers have been scaled by w0=30.0."
+    },
+    {
+      "timestamp": "2025-05-10T",
+      "version": "1.2.1",
+      "description": "MultiFiLMNet has been updated."
+    },
+    {
+      "timestamp": "2025-06-06T",
+      "version": "1.3.2",
+      "description": "LowFreq and HighFreq nets: exp nu"
     }
   ]
 }
