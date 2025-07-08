@@ -58,9 +58,9 @@ class Grid4D():
         self.lat_coords = lat_coords
         self.alt_coords = alt_coords
 
-    def read_coords(self, model_file, overlapping=2*60*60):
+    def read_coords(self, model_file, overlapping=0*60*60, log_index=None):
         
-        nn = hyper.restore(model_file)
+        nn = hyper.restore(model_file, log_index=log_index)
         
         # Set reference coordinates if not provided
         if self.lon_ref is None:
@@ -130,23 +130,26 @@ class Grid4D():
         
     def set_spatial_grid(self):
         
+        # Compute grid boundaries centered at the reference coordinates
+        lon_min = self.lon_ref - self.lon_range / 2
+        lon_max = self.lon_ref + self.lon_range / 2
+        
+        lat_min = self.lat_ref - self.lat_range / 2
+        lat_max = self.lat_ref + self.lat_range / 2
+        
+        alt_min = self.alt_ref - self.alt_range / 2
+        alt_max = self.alt_ref + self.alt_range / 2
+            
         if self.lon_coords is not None and self.lat_coords is not None and self.alt_coords is not None:
             
-            self.lon_grid = np.sort(self.lon_coords)
-            self.lat_grid = np.sort(self.lat_coords)
-            self.alt_grid = np.sort(self.alt_coords)
+            lon = np.sort(self.lon_coords)
+            lat = np.sort(self.lat_coords)
+            alt = np.sort(self.alt_coords)
             
+            lat = lat[(lat >= lat_min) & (lat <= lat_max)]
+            lon = lon[(lon >= lon_min) & (lon <= lon_max)]
+            alt = alt[(alt >= alt_min) & (alt <= alt_max)]
         else:
-            # Compute grid boundaries centered at the reference coordinates
-            lon_min = self.lon_ref - self.lon_range / 2
-            lon_max = self.lon_ref + self.lon_range / 2
-            
-            lat_min = self.lat_ref - self.lat_range / 2
-            lat_max = self.lat_ref + self.lat_range / 2
-            
-            alt_min = self.alt_ref - self.alt_range / 2
-            alt_max = self.alt_ref + self.alt_range / 2
-    
             # Create uniform grids in geographic coordinates
             self.lon_grid = np.arange(lon_min, lon_max, self.lon_step)
             self.lat_grid = np.arange(lat_min, lat_max, self.lat_step)
@@ -165,9 +168,9 @@ class Grid4D():
             
         self.t_grid = times
 
-    def update(self, model_file):
+    def update(self, model_file, log_index=None):
         
-        self.read_coords(model_file)
+        self.read_coords(model_file, log_index=log_index)
         self.set_spatial_grid()
         self.set_temporal_grid()
 
@@ -511,7 +514,7 @@ def find_ensemble_files(hourly_file):
     
     return ensemble_files
         
-def winds_from_model(ensemble_files, coords):
+def winds_from_model(ensemble_files, coords, log_index=None):
     
     t = coords["t"]
     
@@ -551,7 +554,7 @@ def winds_from_model(ensemble_files, coords):
     N = len(ensemble_files)
     
     for i, ifile in enumerate(ensemble_files):
-        nn = hyper.restore(ifile)
+        nn = hyper.restore(ifile, log_index=log_index)
         outputs, mask = nn.infer(T_mesh, X_mesh, Y_mesh, Z_mesh,
                                  filter_output=False,
                                  return_valid_mask=True)
@@ -892,7 +895,16 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90/hyper_MULT_VP_divl03.02.128_w1.0e-06lr1.0e-04ur1.0e-06T24film0s", help='Path where the model weights are')
+    root = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex/"
+    dir = "hWINDsire_VV_noNul02.03.128_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3"
+    
+    # root = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
+    # dir = "hWINDsire_VP_divl02.03.064_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3"
+    #
+
+    default_dir = os.path.join(root, dir)
+    
+    parser.add_argument('-m', '--mpath', dest='mpath', default=default_dir, help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
@@ -902,9 +914,10 @@ if __name__ == '__main__':
     
     parser.add_argument('--output-format', dest='output_format', default='ncdf', help='File format of wind files: either "ncdf" or "hdf5"')
     
-    parser.add_argument('--time-step', dest='tstep', type=float, default=5*60, help='Time step in seconds')
+    parser.add_argument('--time-step', dest='tstep', type=float, default=3*60, help='Time step in seconds')
     parser.add_argument('--time-range', dest='time_range', type=float, default=None)
-                        
+                    
+    parser.add_argument('--log-index', dest='log_index', default=None, help='')
     # New geographic grid arguments
     parser.add_argument('--lon-step', dest='lon_step', type=float, default=None, help='Longitude step in degrees')
     parser.add_argument('--lat-step', dest='lat_step', type=float, default=None, help='Latitude step in degrees')
@@ -920,8 +933,8 @@ if __name__ == '__main__':
     
     # New optional direct coordinate inputs (as comma-separated lists)
     parser.add_argument('--t-coords', dest='t_coords', default=None)
-    parser.add_argument('--lon-coords', dest='lon_coords', default=None, type=str, help='Comma-separated list of longitude coordinates')
-    parser.add_argument('--lat-coords', dest='lat_coords', default=None, type=str, help='Comma-separated list of latitude coordinates')
+    parser.add_argument('--lon-coords', dest='lon_coords', default=np.arange(10, 30., 0.0225), type=str, help='Comma-separated list of longitude coordinates')
+    parser.add_argument('--lat-coords', dest='lat_coords', default=np.arange(66, 72., 0.0225), type=str, help='Comma-separated list of latitude coordinates')
     parser.add_argument('--alt-coords', dest='alt_coords', default=None, type=str, help='Comma-separated list of altitude coordinates')
     
     # parser.add_argument('--t-coords', dest='t_coords', default="1739923200.0, 1739925000.0, 1739926800.0, 1739928600.0, 1739930400.0, 1739932200.0, 1739934000.0, 1739935800.0, 1739937600.0, 1739939400.0, 1739941200.0, 1739943000.0, 1739944800.0, 1739946600.0, 1739948400.0, 1739950200.0, 1739952000.0, 1739953800.0, 1739955600.0, 1739957400.0, 1739959200.0, 1739961000.0, 1739962800.0, 1739964600.0, 1739966400.0, 1739968200.0, 1739970000.0, 1739971800.0, 1739973600.0, 1739975400.0, 1739977200.0, 1739979000.0, 1739980800.0, 1739982600.0, 1739984400.0, 1739986200.0, 1739988000.0, 1739989800.0, 1739991600.0, 1739993400.0, 1739995200.0, 1739997000.0, 1739998800.0, 1740000600.0, 1740002400.0, 1740004200.0, 1740006000.0, 1740007800.0, 1740009600.0",
@@ -955,11 +968,21 @@ if __name__ == '__main__':
     lat0        = args.lat0
     lon0        = args.lon0
     alt0        = args.alt0
+    
+    log_index   = args.log_index
+    
     output_format = args.output_format
     
     # Helper to parse comma-separated lists into arrays of floats
     def parse_coords(coord_str):
-        coord = np.sort( [float(item) for item in coord_str.split(',')] ) if coord_str is not None else None
+        if coord_str is None:
+            return None
+        
+        if isinstance(coord_str, np.ndarray):
+            return coord_str
+        
+        coord = np.sort( [float(item) for item in coord_str.split(",")] )
+         
         return coord
 
     t_coords = parse_coords(args.t_coords)
@@ -1025,7 +1048,7 @@ if __name__ == '__main__':
             
             print("Working with %s" %hourly_file)
             
-            coords = grid_4d.update(hourly_file)
+            coords = grid_4d.update(hourly_file, log_index=log_index)
             
             if len(coords['t']) < 1:
                 continue
@@ -1034,7 +1057,7 @@ if __name__ == '__main__':
             
             
             ensemble_files = find_ensemble_files(hourly_file)
-            df = winds_from_model(ensemble_files, coords)
+            df = winds_from_model(ensemble_files, coords, log_index=log_index)
             
             print(".", end='', flush=True)
             

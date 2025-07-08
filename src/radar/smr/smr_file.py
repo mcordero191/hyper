@@ -1512,6 +1512,7 @@ class SMRReader(object):
         
         try:
             plot_spatial_sampling(df, suffix=suffix, **kwargs)
+            plot_Doppler_sampling(self.unfiltered_df, df, suffix=suffix, path=kwargs["path"])
         except:
             pass
         

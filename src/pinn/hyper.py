@@ -35,8 +35,9 @@ from pinn.networks import genericPINN, resPINN
 from pinn.spinn import sPINN
 from pinn.NIFnet import MultiFiLMNet, FiLMNet, MultiFiLMPotentialNet
 from pinn.deeponet import DeepONet
-from pinn.windnet import WindNet, MultiScaleWindNetShared
-    
+from pinn.windnet import MultiScaleWindNet,  MultiScaleWindNetShared, MultiScaleAttNet
+from pinn.mulscale_pinn import WindNet
+
 # from pinn.bfgs import LBFGS
 
 class App:
@@ -182,20 +183,10 @@ class App:
             nn = WindNet( self.shape_out,
                           hf_hidden     = self.width,
                           hf_layers     = self.depth,
-                          num_blocks    = self.nblocks,
-                          ena_deeponet  = 0,
+                          hf_blocks    = self.nblocks,
                           add_nu        = add_nu,
+                          activation    = act,
                         )    
-        elif self.nn_type == 'multiwindnet':  
-            #MultiScaleWindNetShared
-            #MultiScaleWindNet
-            nn = MultiScaleWindNetShared( self.shape_out,
-                                      hidden_units  = self.width,
-                                      nlayers       = self.depth,
-                                      nblocks       = self.nblocks,
-                                      add_nu        = add_nu,
-                                    )   
-        
         
         elif self.nn_type == 'deeponet':  
                       
@@ -205,8 +196,58 @@ class App:
                           num_blocks    = self.nblocks,
                           ena_deeponet  = 1,
                           add_nu        = add_nu,
-                          
                         )  
+            
+        elif self.nn_type == 'film':  
+                      
+            nn = WindNet( self.shape_out,
+                          hf_hidden     = self.width,
+                          hf_layers     = self.depth,
+                          num_blocks    = self.nblocks,
+                          ena_film      = 1,
+                          add_nu        = add_nu,
+                        )    
+            
+            # nn = FiLMNet( self.shape_out,
+            #               hf_hidden     = self.width,
+            #               hf_layers     = self.depth,
+            #               num_blocks    = self.nblocks,
+            #               ena_film  = 1,
+            #               add_nu        = add_nu,
+            #             )    
+            
+        elif self.nn_type == 'multiwindfield':  
+            #MultiScaleWindNetShared
+            #MultiScaleWindNet
+            #MultiScaleAttNet
+            nn = MultiScaleWindNet( self.shape_out,
+                                      hidden_units  = self.width,
+                                      nlayers       = self.depth,
+                                      nblocks       = self.nblocks,
+                                      add_nu        = add_nu,
+                                    )   
+        elif self.nn_type == 'attentionwindfield':  
+            #MultiScaleWindNetShared
+            #MultiScaleWindNet
+            #MultiScaleAttNet
+            nn = MultiScaleAttNet( self.shape_out,
+                                      hidden_units  = self.width,
+                                      nlayers       = self.depth,
+                                      nblocks       = self.nblocks,
+                                      add_nu        = add_nu,
+                                    )   
+        
+        elif self.nn_type == 'sharedwindfield':  
+            #MultiScaleWindNetShared
+            #MultiScaleWindNet
+            #MultiScaleAttNet
+            nn = MultiScaleWindNetShared( self.shape_out,
+                                      hidden_units  = self.width,
+                                      nlayers       = self.depth,
+                                      nblocks       = self.nblocks,
+                                      add_nu        = add_nu,
+                                    )   
+        
             
         elif self.nn_type == 'respinn':   
                      
@@ -362,11 +403,65 @@ class App:
         np.random.seed(seed)
         tf.random.set_seed(seed)
 
+    def freeze_lowfreq(self):
+        
+        self.unfreeze_all()
+        
+        if hasattr(self.model, 'low_net'):
+            for var in self.model.low_net.trainable_variables:
+                var._trainable = False
+                
+        print("[INFO] LowFreqNet frozen. HighFreqNet trainable.")
+
+    def freeze_highfreq(self):
+        
+        self.freeze_all()
+        
+        if hasattr(self.model, 'low_net'):
+            for var in self.model.low_net.trainable_variables:
+                var._trainable = True
+        
+        print("[INFO] HighFreqNet frozen. LowFreqNet trainable.")
+
+    def unfreeze_all(self):
+        
+        for var in self.model.trainable_variables:
+            var._trainable = True
+        print("[INFO] All model variables set to trainable.")
+    
+    def freeze_all(self):
+        
+        for var in self.model.trainable_variables:
+            var._trainable = False
+        print("[INFO] All model variables set to trainable.")
+        
+    def get_trainable_variables(self):
+        return [v for v in self.model.trainable_variables if v.trainable]
+
+    def log_trainable_variables(self):
+        print("[DEBUG] Trainable variables:")
+        for var in self.model.trainable_variables:
+            print(f"{var.name}: {var.trainable}")
+            
     def opt_(self, lr, opt, epochs=None):
         
         # if epochs is not None:
-        #     lr = tf.keras.optimizers.schedules.PiecewiseConstantDecay([int(0.4*epochs),int(0.8*epochs)],
-        #                                                           [lr,0.33*lr,0.1*lr])
+        #     lr = keras.optimizers.schedules.PiecewiseConstantDecay([
+        #                                                             int(0.1*epochs),
+        #                                                             int(0.3*epochs),
+        #                                                             int(0.5*epochs),
+        #                                                             int(0.7*epochs)
+        #                                                             ],
+        #                                                            [
+        #                                                             1e0*lr,
+        #                                                             1e0*lr,
+        #                                                             3e-1*lr,
+        #                                                             3e-1*lr,
+        #                                                             1e-1*lr
+        #                                                             ]
+        #                                                            )
+        #
+        #     print("Using Scheduled lr")
         
         if opt == "SGD":
             optimizer = keras.optimizers.SGD(
@@ -1786,7 +1881,7 @@ class App:
         #
         # weights = 1.0 + alpha * w_sens
 
-        # loss = tf.square(tf.reduce_mean(tf.abs(df0/f_err)))
+        # loss = 1e2*tf.reduce_mean(tf.abs(df0/f_err))
         loss = tf.reduce_mean(tf.square(df0/f_err))
         
         return (loss)
@@ -1854,7 +1949,7 @@ class App:
         return (loss)
   
     
-    def loss_slope_recovery_term(self, target_alpha=5.0):
+    def loss_slope_recovery_term(self, target_alpha=10.0):
         '''
         Jagtap AD, Kawaguchi K,Karniadakis GE. 2020
         Locally adaptive activation functions with slope recovery for deep and physics-informed neural networks.
@@ -2276,6 +2371,7 @@ class App:
                 
                 # print("\tHF: log_sigma =", float(self.model.high_net.four_feat.log_sigma.value))
                 print("\n\tena_hf =", self.model.gates.numpy())
+                # print("\n\thf_alphas =", self.model.high_net.alphas.numpy())
                 
                 alphas = []
                 for var in self.model.trainable_variables:
@@ -2316,8 +2412,8 @@ class App:
             if (ep+1) % saving_rate == 0:
                 self.save(filename, ep)
             
-            # if ep < 400:
-            #     continue
+            if ep < 200:
+                continue
             
             #Compute PDE weight adaptively
             # if ep % grad_upd_rate == 0:
@@ -2461,7 +2557,7 @@ class App:
         coords = tf.concat([t, z, x, y], axis=1)
         N = coords.shape[0]
         
-        block_size = min( int(np.ceil(N / num_blocks)), 10000)
+        block_size = max( min( int(np.ceil(N / num_blocks)), 10000), 1000)
     
         outputs_blocks = []
         masks_blocks   = []
@@ -2498,7 +2594,7 @@ class App:
         valid_mask = np.concatenate(masks_blocks)
     
         if return_xyz:
-            return outputs, x.numpy(), y.numpy(), z.numpy()
+            return outputs, x.numpy().flatten(), y.numpy().flatten(), z.numpy().flatten()
         if return_valid_mask:
             return outputs, valid_mask
     

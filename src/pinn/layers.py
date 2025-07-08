@@ -637,7 +637,7 @@ class ConcatLayer(keras.layers.Layer):
 class Scaler(keras.layers.Layer):
     
     def __init__(self,
-                 values=[1e0, 1e0, 1e0, 1e0],
+                 values=[1e1, 1e1, 1e0, 1e0],
                  add_bias=True,
                  # add_nu = False,
                  **kwargs

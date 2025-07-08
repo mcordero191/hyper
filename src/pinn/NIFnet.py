@@ -17,12 +17,24 @@ class SIRENActivation(keras.layers.Layer):
         
         super().__init__(**kwargs)
         self.w0 = w0
-
-    def call(self, inputs):
+        self.initial_log_w0 = np.log(w0)
+    
+    def build(self, input_shape):
+    
+        self.log_sigma = self.add_weight(
+            name="log_sigma",
+            shape=(),
+            initializer=tf.constant_initializer(self.initial_log_w0),
+            trainable=True,
+        )
+    
+        super().build(input_shape)
+    
+    def call(self, x):
         
-        return tf.sin(inputs)
-        # inject high frequencies via sinh
-        # return tf.sin(tf.sinh(self.w0 * inputs))
+        w0 = tf.exp(self.log_sigma)
+        
+        return tf.sin(w0 * x)
 
 
 # === 2) SIREN-style initializers ===
@@ -67,7 +79,7 @@ class SIRENBiasInitializer(keras.initializers.Initializer):
 
 class ParameterNet(keras.layers.Layer):
     
-    def __init__(self, num_blocks, nlayers=2, w0=1.0, hidden_units=128, film_units=128, **kwargs):
+    def __init__(self, num_blocks, nlayers=2, w0=1.0, hidden_units=128, num_basis=128, **kwargs):
         
         super().__init__(**kwargs)
         # Pre-layer: project t (1D) to hidden_units.
@@ -75,84 +87,103 @@ class ParameterNet(keras.layers.Layer):
             hidden_units,
             kernel_initializer="HeNormal",#SIRENFirstLayerInitializer(w0=w0),
             bias_initializer="zeros", #SIRENBiasInitializer(),
-            activation = SIRENActivation(w0=w0),
+            activation = tf.math.tanh, #SIRENActivation(w0=w0),
         )
         
-        self.blocks = [ResidualBlock(hidden_units, nlayers=nlayers,w0=w0) for _ in range(num_blocks)]
+        self.four_feat = GaussianRFF(out_dim=hidden_units, init_log_sigma=0.0) 
+        
+        self.blocks = [ResidualBlock(hidden_units, nlayers=nlayers,w0=w0, activation = tf.math.tanh) for _ in range(num_blocks)]
+        
         # Final layer outputs FiLM parameters (γ and β).
         self.film_layer = keras.layers.Dense(
-            2 * film_units,
-            kernel_initializer='glorot_normal',
+            2 * num_basis,
+            kernel_initializer='zeros',
             bias_initializer="zeros",
+            # activation="softplus",
         )
 
-    def call(self, inputs):
+    def call(self, inputs, low_feat):
         
-        x = self.pre_layer(inputs)
+        four_feats = self.four_feat(inputs)
+        
+        h = tf.concat([four_feats, low_feat], axis=-1)
+        
+        x = self.pre_layer(h)
         
         for block in self.blocks:
             x = block(x)
             
         film_params = self.film_layer(x)
+        
         gamma, beta = tf.split(film_params, num_or_size_splits=2, axis=-1)
         
         return gamma, beta
 
 class ShapeNet(keras.layers.Layer):
     
-    def __init__(self, num_blocks, nlayers=2, w0=1.0, hidden_units=128, **kwargs):
+    def __init__(self, num_blocks, nlayers=2, w0=1.0, hidden_units=128, num_basis=64, **kwargs):
         
         super().__init__(**kwargs)
         # Pre-layer: project (x,y,z) to hidden_units.
-        self.pre_layer = keras.layers.Dense(
-            hidden_units,
-            kernel_initializer="HeNormal", #SIRENFirstLayerInitializer(w0=w0),
-            bias_initializer="zeros", #SIRENBiasInitializer(),
-            activation = SIRENActivation(w0=w0),
-        )
+        # self.pre_layer = keras.layers.Dense(
+        #     hidden_units,
+        #     kernel_initializer=SIRENFirstLayerInitializer(w0=w0),
+        #     bias_initializer=SIRENBiasInitializer(),
+        #     activation = SIRENActivation(w0=w0),
+        # )
+        
+        self.pre_layer = GaussianRFF(out_dim=hidden_units, init_log_sigma=0.0) 
+        
         self.blocks = [ResidualBlock(hidden_units, nlayers=nlayers, w0=w0) for _ in range(num_blocks)]
-
+    
+        self.final_layer = keras.layers.Dense(
+            num_basis,
+            kernel_initializer="glorot_uniform", #SIRENFirstLayerInitializer(w0=w0),
+            bias_initializer="zeros", #SIRENBiasInitializer(),
+            # activation = SIRENActivation(w0=w0),
+        )
+    
     def call(self, inputs):
         
         x = self.pre_layer(inputs)
         
         for block in self.blocks:
             x = block(x)
-            
-        return x
+        
+        omega = self.final_layer(x)
+        
+        shape_features = tf.concat([tf.sin(omega), tf.cos(omega)], axis=-1)
+        
+        return shape_features
 
 class FiLMNet(BaseModel):
     
-    def __init__(self, num_blocks, nlayers=2, noutputs=3, w0=1.0, hidden_units=128, **kwargs):
+    def __init__(self, num_blocks, nlayers=2, noutputs=3, w0=1.0, hidden_units=128, num_basis=128, **kwargs):
         
         super().__init__(**kwargs)
         
-        self.shape_net = ShapeNet(num_blocks, nlayers=nlayers, w0=w0, hidden_units=hidden_units)
+        self.num_basis = num_basis
         
-        self.parameter_net = ParameterNet(num_blocks, nlayers=nlayers, w0=w0, hidden_units=hidden_units, film_units=hidden_units)
+        self.parameter_net = ParameterNet(num_blocks, nlayers=nlayers, w0=w0, hidden_units=hidden_units, num_basis=2*num_basis)
         
-        self.final_dense = keras.layers.Dense(
-            noutputs,
-            kernel_initializer='glorot_normal',
-            bias_initializer="zeros",
-        )
+        self.shape_net = ShapeNet(num_blocks, nlayers=nlayers, w0=w0, hidden_units=hidden_units, num_basis=num_basis)
         
-        self.alphas = tf.ones( (nlayers+1, ), name="alphas" )
+        self.proj = keras.layers.Dense( noutputs, use_bias=False, kernel_initializer="glorot_uniform" )
         
         self.scaler = Scaler()
 
-    def call(self, inputs):
+    def call(self, inputs, low_feat=None):
         
         temporal_inputs = inputs[:,0:1]
-        spatial_inputs = inputs[:,1:4]
+        spatial_inputs = inputs[:,0:4]
         
+        gamma, beta = self.parameter_net(temporal_inputs, low_feat=low_feat)
         shape_features = self.shape_net(spatial_inputs)
         
-        gamma, beta = self.parameter_net(temporal_inputs)
         # FiLM: Modulate shape features using γ and β.
-        modulated_features = gamma * shape_features + beta
+        basis = (1.0/self.num_basis)*(gamma * shape_features + beta)
     
-        output = self.final_dense(modulated_features)
+        output = self.proj(basis)
         
         return(self.scaler(output))
     
@@ -190,7 +221,7 @@ class GaussianRFF(keras.layers.Layer):
             name='w_dir',
             shape=(d, self.D),
             initializer=tf.constant_initializer(w0),
-            trainable=False
+            trainable=True
         )
         # random phase offsets b: shape (D,)
         b0 = np.random.uniform(0, 2*np.pi, size=(self.D,)).astype(np.float32)
@@ -199,7 +230,7 @@ class GaussianRFF(keras.layers.Layer):
             name='b',
             shape=(self.D,),
             initializer=tf.constant_initializer(b0),
-            trainable=False
+            trainable=True
         )
         # learnable log sigma scalar
         self.log_alpha = self.add_weight(
@@ -230,46 +261,38 @@ class GaussianRFF(keras.layers.Layer):
 # === 3) Residual block with full skip-connection ===
 class ResidualBlock(keras.layers.Layer):
     
-    def __init__(self, units, nlayers=2, w0=1.0):
+    def __init__(self, units, nlayers=2, w0=1.0, activation=None):
         
         super().__init__()
         
         self.nlayers = nlayers
-        self.act = SIRENActivation(w0)
         
-        self.dense_layers = [
+        if activation is None:
+            self.act = SIRENActivation(w0)
+            kernel_initializer = SIRENIntermediateLayerInitializer(w0)
+        else:
+            self.act = activation
+            kernel_initializer = "HeNormal"
+        
+        self.blocks = [
             keras.layers.Dense(
                 units,
-                kernel_initializer=SIRENIntermediateLayerInitializer(w0),
+                kernel_initializer=kernel_initializer,
                 bias_initializer="zeros",
             )
             for _ in range(nlayers)
         ]
-
-    def build(self, input_shape):
-        # input_shape: (batch_size, d)
-        d = input_shape[-1]
-        
-        # learnable log sigma scalar
-        self.log_alpha = self.add_weight(
-            name='log_sigma',
-            shape=(self.nlayers, ),
-            initializer=tf.constant_initializer(0.0),
-            trainable=True
-        )
-        
-        super().build(input_shape)
         
     def call(self, inputs):
         
-        alpha = tf.exp(self.log_alpha)
+        # alpha = tf.exp(self.log_alpha)
         
         h = inputs
         
-        for i, layer in enumerate(self.dense_layers):
-            h = self.act(layer(alpha[i]*h))
+        for i, layer in enumerate(self.blocks):
+            h = self.act(layer(h))
             
-        return (inputs + h)
+        return 0.5*(inputs + h)
 
 # === Multi-layer FiLM ShapeNet ===
 class MultiShapeNet(keras.layers.Layer):

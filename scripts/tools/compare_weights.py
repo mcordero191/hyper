@@ -1,4 +1,4 @@
-import os
+import os, re, glob
 import numpy as np
 import h5py
 import matplotlib.pyplot as plt
@@ -53,7 +53,7 @@ def load_weights_per_layer(h5_path):
                 # Filter out optimizer weights or other non-layer weights if needed
                 if "optimizer_weights" not in name and "optimizer" not in name:
                     # Use top-level group name as layer name
-                    name_list = name.split('/')[0:4]
+                    name_list = name.split('/')[0:3]
                     weight_data = np.array(obj).flatten()
                     
                     layer_name = "+".join(name_list) #name #"%s-%s-%s" %(root_layer, sub_layer1, sub_layer2)
@@ -101,11 +101,14 @@ def compute_layerwise_differences(weight_paths):
 
     return layerwise_diffs, layerwise_amp
 
-def visualize_layerwise_changes(weight_dir, pattern="h20230323_090000_i000_v1.3.2.h5.{:05d}.weights.h5", steps=range(500, 4001, 500)):
+def visualize_layerwise_changes(weight_dir, pattern="h*.*.weights.h5", steps=range(500, 4001, 500)):
     """Visualize per-layer weight differences."""
-    paths = [os.path.join(weight_dir, pattern.format(step-1)) for step in steps]
+    
+    paths = sorted( glob.glob(os.path.join(weight_dir, pattern)) )
+    
+    # paths = [os.path.join(weight_dir, pattern.format(step-1)) for step in steps]
     layer_diffs, layerwise_amp = compute_layerwise_differences(paths)
-    steps_trimmed = steps[1:]
+    steps_trimmed = [re.sub(r"\D", "",path)[-6:-1] for path in paths][1:]#steps[1:]
 
     a_max = np.max(layerwise_amp)
     
@@ -130,7 +133,94 @@ def visualize_layerwise_changes(weight_dir, pattern="h20230323_090000_i000_v1.3.
         
         plt.tight_layout()
         plt.show()
+        
+def load_weights_per_layer2(h5_path):
+    layer_weights = {}
+    with h5py.File(h5_path, 'r') as f:
+        def visit_fn(name, obj):
+            if isinstance(obj, h5py.Dataset):
+                if "optimizer" in name: 
+                    return
+                
+                # root = name.split('/')[0]
+                
+                name_list = name.split('/')[0:2]
+                layer_name = "+".join(name_list)
+                
+                arr = np.array(obj).ravel()
+                layer_weights.setdefault(layer_name, []).append(arr)
+                
+        f.visititems(visit_fn)
+    # flatten each layer
+    return {L: np.concatenate(parts) for L,parts in layer_weights.items()}
+
+def compute_layerwise_differences2(weight_paths):
+    all_weights = [load_weights_per_layer2(p) for p in weight_paths]
+    layers = sorted({ L for w in all_weights for L in w.keys() })
+    diffs = {L: [] for L in layers}
+    for i in range(len(all_weights)-1):
+        w1,w2 = all_weights[i], all_weights[i+1]
+        for L in layers:
+            v1,v2 = w1.get(L), w2.get(L)
+            diffs[L].append(np.nan if v1 is None or v2 is None
+                             else np.linalg.norm(v2-v1))
+    return diffs
+
+def compute_layerwise_norm(weight_paths):
+    
+    all_weights = [load_weights_per_layer2(p) for p in weight_paths]
+    
+    layers = sorted({ L for w in all_weights for L in w.keys() })
+    
+    norm = {L: [] for L in layers}
+    
+    for i in range(len(all_weights)):
+        w1 = all_weights[i]
+        for L in layers:
+            v1 = w1.get(L)
+            norm[L].append(np.linalg.norm(v1))
+    return norm
+
+def plot_scale_contributions(weight_dir,
+                             pattern="h*.*.weights.h5",
+                             nscales=5):
+    # 1) gather checkpoints
+    paths = sorted(glob.glob(os.path.join(weight_dir,pattern)))
+    steps = [int(re.sub(r"\D", "",path)[-6:-1]) for path in paths][:]
+    # 2) per-layer diffs
+    layer_diffs = compute_layerwise_norm(paths)
+    # 3) assign each layer to a scale: look for "scale_net_i" in the layer key
+    scale_diffs = {i: [] for i in range(nscales)}
+    for layer_name, diffs in layer_diffs.items():
+        m = re.search(r"scale_net", layer_name)
+        if m:
+            si = layer_name[m.span()[1]+1:m.span()[1]+2]
+            try: si = int(si)
+            except: si = 0
+            
+            if 0 <= si < nscales:
+                scale_diffs[si].append(diffs)
+    # 4) aggregate per scale (mean across layers)
+    agg = {}
+    for si, mats in scale_diffs.items():
+        if not mats:
+            agg[si] = np.zeros(len(steps))
+        else:
+            agg[si] = np.nanmean(np.vstack(mats), axis=0)
+    # 5) plot
+    plt.figure(figsize=(8,5))
+    for si, vals in agg.items():
+        plt.plot(steps[:], vals, '-o', label=f"scale {si}")
+    plt.xlabel("Training step")
+    plt.ylabel("mean ΔL₂ per-layer")
+    plt.title("Per-scale weight‐update magnitudes")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    
 if __name__ == '__main__':
     
-    path = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hWIND_VV_noNul03.02.256_w1.0e-05lr1.0e-03lf0ur1.0e-06T24noPDE/c20230323/log"
-    visualize_layerwise_changes(path)
+    path = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90/hMULT_VP_divl04.01.064_w1.0e-05lr1.0e-03lf0ur1.0e-06T24transf/c20160815/log"
+    # visualize_layerwise_changes(path)
+    
+    plot_scale_contributions(path)

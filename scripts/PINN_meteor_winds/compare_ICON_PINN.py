@@ -872,9 +872,9 @@ def main(path_ICON_model,
     # figname = os.path.join(figpath, 'spectra_vy.png')
     # plot_spectra(Sv_ys, Sve_ys, ky, figname)
     
-    figname1 = os.path.join(figpath, 'u0_lon.png')
-    figname2 = os.path.join(figpath, 'u0_lat.png')
-    figname3 = os.path.join(figpath, 'u0_alt.png')
+    figname1 = os.path.join(figpath, 'u0_lon_%s.png' %dt.strftime('%Y%m%d_%H%M%S'))
+    figname2 = os.path.join(figpath, 'u0_lat_%s.png' %dt.strftime('%Y%m%d_%H%M%S'))
+    figname3 = os.path.join(figpath, 'u0_alt_%s.png' %dt.strftime('%Y%m%d_%H%M%S'))
     
     plot_rmses(times, lons,
              ux_log,
@@ -897,9 +897,9 @@ def main(path_ICON_model,
              vmins=vmins,
              vmaxs=vmaxs)
     
-    figname1 = os.path.join(figpath, 'ue0_lon.png')
-    figname2 = os.path.join(figpath, 'ue0_lat.png')
-    figname3 = os.path.join(figpath, 'ue0_alt.png')
+    figname1 = os.path.join(figpath, 'ue0_lon_%s.png' %dt.strftime('%Y%m%d_%H%M%S'))
+    figname2 = os.path.join(figpath, 'ue0_lat_%s.png' %dt.strftime('%Y%m%d_%H%M%S'))
+    figname3 = os.path.join(figpath, 'ue0_alt_%s.png' %dt.strftime('%Y%m%d_%H%M%S'))
     
     plot_rmses(times, lons,
              uex_log,
@@ -1032,10 +1032,10 @@ if __name__ == '__main__':
     # model_name  =   'model_20160815-000000_w03_n0.0_NS[VP_div]_o3_asine_l04_n128_d016_w1.0e+00_w1.0e-03_lr1.0e-03_NS5.0e+03_0_0_He_None_ur=1.0e-03.h5'
     
     
-    subfolder   =   'hWIND_VV_hydro_noNul03.02.256_w1.0e-05lr1.0e-03lf0ur1.0e-05T24'
+    subfolder   =   'hWIND_VV_noNul03.01.128_w1.0e-06lr1.0e-03lf0ur1.0e-06T24m4_lr'
     model_name      = None
     
-    log_index       = None
+    log_index       = 6499
     
     units           = 'm'
     gradients       = False
@@ -1046,7 +1046,7 @@ if __name__ == '__main__':
     path_PINN = os.path.join(path_meteor_data,  subfolder)
     
     if model_name is None:
-        files = glob.glob(os.path.join(path_PINN, '*/*.h5'))
+        files = glob.glob(os.path.join(path_PINN, '*/h*.h5'))
         files = sorted(files)
     else:
         files = [model_name] 

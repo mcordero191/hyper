@@ -51,8 +51,8 @@ class Grid4D():
         y_ub = nn.ub[3]
         z_ub = nn.ub[1]
         
-        tmin = nn.lb[0] + 30*60
-        tmax = nn.ub[0] - 30*60
+        tmin = nn.lb[0] + 58*60 -56
+        tmax = nn.ub[0] - 58*60 +56
         
         trange = tmax - tmin
         
@@ -224,8 +224,8 @@ class TimeAltitudePlot():
         
 
     def save_plot(self, path,
-                  vmins=[-100,-100,-5],
-                  vmaxs=[ 100, 100, 5],
+                  vmins=[-50,-50,-5],
+                  vmaxs=[ 50, 50, 5],
                   cmap='seismic',
                   sufix="",
                   ):
@@ -699,7 +699,17 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
-    parser.add_argument('-m', '--mpath', dest='mpath', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hMULT_VV_noNul04.01.032_w1.0e-05lr1.0e-03lf0ur1.0e-06T24shared/", help='Path where the model weights are')
+    
+    root = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex/"
+    dir = "hWINDsire_VV_noNul02.03.128_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3"
+    
+    # root = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
+    # dir = "hWINDsire_VP_divl02.03.064_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3"
+    #
+
+    default_dir = os.path.join(root, dir)
+    
+    parser.add_argument('-m', '--mpath', dest='mpath', default=default_dir, help='Path where the model weights are')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Path where the wind data will be saved')
     
     parser.add_argument('-g', '--gradients', dest='ena_gradients', default=0, help='Generate gradients too')
@@ -711,8 +721,8 @@ if __name__ == '__main__':
     
     parser.add_argument('--time-step', dest='tstep', default=5*60, help='in seconds')
     
-    parser.add_argument('--x-step', dest='xstep', default=100, help='in km')
-    parser.add_argument('--y-step', dest='ystep', default=100, help='in km')
+    parser.add_argument('--x-step', dest='xstep', default=20, help='in km')
+    parser.add_argument('--y-step', dest='ystep', default=20, help='in km')
     parser.add_argument('--z-step', dest='zstep', default=0.5, help='in km')
     
     parser.add_argument('--x-range', dest='xrange', default=None, help='in km')
@@ -723,7 +733,7 @@ if __name__ == '__main__':
     parser.add_argument('--lon-ref', dest='lon0', default=None, help='')
     parser.add_argument('--alt-ref', dest='alt0', default=None, help='')
     
-    parser.add_argument('--log-index', dest='log_index', default=8999, help='')
+    parser.add_argument('--log-index', dest='log_index', default=4999, help='')
     
     args = parser.parse_args()
     
@@ -754,6 +764,10 @@ if __name__ == '__main__':
     
     cmap = 'seismic'
     
+    sufix = ""
+    if log_index is not None:
+        sufix = "%05d" %log_index
+        
     if rpath is None:
         rpath_ = os.path.join(mpath, "winds")
     else:
@@ -807,7 +821,10 @@ if __name__ == '__main__':
         for hourly_file in hourly_files:
             
             #Update the temporal and spatial grid if required
-            coords = grid_4d.update(hourly_file, log_index=log_index)
+            try:
+                coords = grid_4d.update(hourly_file, log_index=log_index)
+            except:
+                continue   
             
             dt = datetime.datetime.utcfromtimestamp(np.mean(coords['t']))
             
@@ -834,7 +851,7 @@ if __name__ == '__main__':
         
         print("Plotting winds ...")
         
-        plotData.save_plot(path=figpath_)
+        plotData.save_plot(path=figpath_, sufix=sufix)
         
         if plot_std:
             plotStd.save_plot(path=figpath_,

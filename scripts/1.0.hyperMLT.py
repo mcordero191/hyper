@@ -41,8 +41,9 @@ def get_folder_suffix(short_naming,
     if short_naming:
         suffix = ""
     else:
-        suffix = "%s_%sl%02d.%02d.%03d_w%2.1elr%2.1elf%dur%2.1eT%02d%s" %(
+        suffix = "%s%s_%sl%02d.%02d.%03d_w%2.1elr%2.1elf%dur%2.1eT%02d%s" %(
                                                             nn_type[:4].upper(),
+                                                            activation[:4],
                                                             NS_type,
                                                             n_blocks,
                                                             num_hidden_layers,
@@ -156,8 +157,8 @@ def train_hyper(df,
                 ):
     
     # config_gpu(gpu_flg = 1)
-    seed = 191
-    np.random.seed(seed)
+    # seed = 191
+    # np.random.seed(seed)
     
     version = version_history.get_current_version(version_history_file)
     
@@ -309,15 +310,15 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=64, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=1, help='# kernel layers', type=int)
-    parser.add_argument('-b', '--nblocks',            dest='n_blocks', default=4, help='', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=3, help='# kernel layers', type=int)
+    parser.add_argument('-b', '--nblocks',            dest='n_blocks', default=2, help='', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=64, help='# nodes', type=int)
     
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
     parser.add_argument('--ns',                       dest='nepochs', default=10000, help='', type=int)
     
-    parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
+    parser.add_argument('--nensembles',             dest='nensembles', default=5, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
     parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
@@ -329,8 +330,8 @@ if __name__ == '__main__':
     parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-6, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
-    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
-    parser.add_argument('--srt-weight',        dest='w_srt', default=1e-1, help='Slope recovery time loss weight', type=float)
+    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-6, help='PDE weight', type=float)
+    parser.add_argument('--srt-weight',        dest='w_srt', default=1e-3, help='Slope recovery time loss weight', type=float)
     
     parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
@@ -339,9 +340,9 @@ if __name__ == '__main__':
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
-    parser.add_argument('--architecture', dest='nn_type', default='multiwindnet', help='select the network architecture: gpinn, respinn, ...')
-    parser.add_argument('--postfix',     dest='postfix', default="shared", type=str)
-    parser.add_argument('--activation',  dest='nn_activation', default='sine')
+    parser.add_argument('--architecture', dest='nn_type', default='windnet', help='select the network architecture: gpinn, respinn, ...')
+    parser.add_argument('--postfix',     dest='postfix', default="Ind3", type=str)
+    parser.add_argument('--activation',  dest='nn_activation', default='siren')
     
     parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
     
@@ -349,7 +350,7 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--nn-w-init',    dest='nn_w_init', default='HeNormal', type=str)
     
     parser.add_argument('--verbose', dest='verbose', default=1, help='', type=int)
-    parser.add_argument('--overwrite', dest='overwrite', default=0, help='', type=int)
+    parser.add_argument('--overwrite', dest='overwrite', default=1, help='', type=int)
     
     parser.add_argument('--lon-range', dest='dlon', default=None, help='degrees', type=float)
     parser.add_argument('--lat-range', dest='dlat', default=None, help='degrees', type=float)
@@ -545,7 +546,7 @@ if __name__ == '__main__':
         elif exp.upper()  == 'VORTEX':
             
             # tini            = 20
-            # dt              = 3
+            # dt              = 4
             #
             # dlon            = 400e3
             # dlat            = 400e3
@@ -693,10 +694,10 @@ if __name__ == '__main__':
         elif exp.upper()  == 'ICON2015':
             
             # tini            = 0
-            # dt              = 3
+            # dt              = 4
             
             path            = "%s/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"  %home_directory
-            noise_sigma     = 0.1
+            noise_sigma     = 0.0
             
         elif exp.upper()  == 'ICON2016':
             
@@ -713,146 +714,151 @@ if __name__ == '__main__':
     if paths is None:
         paths = [path]
     
-    suffix = get_folder_suffix(short_naming,
-                                nn_type=nn_type,
-                                dt=dt,
-                                NS_type=NS_type,
-                                activation=nn_activation,
-                                num_hidden_layers=hidden_layers,
-                                num_neurons_per_layer=neurons_per_layer,
-                                n_nodes=n_nodes,
-                                n_blocks=n_blocks,
-                                w_pde=w_pde,
-                                w_srt=w_srt,
-                                learning_rate=learning_rate,
-                                N_pde=N_pde,
-                                laaf=nn_laaf,
-                                w_init=nn_w_init,
-                                w_pde_update_rate=w_pde_update_rate,
-                                dropout  = nn_dropout,
-                                sampling_method = sampling_method,
-                                postfix = postfix,
-                                )
-    
-    for path in paths:
+    # for nn_type in ["windnet", "film", "deeponet"]:
+    if True:
+        suffix = get_folder_suffix(short_naming,
+                                    nn_type=nn_type,
+                                    dt=dt,
+                                    NS_type=NS_type,
+                                    activation=nn_activation,
+                                    num_hidden_layers=hidden_layers,
+                                    num_neurons_per_layer=neurons_per_layer,
+                                    n_nodes=n_nodes,
+                                    n_blocks=n_blocks,
+                                    w_pde=w_pde,
+                                    w_srt=w_srt,
+                                    learning_rate=learning_rate,
+                                    N_pde=N_pde,
+                                    laaf=nn_laaf,
+                                    w_init=nn_w_init,
+                                    w_pde_update_rate=w_pde_update_rate,
+                                    dropout  = nn_dropout,
+                                    sampling_method = sampling_method,
+                                    postfix = postfix,
+                                    )
         
-        path = os.path.realpath(path)
-        
-        if resource_path is None:
-            # basepath, exp_name = os.path.split(path)
-            rpath = os.path.join(path, 'h%s' %suffix)
-        else:
-            rpath = resource_path
+        for path in paths:
             
-        if not os.path.exists(rpath): os.mkdir(rpath)
-        
-        #Read meteor data in LLA coordinates
-        meteor_data = SMRReader(path, realtime=realtime)
-        
-        print('Setting new meteor middle point (LLA): ', lon_center, lat_center, alt_center)
-        meteor_data.set_spatial_center(lon_center=lon_center,
-                                      lat_center=lat_center,
-                                      alt_center=alt_center)
-        
-        #Get the updated center (in case lon, lat and alt_center were None
-        lon_center, lat_center, alt_center = meteor_data.get_spatial_center()
-        
-        while True:
+            path = os.path.realpath(path)
             
-            info = meteor_data.read_next_file(enu_coordinates=True, single_day=single_day)
-            
-            if info != 1: break
-            
-            #Create folder based on filtered data
-            exp_date = meteor_data.central_date
-        
-            exp_path = os.path.join(rpath, exp_date.strftime("c%Y%m%d"))
-            
-            if not ena_clustering:
-                exp_path = os.path.join(rpath, exp_date.strftime("d%Y%m%d"))
+            if resource_path is None:
+                # basepath, exp_name = os.path.split(path)
+                rpath = os.path.join(path, 'h%s' %suffix)
+            else:
+                rpath = resource_path
                 
-            if not os.path.exists(exp_path): os.mkdir(exp_path)
-                
-            #Plot original sampling
-            meteor_data.plot_sampling(path=exp_path, suffix='pre')
-            meteor_data.add_synthetic_noise(noise_sigma)
+            if not os.path.exists(rpath): os.mkdir(rpath)
             
-            nblocks = max(24//dt,1)
-            overlapping_time = (dt*0.1)*60*60
+            #Read meteor data in LLA coordinates
+            meteor_data = SMRReader(path, realtime=realtime)
             
-            for i in range(nblocks):
+            print('Setting new meteor middle point (LLA): ', lon_center, lat_center, alt_center)
+            meteor_data.set_spatial_center(lon_center=lon_center,
+                                          lat_center=lat_center,
+                                          alt_center=alt_center)
             
-                ti = tini + i*dt
-                
-                #Save unfiltered copy internally
-                meteor_data.filter(tini=ti, dt=dt,
-                               dlon=dlon, dlat=dlat, dh=dh,
-                               sevenfold=sevenfold,
-                               ena_clustering=ena_clustering,
-                               overlapping_time=overlapping_time,
-                                path=exp_path,
-                              )
-                
-                # meteor_data.save(exp_path)
+            #Get the updated center (in case lon, lat and alt_center were None
+            lon_center, lat_center, alt_center = meteor_data.get_spatial_center()
             
-                #Plot filtered data
-                meteor_data.plot_sampling(path=exp_path, suffix='post')
+            while True:
+                
+                info = meteor_data.read_next_file(enu_coordinates=True, single_day=single_day)
+                
+                if info != 1: break
+                
+                #Create folder based on filtered data
+                exp_date = meteor_data.central_date
             
-                if skip_training:
-                    continue
+                exp_path = os.path.join(rpath, exp_date.strftime("c%Y%m%d"))
                 
-                # meteor_data.plot_hist(path=exp_path, suffix='postfilter')
-                
-                args = [meteor_data.df]
-                
-                kwargs = {
-                            "df_testing":df_testing,
-                            "tini":ti,
-                            "dt":dt,
-                            "dlon":dlon,
-                            "dlat":dlat,
-                            "dh":dh,
-                            "rpath":exp_path,
-                            "num_outputs":num_outputs,
-                            "w_pde":w_pde,
-                            "w_data":w_data,
-                            "w_srt":w_srt,
-                            "laaf":nn_laaf,
-                            "learning_rate":learning_rate,
-                            "noise_sigma":noise_sigma,
-                            "nepochs":nepochs, 
-                            "N_pde":N_pde,
-                            "num_neurons_per_layer":neurons_per_layer,
-                            "num_hidden_layers":hidden_layers,
-                            "n_nodes":n_nodes,
-                            "n_blocks":n_blocks,
-                            "filename_model":filename_model,
-                            "transfer_learning":transfer_learning,
-                            "filename_model_tl":filename_model_tl,
-                            # "short_naming":short_naming,
-                            "activation":nn_activation,
-                            "init_sigma":nn_init_sigma,
-                            "NS_type":NS_type,
-                            "w_init":nn_w_init,
-                            "lon_center":lon_center,
-                            "lat_center":lat_center,
-                            "alt_center":alt_center,
-                            "batch_size":batch_size,
-                            "dropout":nn_dropout,
-                            "sevenfold":sevenfold,
-                            "w_pde_update_rate":w_pde_update_rate,
-                            "nn_type":nn_type,
-                            "sampling_method":sampling_method,
-                            "overwrite":overwrite,
-                            "verbose":verbose,
-                    }
-                
-                for j in range(num_ensembles):
-                    kwargs["ensemble"] = j
-                    # train_hyper(*args, **kwargs)
+                if not ena_clustering:
+                    exp_path = os.path.join(rpath, exp_date.strftime("d%Y%m%d"))
                     
-                    #Start a child process to make sure Tensorflow frees memory after training
-                    p = Process(target=train_hyper, args=args, kwargs=kwargs)
-                    p.start()
-                    p.join()
-        
+                if not os.path.exists(exp_path): os.mkdir(exp_path)
+                    
+                #Plot original sampling
+                meteor_data.plot_sampling(path=exp_path, suffix='pre')
+                meteor_data.add_synthetic_noise(noise_sigma)
+                
+                nblocks = max(24//dt,1)
+                overlapping_time = (dt*0.1)*60*60
+                
+                for i in range(nblocks):
+                
+                    ti = tini + i*dt
+                    
+                    #Save unfiltered copy internally
+                    meteor_data.filter(tini=ti, dt=dt,
+                                   dlon=dlon, dlat=dlat, dh=dh,
+                                   sevenfold=sevenfold,
+                                   ena_clustering=ena_clustering,
+                                   overlapping_time=overlapping_time,
+                                    path=exp_path,
+                                  )
+                    
+                    # meteor_data.save(exp_path)
+                
+                    #Plot filtered data
+                    meteor_data.plot_sampling(path=exp_path, suffix='post')
+                
+                    if skip_training:
+                        continue
+                    
+                    # meteor_data.plot_hist(path=exp_path, suffix='postfilter')
+                    
+                    args = [meteor_data.df]
+                    
+                    # if True:
+                        
+                    kwargs = {
+                                "df_testing":df_testing,
+                                "tini":ti,
+                                "dt":dt,
+                                "dlon":dlon,
+                                "dlat":dlat,
+                                "dh":dh,
+                                "rpath":exp_path,
+                                "num_outputs":num_outputs,
+                                "w_pde":w_pde,
+                                "w_data":w_data,
+                                "w_srt":w_srt,
+                                "laaf":nn_laaf,
+                                "learning_rate":learning_rate,
+                                "noise_sigma":noise_sigma,
+                                "nepochs":nepochs, 
+                                "N_pde":N_pde,
+                                "num_neurons_per_layer":neurons_per_layer,
+                                "num_hidden_layers":hidden_layers,
+                                "n_nodes":n_nodes,
+                                "n_blocks":n_blocks,
+                                "filename_model":filename_model,
+                                "transfer_learning":transfer_learning,
+                                "filename_model_tl":filename_model_tl,
+                                # "short_naming":short_naming,
+                                "activation":nn_activation,
+                                "init_sigma":nn_init_sigma,
+                                "NS_type":NS_type,
+                                "w_init":nn_w_init,
+                                "lon_center":lon_center,
+                                "lat_center":lat_center,
+                                "alt_center":alt_center,
+                                "batch_size":batch_size,
+                                "dropout":nn_dropout,
+                                "sevenfold":sevenfold,
+                                "w_pde_update_rate":w_pde_update_rate,
+                                "nn_type":nn_type,
+                                "sampling_method":sampling_method,
+                                "overwrite":overwrite,
+                                "verbose":verbose,
+                        }
+                    
+                    for j in range(num_ensembles):
+                        kwargs["ensemble"] = j
+                        # train_hyper(*args, **kwargs)
+                        
+                        #Start a child process to make sure Tensorflow frees memory after training
+                        p = Process(target=train_hyper, args=args, kwargs=kwargs)
+                        p.start()
+                        p.join()
+                
+                    # break

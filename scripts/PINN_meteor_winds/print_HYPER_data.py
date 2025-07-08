@@ -42,15 +42,16 @@ def save_ascii(times,
     df['v[m/s]'] = v
     df['w[m/s]'] = w
     
-    df['index_x'] = i_dns
-    df['index_y'] = j_dns
-    df['index_z'] = k_dns
-    
-    df['u_true[m/s]'] = u_dns
-    df['v_true[m/s]'] = v_dns
-    df['w_true[m/s]'] = w_dns
-    
-    df["file"] = file_dns
+    if u_dns is not None:
+        df['index_x'] = i_dns
+        df['index_y'] = j_dns
+        df['index_z'] = k_dns
+        
+        df['u_true[m/s]'] = u_dns
+        df['v_true[m/s]'] = v_dns
+        df['w_true[m/s]'] = w_dns
+        
+        df["file"] = file_dns
     
     df = pd.DataFrame.from_dict(df)
     df.dropna(inplace=True)
@@ -58,9 +59,10 @@ def save_ascii(times,
     df.to_csv(filename, float_format='%10.11g')
     
     # plt.subplot(311)
-    plt.plot(u,u_dns,"rx", label="zonal", alpha=0.1)
-    plt.plot(v,v_dns,"bh", label="meridional", alpha=0.1)
-    plt.plot(w,w_dns,"go", label="vertical", alpha=0.1)
+    if u_dns is not None:
+        plt.plot(u,u_dns,"rx", label="zonal", alpha=0.1)
+        plt.plot(v,v_dns,"bh", label="meridional", alpha=0.1)
+        plt.plot(w,w_dns,"go", label="vertical", alpha=0.1)
     
     plt.grid(True)
     plt.legend()
@@ -79,7 +81,8 @@ def main(path_meteor_data,
          zdecimation=1,
          vmins = [-10,-10,-5, None],
          vmaxs = [ 10, 10, 5, None],
-         sevenfold=False
+         sevenfold=False,
+         log_index=None
          ):
     
     figpath = os.path.join(path_PINN, '%s' %(os.path.splitext(model_name)[0]) )
@@ -92,15 +95,13 @@ def main(path_meteor_data,
     if not os.path.exists(binpath):
         os.mkdir(binpath)
     
-    
-    
     meteor_sys = SMRReader(path_meteor_data)
     
     # meteor_sys.set_spatial_center(lat_center, lon_center, alt_center)
     #Get the updated center (in case lon, lat and alt_center were None
     lon_center, lat_center, alt_center = meteor_sys.get_spatial_center()
     
-    meteor_sys.read_next_file(enu_coordinates=False)
+    meteor_sys.read_next_file(enu_coordinates=True)
     meteor_sys.filter(sevenfold=sevenfold)
     
     df_meteor = meteor_sys.df
@@ -217,6 +218,10 @@ if __name__ == '__main__':
     path_DNS     = '/Users/radar/Data/IAP/Models/DNS/NonStratified'
     path_PINN   = "/Users/radar/git/hyper/winds/nnRESPINN_30.00"
     
+    path_meteor  = '/Users/radar/Data/IAP/SIMONe/Norway/VorTex'
+    path_DNS     = None
+    path_PINN   = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hWINDsire_VV_noNul02.03.128_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3/c20230323"
+    
     # subfolder = 'nnRESPINN_15.00'
     
     model_name = None
@@ -239,4 +244,5 @@ if __name__ == '__main__':
              path_PINN,
              model_name,
              path_DNS=path_DNS,
+             log_index=log_index
              )

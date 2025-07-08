@@ -156,7 +156,7 @@ def winds_from_model(exp_folder, coords, log_index=None):
     v0 = np.zeros(T.shape, dtype=np.float32)
     w0 = np.zeros(T.shape, dtype=np.float32)
     
-    file_ensembles = glob.glob1(exp_folder, "h*i000*.h5")
+    file_ensembles = glob.glob1(exp_folder, "h*i00*.h5")
     
     N =  len(file_ensembles)
     
@@ -411,12 +411,12 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-d', '--dpath', dest='path', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hMULT_VV_noNul04.01.032_w1.0e-05lr1.0e-03lf0ur1.0e-06T24shared/c20230323", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='path', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hWINDsire_VV_noNul02.03.128_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3/c20230323", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/NewMexico/MRA/hyper24/c20240118", help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
-    parser.add_argument('-u', '--upleg', dest='upleg', default=0, help='')
-    parser.add_argument('--log-index', dest='log_index', default=8999, help='')           
+    parser.add_argument('-u', '--upleg', dest='upleg', default=1, help='')
+    parser.add_argument('--log-index', dest='log_index', default=None, help='')           
     
     args = parser.parse_args()
     
