@@ -16,9 +16,12 @@ import time
 import datetime
 import numpy as np
 
+from scipy.stats import qmc
+
 import h5py
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+
 
 import tensorflow as tf
 import keras
@@ -37,7 +40,7 @@ from pinn.NIFnet import MultiFiLMNet, FiLMNet, MultiFiLMPotentialNet
 from pinn.deeponet import DeepONet
 from pinn.windnet import MultiScaleWindNet,  MultiScaleWindNetShared, MultiScaleAttNet
 from pinn.mulscale_pinn import WindNet
-
+from pinn.losses import GradNormLoss, WeightScheduler
 # from pinn.bfgs import LBFGS
 
 class App:
@@ -129,7 +132,7 @@ class App:
         # self.N_pde   = ns_pde    #number of samples
         
         self.r_seed  = r_seed
-        self.random_seed(self.r_seed)
+        # self.random_seed(self.r_seed)
         
         self.msis       = msis
         
@@ -164,21 +167,12 @@ class App:
         self.lon_ref    = lon_ref
         self.lat_ref    = lat_ref
         self.alt_ref    = alt_ref
-            
+        
+        self.loss_manager = WeightScheduler() #GradNormLoss()
         # hiddens_shape = (self.depth-1) * [self.width]
         
         # build
-        if self.nn_type == 'gpinn':  
-                      
-            nn = genericPINN( self.shape_out,
-                              self.width,
-                              self.depth,
-                              activation  = act,
-                              add_nu     = add_nu,
-                              kernel_initializer = w_init
-                            )
-        
-        elif self.nn_type == 'windnet':  
+        if self.nn_type == 'windnet':  
                       
             nn = WindNet( self.shape_out,
                           hf_hidden     = self.width,
@@ -248,6 +242,17 @@ class App:
                                       add_nu        = add_nu,
                                     )   
         
+        elif self.nn_type == 'gpinn':  
+                      
+            nn = genericPINN( self.shape_out,
+                              self.width,
+                              self.depth,
+                              activation  = act,
+                              add_nu     = add_nu,
+                              kernel_initializer = w_init,
+                              laaf = laaf,
+                              dropout=dropout,
+                            )
             
         elif self.nn_type == 'respinn':   
                      
@@ -924,8 +929,8 @@ class App:
         #Divergence
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
         
-        div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
-        hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
+        div_w = 0.0#eq_continuity(omegax_x, omegay_y, omegaz_z)
+        hor_spec = 0.0#self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
         
         # poi_x     = eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
         # poi_y     = eq_poisson(v_xx, v_yy, v_zz, omegax_z, omegaz_x)
@@ -1045,8 +1050,8 @@ class App:
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
         
         #Dw = 0
-        div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
-        hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
+        div_w = 0.0#eq_continuity(omegax_x, omegay_y, omegaz_z)
+        hor_spec = 0.0#self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
         
         junk = 0.0
         
@@ -1724,7 +1729,7 @@ class App:
         theta_zero  =  tf.reduce_sum(theta) #Temperature perturbations must have zero-mean
         
         return(div, div_w, mom_x, mom_y, mom_z, heat, theta_zero)
-    
+
     def _select_pde_function(self, NS='VP_div'):
         
         NS_type = NS[:2].upper()
@@ -1782,8 +1787,49 @@ class App:
         
         self.pde_func = func
         
-    # @tf.function
+    @tf.function
     def pde(self, model, X):
+        '''
+        X = [t, z, x, y, nu, rho, rho_ratio, N]
+        '''
+        # print("Tracing pde!")
+        t, z, x, y, nu, rho, rho_ratio, N = tf.split(X, num_or_size_splits=8, axis=1)
+        
+        nu_scaling = self.model.nu
+        nu         = tf.math.exp(nu_scaling) #scaling
+        
+        div, div_vor, mom_x, mom_y, mom_z, hor_grad = self.pde_func(model, t, z, x, y, nu, rho, rho_ratio, N)
+        
+        # --------------------------
+        # Characteristic scales
+        # (choose physically meaningful numbers!)
+        # --------------------------
+        L0  = tf.constant(1e4 , dtype=data_type)  # 10 km
+        U0  = tf.constant(1e1 , dtype=data_type)   # 10 m/s
+        T0  = L0 / U0                             # ~1000 s
+        
+        # --------------------------
+        # Nondimensionalize outputs
+        # --------------------------
+        # div ~ 1/T
+        div = div * T0
+    
+        # div_vor ~ 1/(L T)
+        div_vor = div_vor * (L0**2/U0)
+    
+        # momentum eq residuals ~ U/T = U^2/L
+        mom_x = mom_x * (L0**2 / U0**2)
+        mom_y = mom_y * (L0**2 / U0**2)
+        mom_z = mom_z * (L0**2 / U0**2)
+    
+        # if hor_grad is a gradient (units of 1/L), nondimensionalize:
+        hor_grad = hor_grad * L0
+    
+        # print("Finish tracing pde!")
+        
+        return (div, div_vor, mom_x, mom_y, mom_z, hor_grad)
+    
+    def pde2(self, model, X):
         '''
         X = [t, z, x, y, nu, rho, rho_ratio, N]
         '''
@@ -1814,6 +1860,7 @@ class App:
         # print("Finish tracing pde!")
         
         return (div, div_vor, mom_x, mom_y, mom_z, hor_grad)
+    
     
     def loss_horizontal_spectra(self, u_x, u_y, v_x, v_y, w_x, w_y):
         
@@ -1867,7 +1914,7 @@ class App:
         # print("Tracing loss_data!")
         
         f       = tf.constant(2*np.pi)*X[:,4:5]
-        f_err   = tf.constant(2*np.pi)*X[:,5:6]
+        weights = X[:,5:6]
         k       = X[:,6:9]
         
         #Standard
@@ -1882,7 +1929,7 @@ class App:
         # weights = 1.0 + alpha * w_sens
 
         # loss = 1e2*tf.reduce_mean(tf.abs(df0/f_err))
-        loss = tf.reduce_mean(tf.square(df0/f_err))
+        loss = tf.reduce_mean(weights*tf.square(df0/(2*np.pi)))
         
         return (loss)
     
@@ -1949,13 +1996,14 @@ class App:
         return (loss)
   
     
-    def loss_slope_recovery_term(self, target_alpha=10.0):
+    def loss_slope_recovery_term(self, target_alpha=3.0):
         '''
         Jagtap AD, Kawaguchi K,Karniadakis GE. 2020
         Locally adaptive activation functions with slope recovery for deep and physics-informed neural networks.
         Proc.R.Soc.A476: 20200334.
         http://dx.doi.org/10.1098/rspa.2020.0334
         '''
+    
         if self.laaf:
             
             alphas = []
@@ -1969,7 +2017,7 @@ class App:
                 # slt = -tf.reduce_mean(tf.square(alpha_tensor/target_alpha))
                 slt = tf.reduce_mean( tf.square(alpha_tensor - target_alpha ) )
             else:
-                slt = tf.reduce_mean(tf.square(self.model.alphas-target_alpha))
+                slt = tf.reduce_sum(tf.square(self.model.alphas*self.model.gates-target_alpha))
 
         else:
             slt = 0.0
@@ -2001,60 +2049,6 @@ class App:
         # L_gwav = gravity_wave_loss(UV, shell_idx, N_shells=8)
         
         return L_turb #+ L_gwav
-        
-    def loss_glb(self, 
-                 model,
-                 X_data,
-                 X_pde,
-                 w_data = 1.0,
-                 w_pde  = 1.0,
-                 w_srt  = 1.0,
-                 w_spec = 1e6,
-                 **kwargs
-                ):
-        
-        # print("Tracing loss_glb!") 
-        
-        loss_data = self.loss_data(model, X_data)
-        
-        loss_div, loss_div_vor, loss_mom, loss_hor_grad = self.loss_pde(model, X_pde)
-        
-        #Scaling losses based on gradients magnitudes
-        loss_pde = loss_div + loss_div_vor + loss_mom
-        
-        loss_srt = self.loss_slope_recovery_term()
-        
-        # loss_spec = 0.0
-        # loss_spec = self.loss_spectra()
-        # loss_w  = self.loss_w(model, X_pde)
-        
-        # loss_total = tf.square(w_data)*loss_data + tf.square(w_div)*loss_div + tf.square(w_mom)*loss_mom + tf.square(w_temp)*loss_div_vor + tf.square(w_srt)*loss_srt
-        
-        loss_total = w_data*loss_data + w_pde*loss_pde + w_srt*loss_srt + w_spec*loss_hor_grad
-        
-        # print("Finish tracing loss_glb!") 
-        
-        return loss_total, loss_data, loss_pde, loss_mom, w_spec*loss_hor_grad, w_srt*loss_srt
-    
-    @tf.function
-    def train_step(self, *args, **kwargs):
-        
-        trainable_variables = self.model.trainable_variables
-        
-        with tf.GradientTape(persistent=False) as tp:
-            
-            losses = self.loss_glb(*args, **kwargs)
-        
-            loss_total  = losses[0]
-            
-        gradients = tp.gradient(loss_total, trainable_variables)
-        
-        # Clip the gradients to prevent them from exploding or vanishing
-        gradients = [tf.clip_by_norm(grad, clip_norm=1.0) for grad in gradients]
-    
-        self.optimizer.apply_gradients(zip(gradients, trainable_variables))
-        
-        return losses
     
     @tf.function
     def adaptive_pde_weights(self, *args, **kwargs):
@@ -2096,37 +2090,100 @@ class App:
         # print("Finish tracing grad_desc_plus!") 
         
         return w_pde, grad_data_mean, grad_pde_mean
-    
-    def update_lla_reference(self, df):
+
+    # @tf.function
+    def loss_glb(self, 
+                 model,
+                 X_data,
+                 X_pde,
+                 w_data = 1.0,
+                 w_pde  = 1.0,
+                 w_srt  = 1.0,
+                 w_spec = 1e6,
+                 **kwargs
+                ):
+
+        # Raw scalar PDE/data losses
+        loss_data = self.loss_data(model, X_data)
+        loss_div, loss_div_vor, loss_mom, loss_hor_spec = self.loss_pde(model, X_pde)
         
-        lon = df['lons'].values                             #[N]
-        lat = df['lats'].values                             #[N]
-        alt = df['heights'].values                          #[N]                  #[N,3]
+        loss_srt = self.loss_slope_recovery_term()
         
-        if self.lon_ref is None:
-            self.lon_ref    = np.int32( lon.mean()*2 )/2.0
+        # # Get weighted terms + weights
+        loss_total, logs = self.loss_manager( loss_data, loss_div, loss_div_vor, loss_mom, loss_srt)
+        
+        return loss_total, logs
+
+    @tf.function
+    def train_step2(self, model,  X_data, X_pde, optimizer, **kwargs):
+        
+        model_variables = model.trainable_variables
+        manager_variables = self.loss_manager.trainables
+        
+        with tf.GradientTape(persistent=False) as tp:
             
-        if self.lat_ref is None:
-            self.lat_ref    = np.int32( lat.mean()*2 )/2.0
+            loss_total, logs = self.loss_glb(model,  X_data, X_pde, **kwargs)
             
-        if self.alt_ref is None:
-            self.alt_ref    = np.int32( alt.mean()*2 )/2.0
+        # grads = tp.gradient(loss_total, model_variables)
+        # optimizer.apply_gradients(zip(grads, model_variables))
+        
+        grads = tp.gradient(loss_total, model_variables + manager_variables)
+        optimizer.apply_gradients(zip(grads, model_variables + manager_variables))
+
+        # Update λ after optimizer
+        self.loss_manager.update()
+        
+        return loss_total, logs
     
-    def _get_training_domain(self, X_data):
+    @tf.function
+    def train_step(self, model, X_data, X_pde, optimizer, **kwargs):
         
-        # Get raw min and max
-        x_min = tf.reduce_min(X_data, axis=0)[:4]
-        x_max = tf.reduce_max(X_data, axis=0)[:4]
+        with tf.GradientTape(persistent=True) as tape:
+            # compute all losses
+            loss_data = self.loss_data(model, X_data)
+            loss_div, loss_div_vor, loss_mom, _ = self.loss_pde(model, X_pde)
+            
+            loss_srt = self.loss_slope_recovery_term()
+            
+            # combine with current weights
+            L_total, logs = self.loss_manager(loss_data, loss_div, loss_div_vor, loss_mom, loss_srt)
+    
+        # apply model gradients
+        grads = tape.gradient(L_total, model.trainable_variables)
+        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+    
+        # def grad_norm(grads):
+        #     grads = [g for g in grads if g is not None]
+        #     return tf.linalg.global_norm(grads)
+        #
+        # grads_data = tape.gradient(loss_data, model.trainable_variables)
+        # grads_div = tape.gradient(loss_div, model.trainable_variables)
+        # grads_mom = tape.gradient(loss_mom, model.trainable_variables)
+        # # grads_div_vor = tape.gradient(loss_div_vor, model.trainable_variables)
+        #
+        # g_data = grad_norm(grads_data)
+        # g_div = grad_norm(grads_div)
+        # g_mom = grad_norm(grads_mom)
+        # g_div_vor = 1.0 #grad_norm(grads_div_vor)
         
-        scale = tf.stack( [3600, 1e3, 1e3, 1e3] )
-        # Convert units
-        # Round
-        min_rounded = tf.math.floor( x_min/scale )*scale
+        # # compute per-loss gradient norms
         
-        max_rounded = tf.math.ceil( x_max/scale )*scale
-                
-        return(min_rounded, max_rounded)
+        # g_data = tf.reduce_mean([tf.norm(g) for g in grads_data if g is not None])
+        # g_div = tf.reduce_mean([tf.norm(g) for g in grads_div if g is not None])
+        # g_mom = tf.reduce_mean([tf.norm(g) for g in grads_mom if g is not None])
+        # g_div_vor = tf.reduce_mean([tf.norm(g) for g in grads_div_vor if g is not None])
         
+        del tape
+        
+        # grads = {"grad_data": g_data, "grad_div": g_div, "grad_mom": g_mom, "grad_div_vor": g_div_vor}
+    
+        # update PDE weights (for next iteration)
+        self.loss_manager.update()#grads, logs)
+    
+        logs.update()#grads)
+        
+        return L_total, logs
+
     def train(self,
               df_training,
               df_testing,
@@ -2150,6 +2207,7 @@ class App:
               w_srt   = 1.0,
               ns_pde  = 5000,
               sampling_method="adaptive",
+              w_pde_max = 1e4,
               # NS_type     = 'VP',             #Velocity-Vorticity (VV) or Velocity-Pressure (VP) form
               ):
             
@@ -2209,8 +2267,8 @@ class App:
         # ep_grad      = 0.
         ep_grad_data = 0.
         ep_grad_pde  = 0.
-        # ep_grad_mom  = 0.
-        # ep_grad_temp = 0.
+        ep_grad_mom  = 0.
+        ep_grad_temp = 0.
         # ep_grad_srt  = 0.
         
         # min_loss    = 1e10
@@ -2243,11 +2301,9 @@ class App:
         
         self._select_pde_function(self.NS_type)
         self.select_PDE_sampling(method=sampling_method, N=ns_pde)
-        self.gen_frequency_grid()
+        # self.gen_frequency_grid()
         
         t0 = time.time()
-        
-        w_pde_max = 1e4
         
         for ep in range(epochs):
             
@@ -2257,21 +2313,38 @@ class App:
             
             self.model.update_mask(epochs)
             
-            losses = self.train_step(
+            loss_total, logs = self.train_step(
                                      self.model,
                                      X_data,
                                      X_pde,
+                                     self.optimizer,
                                      w_data=w_data,
                                      w_pde=w_div,
                                      w_srt=w_srt,
                                      )
                     
-            ep_loss         = losses[0]
-            ep_loss_data    = losses[1]
-            ep_loss_pde     = losses[2]
-            ep_loss_mom     = losses[3]
-            ep_loss_temp    = losses[4]
-            ep_loss_srt     = losses[5]
+            ep_loss         = loss_total
+            ep_loss_data    = logs["loss_data"]
+            ep_loss_pde     = logs["loss_div"]
+            ep_loss_mom     = logs["loss_mom"]
+            ep_loss_temp    = logs["loss_div_vor"]
+            ep_loss_srt     = logs["loss_srt"]
+            
+            # ep_grad_data    = logs["grad_data"]
+            # ep_grad_div     = logs["grad_div"]
+            # ep_grad_mom     = logs["grad_mom"]
+            # ep_grad_div_vor = logs["grad_div_vor"]
+            
+            # ep_frac_div     = logs["frac_div"]
+            # ep_frac_mom     = logs["frac_mom"]
+            # ep_frac_div_vor = logs["frac_div_vor"]
+            
+            
+            w_data = logs["w_data"]
+            w_mom = logs["w_mom"]
+            w_div = logs["w_div"]
+            w_temp = logs["w_div_vor"]
+            w_srt = logs["w_srt"]
             
             ep_loss_u = np.nan
             ep_loss_v = np.nan
@@ -2312,10 +2385,10 @@ class App:
                        )
                     )
                 
-                print("\t\t\tTotal \tData \tPDE  \tMomentum \tGrad{u} \tSRT " )
+                print("\t\t\tTotal \tData \tDIV  \tMomt \tDivW  \tSRT " )
                  
                  
-                print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e\t\t%.1e\t%.1e" 
+                print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e\t%.1e\t%.1e" 
                     % (
                        ep_loss,
                        ep_loss_data,
@@ -2326,60 +2399,71 @@ class App:
                        )
                     )
                 
-                print("\tweights: \t\t%.1e\t%.1e" #\t%.1e\t%.1e" 
+                print("\tweights: \t\t%.1e\t%.1e\t%.1e\t%.1e\t%.1e" 
                     % (
                        w_data,
                        w_div,
-                       # w_mom,
-                       # w_temp,
-                       # w_srt
+                        w_mom,
+                        w_temp,
+                        w_srt,
                        )
                     )
                 
-                print("\tgrads  : \t\t%.1e\t%.1e" #\t%.1e\t%.1e" 
-                    % (
-                       ep_grad_data,
-                       ep_grad_pde,
-                       # ep_grad_mom,
-                       # ep_grad_temp,
-                       # ep_grad_srt
-                       )
-                    )
+                # print("\tgrads  : \t\t%.1e\t%.1e\t%.1e\t%.1e" 
+                #     % (
+                #        ep_grad_data,
+                #        ep_grad_div,
+                #         ep_grad_mom,
+                #         ep_grad_div_vor,
+                #         # ep_grad_srt,
+                #        )
+                #     )
                 
-                print("\t\t\tu \t\tv \t\tw" )
+                # print("\tfrac  : \t\t\t%.1e\t%.1e\t%.1e" 
+                #     % (
+                #        ep_frac_div,
+                #         ep_frac_mom,
+                #         ep_frac_div_vor,
+                #         # ep_grad_srt,
+                #        )
+                #     )
                 
-                print("\tTV  : \t\t%.2e \t%.2e \t%.2e" 
-                    % (tv_u,
-                       tv_v,
-                       tv_w,
-                       )
-                    )
-                
-                print("\tTVe : \t\t%.2e \t%.2e \t%.2e" 
-                    % (tv_ue,
-                       tv_ve,
-                       tv_we,
-                       )
-                    )
-                
-                print("\trmse: \t\t%.2e \t%.2e \t%.2e" 
-                    % (ep_loss_u,
-                       ep_loss_v,
-                       ep_loss_w,
-                       )
-                    )
+                if np.isfinite(tv_u):
+                    
+                    print("\t\t\tu \t\tv \t\tw" )
+                    
+                    print("\tTV  : \t\t%.2e \t%.2e \t%.2e" 
+                        % (tv_u,
+                           tv_v,
+                           tv_w,
+                           )
+                        )
+                    
+                    print("\tTVe : \t\t%.2e \t%.2e \t%.2e" 
+                        % (tv_ue,
+                           tv_ve,
+                           tv_we,
+                           )
+                        )
+                    
+                    print("\trmse: \t\t%.2e \t%.2e \t%.2e" 
+                        % (ep_loss_u,
+                           ep_loss_v,
+                           ep_loss_w,
+                           )
+                        )
                 
                 # print("\tHF: log_sigma =", float(self.model.high_net.four_feat.log_sigma.value))
-                print("\n\tena_hf =", self.model.gates.numpy())
-                # print("\n\thf_alphas =", self.model.high_net.alphas.numpy())
+                print("\n\tena_stages =", self.model.gates.numpy())
+                print("\n\talphas =", self.model.alphas.numpy())
                 
-                alphas = []
-                for var in self.model.trainable_variables:
-                    if var.name.endswith("log_sigma"):
-                        # amplify the σ‐gradient by 10×
-                        alphas.append("%.2f" %var.value.numpy())
-                
-                print("\tlog_sigma =", alphas)
+                # alphas = []
+                # for var in self.model.trainable_variables:
+                #     if var.name.endswith("log_sigma"):
+                #         # amplify the σ‐gradient by 10×
+                #         alphas.append("%.2f" %var.value.numpy())
+                #
+                # print("\tlog_sigma =", alphas)
             
             #Save logs
             self.ep_log.append(ep)
@@ -2426,9 +2510,9 @@ class App:
             #                                                                  )
                 
             #Update w_pde
-            if w_pde_max != 0:
-                w_div  = (1.0-w_pde_update_rate)*w_div  + w_pde_update_rate*max(w_pde_max, w_div)
-            
+            # if w_pde_max != 0:
+            #     w_div  = (1.0-w_pde_update_rate)*w_div  + w_pde_update_rate*max(w_pde_max, w_div)
+            #
             # if ep_grad_mom != 0:
             #     # w_mom  = w_div*1e4 
             #     w_mom  = (1.0-alpha)*w_mom  + alpha*max(ep_grad_data/ep_grad_mom, w_mom)
@@ -2436,18 +2520,49 @@ class App:
             # if ep_grad_temp != 0:
             #     # w_temp = w_div*1e10
             #     w_temp = (1.0-alpha)*w_temp + alpha*max(ep_grad_data/ep_grad_temp, w_temp)
-            
+            #
             # if ep_grad_srt != 0:
             #     w_srt = (1.0-w_pde_update_rate_)*w_srt   + 1e-2*w_pde_update_rate_*ep_grad_data/ep_grad_srt
             
-            if ep_loss < tol:
-                print(">>>>> program terminating with the loss converging to its tolerance.")
-                break
+            # if ep_loss < tol:
+            #     print(">>>>> program terminating with the loss converging to its tolerance.", ep_loss, tol)
+                # break
         
         print("\n************************************************************")
         print("*****************     MAIN PROGRAM END     *****************")
         print("************************************************************")
         print(">>>>> end time:", datetime.datetime.now())
+        
+    def update_lla_reference(self, df):
+        
+        lon = df['lons'].values                             #[N]
+        lat = df['lats'].values                             #[N]
+        alt = df['heights'].values                          #[N]                  #[N,3]
+        
+        if self.lon_ref is None:
+            self.lon_ref    = np.int32( lon.mean()*2 )/2.0
+            
+        if self.lat_ref is None:
+            self.lat_ref    = np.int32( lat.mean()*2 )/2.0
+            
+        if self.alt_ref is None:
+            self.alt_ref    = np.int32( alt.mean()*2 )/2.0
+    
+    def _get_training_domain(self, X_data):
+        
+        # Get raw min and max
+        x_min = tf.reduce_min(X_data, axis=0)[:4]
+        x_max = tf.reduce_max(X_data, axis=0)[:4]
+        
+        scale = tf.stack( [5*60, 1e3, 1e3, 1e3] )
+        # Convert units
+        # Round
+        min_rounded = tf.math.floor( x_min/scale )*scale
+        
+        max_rounded = tf.math.ceil( x_max/scale )*scale
+                
+        return(min_rounded, max_rounded)
+        
     
         
     def convert_df2tensors(self, df):    
@@ -2470,7 +2585,11 @@ class App:
         w = df['w'].values                              #[N]
         
         dops        = df['dops'].values
-        dop_errs    = df['dop_errs'].values
+        
+        if "weights" in df.keys():
+            weights     = df['weights'].values
+        else:
+            weights = np.ones(len(t))
         
         k = np.stack([kx, ky, kz], axis=1)                      #[N,3]
         
@@ -2488,13 +2607,13 @@ class App:
         d  = tf.convert_to_tensor(dops.reshape(-1,1), data_type)
         k  = tf.convert_to_tensor(k.reshape(-1,3), data_type)
         
-        d_err  = tf.convert_to_tensor(dop_errs.reshape(-1,1), data_type)
+        lambd  = tf.convert_to_tensor(weights.reshape(-1,1), data_type)
         
         u = tf.convert_to_tensor(u.reshape(-1,1), data_type)
         v = tf.convert_to_tensor(v.reshape(-1,1), data_type)
         w = tf.convert_to_tensor(w.reshape(-1,1), data_type)
         
-        X  = tf.concat([t, z, x, y, d, d_err, k, u, v, w], axis=1)
+        X  = tf.concat([t, z, x, y, d, lambd, k, u, v, w], axis=1)
         
         return(X)
     
@@ -2509,7 +2628,7 @@ class App:
         # rz = (self.ubi[1] -  self.lbi[1])/2.0
         
         r = np.sqrt( ((x-x0)/rx)**2 + ((y-y0)/ry)**2)# + ((z-z0)/rz)**2 )
-        mask = (r > 1.0)
+        mask = (r > 0.9)
         
         mask |= (t<self.lbi[0]) | (t>self.ubi[0])
         # mask |= (x<self.lbi[2]) | (x>self.ubi[2])
@@ -2977,9 +3096,9 @@ class App:
         elif method == "lhs":
             self._set_LH_sampling(**kwargs)
             self.gen_PDE_samples = self._gen_LH_samples
-        elif method == "equidistant":
-            self._set_equidistant_sampling(**kwargs)
-            self.gen_PDE_samples = self._gen_equidistat_samples
+        elif method == "uniform":
+            self._set_uniform_sampling(**kwargs)
+            self.gen_PDE_samples = self._gen_uniform_grid
         elif method == "adaptive":
             self._set_LH_sampling(**kwargs)
             self.gen_PDE_samples = self._gen_adaptive_samples
@@ -3102,98 +3221,8 @@ class App:
         X = tf.concat([t, z, x, y, nu, rho, rho_ratio, N], axis=1)
         
         return X
-    
-    def _set_random_sampling_ori(self, N):
-        
-        """
-        Raissi et al 2019. JCP
-        Leiteritz and Pfluger 2021 
-        """
-        
-        tmin = self.lbi[0].numpy()
-        tmax = self.ubi[0].numpy()
-        
-        xmin = self.lbi[2].numpy()
-        xmax = self.ubi[2].numpy()
-        
-        ymin = self.lbi[3].numpy()
-        ymax = self.ubi[3].numpy()
-        
-        zmin = self.lbi[1].numpy()
-        zmax = self.ubi[1].numpy()
-        
-        #Set mean and width
-        self.pde_x0 = (xmax+xmin)/2.0
-        self.pde_y0 = (ymax+ymin)/2.0
-        self.pde_z0 = (zmax+zmin)/2.0
-        self.pde_t0 = (tmax+tmin)/2.0
-        
-        self.pde_xw = (xmax-xmin)/2.0
-        self.pde_yw = (ymax-ymin)/2.0
-        self.pde_zw = (zmax-zmin)/2.0
-        self.pde_tw = (tmax-tmin)/2.0
-        
-        self.pde_N = N
-        
-        # print("\nNumber of collocation points (t,x,y,z): [%d, %d, %d, %d] = %d" %(Nt, Nx, Ny, Nz, Nt*Nx*Ny*Nz) )
-        # print("Time range: %e s - %e s = %e min" %(tmin, tmax, (tmax-tmin)/60.0) )
-        
-    def _gen_random_samples_ori(self, *args):
-        
-        """
-        Raissi et al 2019. JCP
-        Leiteritz and Pfluger 2021 
-        """
-        
-        shape = (self.pde_N, 1)
-        
-        rng = np.random.default_rng()
-        
-        ###Draw uniformly sampled collocation points
-        points   = rng.uniform(-1.0, 1.0, size=shape)
-        x = self.pde_xw*points + self.pde_x0
-        
-        points   = rng.uniform(-1.0, 1.0, size=shape)
-        y = self.pde_yw*points + self.pde_y0
-        
-        points   = rng.uniform(-1.0, 1.0, size=shape)
-        z = self.pde_zw*points + self.pde_z0
-        
-        points   = rng.uniform(-1.0, 1.0, size=shape)
-        t = self.pde_tw*points + self.pde_t0
-        
-        zeros = tf.constant(0.0, shape=(self.N_pde,1))
-        ones = tf.constant(1.0, shape=(self.N_pde,1))
-        
-        N       = ones
-        nu      = 1e1*ones
-        rho     = ones
-        rho_ratio   = zeros
-        
-        if self.msis is not None:
-            
-            N       = self.msis.get_N(z)
-            # nu      = self.msis.get_nu(z)
-            rho     = self.msis.get_rho(z)
-            rho_z   = self.msis.get_rho_z(z)
-            rho_ratio = rho_z/rho
-        
-            N       = tf.convert_to_tensor(N.reshape(-1,1), dtype=data_type)
-            # nu      = tf.convert_to_tensor(nu.reshape(-1,1), dtype=data_type)
-            rho     = tf.convert_to_tensor(rho.reshape(-1,1), dtype=data_type)
-            rho_z   = tf.convert_to_tensor(rho_z.reshape(-1,1), dtype=data_type)
-            rho_ratio = tf.convert_to_tensor(rho_ratio.reshape(-1,1), dtype=data_type)
-            
-        X = tf.concat(
-                      [t, z,
-                       x, y,
-                       nu, rho, rho_ratio, N,
-                       ],
-                       axis=1)
-        
-        return(X)
-    
-    def _set_LH_sampling(self, N):
+
+    def _set_uniform_sampling(self, N):
         
         """
         Raissi et al 2019. JCP
@@ -3213,9 +3242,9 @@ class App:
         zmax = self.ubi[1].numpy()
         
         #Define grid resolution
-        dx = 1e3   #meters
-        dy = 1e3
-        dz = 0.1e3
+        dx = 5e3   #meters
+        dy = 5e3
+        dz = 0.25e3
         dt = 5*60  #seconds
         
         x = np.arange(xmin, xmax+dx, dx, dtype=np.float32)
@@ -3240,7 +3269,7 @@ class App:
         # print("\nNumber of collocation points (t,x,y,z): [%d, %d, %d, %d] = %d" %(Nt, Nx, Ny, Nz, Nt*Nx*Ny*Nz) )
         print("Time range: %e s - %e s = %e min" %(tmin, tmax, (tmax-tmin)/60.0) )
         
-    def _gen_LH_samples(self, *args):
+    def _gen_uniform_samples(self, *args):
         
         """
         Raissi et al 2019. JCP
@@ -3293,6 +3322,71 @@ class App:
                        axis=1)
         
         return(X)
+    
+    def _set_LH_sampling(self, N):
+        """
+        Proper Latin Hypercube Sampling (LHS).
+        Ensures stratified coverage in each dimension.
+    
+        Parameters
+        ----------
+        N : int
+            Number of collocation points.
+        """
+        self.pde_N = N
+    
+        # Domain bounds (t, z, x, y)
+        self.tmin, self.tmax = self.lbi[0].numpy(), self.ubi[0].numpy()
+        self.zmin, self.zmax = self.lbi[1].numpy(), self.ubi[1].numpy()
+        self.xmin, self.xmax = self.lbi[2].numpy(), self.ubi[2].numpy()
+        self.ymin, self.ymax = self.lbi[3].numpy(), self.ubi[3].numpy()
+    
+        # LHS in 4 dimensions: (t, z, x, y)
+        self.sampler = qmc.LatinHypercube(d=4, seed=None)
+        
+    
+        # Scale to domain bounds
+        self.l_bounds = [self.tmin, self.zmin, self.xmin, self.ymin]
+        self.u_bounds = [self.tmax, self.zmax, self.xmax, self.ymax]
+        
+    def _gen_LH_samples(self, *args):
+        """
+        Generate Latin Hypercube collocation points.
+        Returns: Tensor of shape (N, features)
+        """
+    
+        sample = self.sampler.random(self.pde_N)  # shape (N, 4)
+        scaled = qmc.scale(sample, self.l_bounds, self.u_bounds)  # shape (N, 4)
+    
+        t = scaled[:, 0:1]
+        z = scaled[:, 1:2]
+        x = scaled[:, 2:3]
+        y = scaled[:, 3:4]
+    
+        # Auxiliary variables
+        zeros = tf.zeros((self.pde_N, 1), dtype=tf.float32)
+        ones  = tf.ones((self.pde_N, 1), dtype=tf.float32)
+    
+        N   = ones
+        nu  = 1e1 * ones
+        rho = ones
+        rho_ratio = zeros
+    
+        if self.msis is not None:
+            N       = self.msis.get_N(z)
+            rho     = self.msis.get_rho(z)
+            rho_z   = self.msis.get_rho_z(z)
+            rho_ratio = rho_z / rho
+    
+            N        = tf.convert_to_tensor(N.reshape(-1, 1), dtype=data_type)
+            rho      = tf.convert_to_tensor(rho.reshape(-1, 1), dtype=data_type)
+            rho_z    = tf.convert_to_tensor(rho_z.reshape(-1, 1), dtype=data_type)
+            rho_ratio = tf.convert_to_tensor(rho_ratio.reshape(-1, 1), dtype=data_type)
+    
+        # Final tensor: (t, z, x, y, nu, rho, rho_ratio, N)
+        X = tf.concat([t, z, x, y, nu, rho, rho_ratio, N], axis=1)
+    
+        return X
 
     def _set_Chebyshev_sampling(self, tmin=None, tmax=None, mult=1.0):
         
@@ -3419,10 +3513,11 @@ class App:
         
         return(X_pde)
     
-    def _gen_adaptive_samples(self, iteration, *args):
+    def _gen_adaptive_samples_OLD(self, iteration, *args):
         
+        refresh_rate = 20
         
-        if (self._X_pde is not None) and (iteration % 10 != 0):
+        if (self._X_pde is not None) and (iteration % refresh_rate != 0):
             return self._X_pde
         
         print("r", end="")
@@ -3441,15 +3536,8 @@ class App:
         if self._X_pde is None:
             self._X_pde      = X_pde
             self._X_pde_loss = loss_pde
+            
             return(X_pde)
-        
-        # outputs = self.pde(self.model, self._X_pde)
-        #
-        # loss_div        = tf.square(outputs[0])
-        # loss_div_vor    = tf.square(outputs[1])
-        # loss_mom        = tf.square(outputs[2]) + tf.square(outputs[3]) + tf.square(outputs[4]) 
-        #
-        # loss_current_points = loss_div + loss_div_vor + loss_mom
         
         #Keep the sample points with higher losses
         X    = tf.where(loss_pde > self._X_pde_loss, X_pde, self._X_pde)
@@ -3460,112 +3548,82 @@ class App:
         
         return(X)
     
-    def _gen_uniform_grid(self, Nt=16, Nx=16, Ny=16, Nz=1):
+    def _gen_adaptive_samples(self, iteration, *args):
         """
-        Build a uniform 4D grid: t ∈ [t_min, t_max], x ∈ [x_min, x_max], etc.
-        Returns:
-          T_grid, X_grid, Y_grid, Z_grid each of shape (Nt, Nx, Ny, Nz).
-          kx_vals, ky_vals : the discrete horizontal wavenumber arrays (for Nx, Ny).
-          omega_vals        : the discrete angular‐frequency array (for Nt).
+        Adaptive residual-based PDE sampling with LHS initialization.
+        
+        Features:
+          • LHS initialization for uniform coverage.
+          • Every `refresh_rate` iterations, generate new LHS candidates.
+          • Keep a fraction of old points (`retain_frac`) for global coverage.
+          • For the rest, keep whichever samples (old vs new) have higher residuals.
+          • Normalize residuals per equation before combining them.
         """
+        refresh_rate = 20     # how often to refresh (iterations)
+        retain_frac  = 0.2    # keep 20% of old samples regardless of residual
+        
+        # Case 1: reuse previous samples unless refresh is due
+        if (self._X_pde is not None) and (iteration % refresh_rate != 0):
+            return self._X_pde
     
-        # 1A) Create 1D coordinate arrays
-        t_min, t_max = -1.0, 1.0
-        x_min, x_max = -1.0, 1.0
-        y_min, y_max = -1.0, 1.0
-        z_min, z_max = 0.0, 1.0
+        print("r", end="")
     
-        # Uniform samples in each dimension
-        t_vals = np.linspace(t_min, t_max, Nt, endpoint=False)  # shape (Nt,)
-        x_vals = np.linspace(x_min, x_max, Nx, endpoint=False)  # shape (Nx,)
-        y_vals = np.linspace(y_min, y_max, Ny, endpoint=False)  # shape (Ny,)
-        z_vals = np.linspace(z_min, z_max, Nz, endpoint=False)  # shape (Nz,)
+        # Case 2: generate new candidates with LHS
+        X_pde_new = self._gen_LH_samples()
     
-        # 1B) Build 4D meshgrid for model evaluation
-        #   Each of shape (Nt, Nx, Ny, Nz)
-        T_grid, Z_grid, X_grid, Y_grid = np.meshgrid( t_vals, z_vals, x_vals, y_vals, indexing='ij' )
+        # Compute PDE residuals at new candidates
+        outputs = self.pde(self.model, X_pde_new)
     
-        shape4D = T_grid.shape
-        
-        T_grid = T_grid.reshape(-1,1)
-        Z_grid = Z_grid.reshape(-1,1)
-        X_grid = X_grid.reshape(-1,1)
-        Y_grid = Y_grid.reshape(-1,1)
-        
-        X = tf.concat( (T_grid, Z_grid, X_grid, Y_grid), axis=1)
-        
-        # 1C) Pre‐compute the horizontal wavenumbers for FFTs:
-        #     If x_range = [x_min, x_max], total length Lx = x_max – x_min,
-        #     then kx_i = 2π * i / Lx for i = 0..Nx/2, and negative‐frequencies for i > Nx/2.
-        Lx = x_max - x_min
-        Ly = y_max - y_min
-        Lt = t_max - t_min
-        
-        # note: we will use np.fft.fftfreq(Nx, d=Δx) * 2π  to get “angular” kx array
-        kx_vals = 2.0 * np.pi * np.fft.fftfreq(Nx, d=Lx/Nx)  # shape (Nx,)
-        ky_vals = 2.0 * np.pi * np.fft.fftfreq(Ny, d=Ly/Ny)  # shape (Ny,)
-        # 1D temporal frequencies (angular) for FFT along time:
-        omega_vals = 2.0 * np.pi * np.fft.fftfreq(Nt, d=Lt/Nt)  # shape (Nt,)
-        
-        kx = tf.cast(kx_vals, tf.float32)
-        ky = tf.cast(ky_vals, tf.float32)
-        omega = tf.cast(omega_vals, tf.float32)
-        
-        return (X, kx, ky, omega, shape4D)
-
-    def gen_frequency_grid(self, Nt=16, Nx=32, Ny=32, Nz=1, N_shells=8):
-        """
-        Returns:
-          • kx      : tf.float32, shape=(Nx,), the horizontal wavenumbers along x in rad/km
-          • ky      : tf.float32, shape=(Ny,), the horizontal wavenumbers along y in rad/km
-          • omega   : tf.float32, shape=(T,),  the temporal frequencies in rad/hour
-          • k_mag   : tf.float32, shape=(Nx,Ny), where k_mag[i,j] = sqrt(kx[i]^2 + ky[j]^2)
-          • shell_idx : tf.int32, shape=(Nx*Ny,), each in [0..N_shells-1], assigning each (i,j) to a radial bin
+        # Residuals for each PDE equation
+        loss_div     = tf.square(outputs[0])
+        loss_div_vor = tf.square(outputs[1])
+        loss_mom     = tf.square(outputs[2]) + tf.square(outputs[3]) + tf.square(outputs[4])
     
-        Inputs:
-          • Nx, Ny : integers (grid sizes along x,y)
-          • dx, dy : floats  (grid spacing in km, e.g. dx = 3.0 means 3 km per grid cell in x)
-          • T      : integer (number of time steps in your sliding “snapshot”)
-          • dt     : float   (time spacing in hours, e.g. dt = 0.5 means 30 min)
-          • N_shells : integer (number of radial bins in k‐space)
-        """
-        
-        X, kx, ky, omega, shape4D = self._gen_uniform_grid(Nt, Nx, Ny, Nz)
-        
-        # 2) Build 2D meshgrid of |k|
-        #    We want kx_grid[i,j] = kx[i], ky_grid[i,j] = ky[j].
-        #    Then k_mag[i,j] = sqrt(kx[i]^2 + ky[j]^2).
-        kx_grid, ky_grid = tf.meshgrid(kx, ky, indexing='ij')  # both shape=(Nx,Ny)
-        k_mag = tf.sqrt(kx_grid**2 + ky_grid**2)                # shape=(Nx,Ny)
-        
-        # 3) Assign each (i,j) index to one of N_shells radial bins.
-        #    We might simply linearly partition the range [0, k_max] into N_shells bands.
-        k_flat = tf.reshape(k_mag, [Nx*Ny])   # shape=(Nx*Ny,)
-        k_max = tf.reduce_max(k_flat)
-        
-        # create radial “bin edges” from 0..k_max, exclusive of k_max in last bin:
-        bin_edges = tf.linspace(0.0, k_max + 1e-12, N_shells+1)  # length=(N_shells+1,)
-        # now assign each k_flat[i] to an integer m in [0..N_shells-1]:
-        #   for each k, find the index m such that bin_edges[m] ≤ k < bin_edges[m+1].
-        #   We can use tf.searchsorted.
-        shell_idx = tf.cast(
-            tf.searchsorted(bin_edges, k_flat, side='right') - 1,
-            tf.int32
-        )  # shape=(Nx*Ny,), values in [0..N_shells-1]
-        
-        d = {
-            "X" : X,
-            "kx" : kx,
-            "ky" : ky,
-            "omega" : omega,
-            "kmag" : k_mag,
-            "shell_idx" : shell_idx,
-            "shape4D" : shape4D,
-            }
-        
-        self.spec_coord = d
-        
-        return
+        # Normalize residuals (avoid one term dominating)
+        # loss_div     /= (tf.reduce_mean(loss_div) + 1e-12)
+        # loss_div_vor /= (tf.reduce_mean(loss_div_vor) + 1e-12)
+        # loss_mom     /= (tf.reduce_mean(loss_mom) + 1e-12)
+    
+        # Total PDE residual
+        loss_new = loss_div + loss_div_vor + loss_mom  # shape (N,1)
+    
+        # First iteration → just take LHS
+        if self._X_pde is None:
+            self._X_pde      = X_pde_new
+            self._X_pde_loss = loss_new
+            return X_pde_new
+    
+        # ---- Retention Strategy ----
+        N_total = self.pde_N
+        N_retain = int(retain_frac * N_total)
+    
+        # Pick random subset of old points to retain (independent of residual)
+        idx_retain = tf.random.shuffle(tf.range(N_total))[:N_retain]
+        X_retain   = tf.gather(self._X_pde, idx_retain)
+        loss_retain = tf.gather(self._X_pde_loss, idx_retain)
+    
+        # Remaining points subject to residual-based replacement
+        mask_replace = tf.ones(N_total, dtype=tf.bool)
+        mask_replace = tf.tensor_scatter_nd_update(
+            mask_replace[:, None], tf.expand_dims(idx_retain, 1), tf.zeros_like(idx_retain, dtype=tf.bool)[:, None]
+        )
+        mask_replace = tf.reshape(mask_replace, [-1])
+    
+        X_old_rest   = tf.boolean_mask(self._X_pde, mask_replace)
+        loss_old_rest = tf.boolean_mask(self._X_pde_loss, mask_replace)
+    
+        X_new_rest   = tf.boolean_mask(X_pde_new, mask_replace)
+        loss_new_rest = tf.boolean_mask(loss_new, mask_replace)
+    
+        # Compare old vs new on the non-retained fraction
+        X_selected   = tf.where(loss_new_rest > loss_old_rest, X_new_rest, X_old_rest)
+        loss_selected = tf.where(loss_new_rest > loss_old_rest, loss_new_rest, loss_old_rest)
+    
+        # Combine retained + selected sets
+        self._X_pde      = tf.concat([X_retain, X_selected], axis=0)
+        self._X_pde_loss = tf.concat([loss_retain, loss_selected], axis=0)
+    
+        return self._X_pde
 
     def plot_pde_samples(self, t, x, y, z):
         
@@ -3603,9 +3661,9 @@ class App:
         data = np.array(self.loss_data_log)
         
         scale_tot = 1e0
-        scale_div = 1e2
-        scale_mom = 1e2
-        scale_vor = 1e2
+        scale_div = 1e2/np.nanmax(self.w_div_log) #1e2
+        scale_mom = 1e2/np.nanmax(self.w_mom_log)#1e2
+        scale_vor = 1e2/np.max(self.w_temp_log)#1e2
         
         lamb_div = np.array(self.w_div_log)/(scale_div)
         lamb_mom = np.array(self.w_mom_log)/(scale_mom)
@@ -3623,7 +3681,7 @@ class App:
         total = np.array(total, dtype=np.float64)*scale_tot
         data = np.array(data, dtype=np.float64)*scale_tot
         div = np.array(self.loss_div_log, dtype=np.float64)*scale_div_
-        mom = np.array(self.loss_srt_log, dtype=np.float64)*scale_mom_
+        mom = np.array(self.loss_mom_log, dtype=np.float64)*scale_mom_
         vor = np.array(self.loss_temp_log, dtype=np.float64)*scale_vor_
         
         tv_u_log = np.array(self.tv_u_log)
@@ -3644,7 +3702,7 @@ class App:
         
         ax.semilogy(epochs, div, '--', label=r'$\mathcal{R}_{pde}$ x %1g' %scale_div, alpha=0.5, color='b')
         ax.semilogy(epochs, mom, '--', label=r'$\mathcal{R}_{mom}$ x %1g' %scale_mom, alpha=0.5, color='g')
-        # ax.semilogy(epochs, vor, '--', label=r'$\mathcal{R}_{vor}$ x %1g' %scale_vor, alpha=0.5, color='y')
+        ax.semilogy(epochs, vor, '--', label=r'$\mathcal{R}_{vor}$ x %1g' %scale_vor, alpha=0.5, color='y')
         
         mask = np.isfinite(self.rmse_u_log)
         if np.any( mask ):
@@ -3683,14 +3741,14 @@ class App:
         ax = fig.add_subplot(122)
         
         ax.semilogy(epochs, lamb_div, 's--', label=r'$\lambda_1$/%1g' %scale_div, alpha=0.5, color='b')
-        # ax.semilogy(epochs, lamb_mom, 'h--', label=r'$\lambda_2$/%1g' %scale_mom, alpha=0.5, color='g')
-        # ax.semilogy(epochs, lamb_vor, '>--', label=r'$\lambda_3$/%1g' %scale_vor, alpha=0.5, color='y')
+        ax.semilogy(epochs, lamb_mom, 'h--', label=r'$\lambda_2$/%1g' %scale_mom, alpha=0.5, color='g')
+        ax.semilogy(epochs, lamb_vor, '>--', label=r'$\lambda_3$/%1g' %scale_vor, alpha=0.5, color='y')
         
         ax.set_xlabel('Number of iterations')
         # ax.set_ylabel('Weighting coefficients')
         ax.set_title('(b) Weighting coefficients')
         
-        ax.set_ylim(1e-3,1e3)
+        ax.set_ylim(1e-2,1e5)
         ax.grid(True, which='major', linestyle='-')
         ax.grid(True, which='minor', linestyle=(0, (1, 10)))
         ax.legend()

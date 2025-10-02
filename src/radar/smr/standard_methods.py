@@ -9,24 +9,26 @@ import numpy as np
 from georeference.geo_coordinates import lat2km, lon2km
 from utils.plotting import plot_mean_winds
 
-def distance_weight(df, t, h, dt, dh, window="gaussian", sigma=0.5):
+def distance_weight(df, t0, h0, dt, dh, window="gaussian", sigma=0.5):
     
     if window == "rectangular":
         
-        mask = (np.abs(df["times"] - t) <= dt/2) & (np.abs(df["heights"] - h) <= dh/2)
+        mask = (np.abs(df["times"] - t0) <= dt/2) & (np.abs(df["heights"] - h0) <= dh/2)
         weights = np.ones_like(np.where(mask)[0])
         
     elif window == "gaussian":
         
-        mask = (np.abs(df["times"] - t) <= 3*dt/2) & (np.abs(df["heights"] - h) <= 3*dh/2)
+        mask = (np.abs(df["times"] - t0) <= 3*dt/2) & (np.abs(df["heights"] - h0) <= 3*dh/2)
         
         dfm = df[mask]
         
-        sigma_t = sigma*dt/2
-        sigma_h = sigma*dh/2
+        sigma_t = dt/2
+        sigma_h = dh/2
         
-        weights = np.exp( -0.5*( (dfm["times"] - t)/sigma_t )**2 - 0.5*( (dfm["heights"] - h)/sigma_h )**2 )
-        weights = weights.values
+        dt_ = (dfm["times"].to_numpy() - t0) / sigma_t
+        dh_ = (dfm["heights"].to_numpy() - h0) / sigma_h
+
+        weights = np.exp(-0.5 * (dt_**2 + dh_**2))
     else:
     
         raise ValueError("Selected window not available (%s)" %window)
@@ -43,7 +45,7 @@ def mean_wind_grad(df,
                    min_number_of_measurements=10,
                    debug=False,
                    overlapping = 4.,
-                   window="rectangular"):
+                   window="gaussian"):
     
     df = df.copy()
     
@@ -82,13 +84,13 @@ def mean_wind_grad(df,
     df.loc[:, "quality"] = 0.0
     
     # for each time step
-    for ti, t in enumerate(times):
+    for ti, t0 in enumerate(times):
 
         # for each height interval
-        for hi, h in enumerate(alts):
+        for hi, h0 in enumerate(alts):
             
             # mask_i = (np.abs(df["times"] - t) <= dt/2) & (np.abs(df["heights"] - h) <= dh/2)
-            mask_i, weights = distance_weight(df, t, h, dt, dh, window=window)
+            mask_i, weights = distance_weight(df, t0, h0, dt, dh, window=window)
             
             n_meas = np.count_nonzero(mask_i)
             
@@ -137,13 +139,13 @@ def mean_wind_grad(df,
             except:
                 continue
             
-            resid = m - np.dot(A, uhat)
+            resid = np.abs( m - np.dot(A, uhat) )
             
             # robust estimator for standard deviation
-            resid_std = 0.7*np.median(np.abs(resid))
+            resid_std = 0.7*np.median(resid)
 
             # outlier rejection, when making the estimate of mean wind
-            gidx = np.where(np.abs(resid) < outlier_sigma*resid_std)[0]
+            gidx = np.where(resid < outlier_sigma*resid_std)[0]
 
             # one more iteration with outliers removed
             if len(gidx) < min_number_of_measurements:
@@ -163,12 +165,12 @@ def mean_wind_grad(df,
             except:
                 continue
 
-            resid = m - np.dot(A, uhat2)
+            resid = np.abs( m - np.dot(A, uhat2) )
             
-            res[ti, hi] = np.var(resid)
-            resid_std = 0.7*np.median(np.abs(resid))
+            res[ti, hi] = np.mean(resid**2)
+            resid_std = 0.7*np.median(resid)
             
-            valid = np.where(np.abs(resid) < outlier_sigma*resid_std, 1.0, 0.0)
+            valid = np.where(resid < outlier_sigma*resid_std, 1.0, 0.0)
             
             df.loc[mask_i, "quality"] += valid
             
@@ -183,7 +185,7 @@ def mean_wind_grad(df,
                         histogram=True
                         )
     
-    df_filtered = df[df["quality"]>=1.0]
+    df_filtered = df[df["quality"]>overlapping]
     
     df_winds = {}
     df_winds["u0"] = u[0]

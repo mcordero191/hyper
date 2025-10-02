@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 import xarray as xr
 import datetime
 import matplotlib.pyplot as plt
@@ -241,7 +242,8 @@ def read_winds_netcdf(input_file):
             "w": (["time", "lon", "lat", "alt"], w_data),
         },
         coords={
-            "time": times,
+            "time_s": times,
+            "time": pd.to_datetime(times, unit="s", origin="unix"),
             "datetime": ("time", datetimes),
             "lon": lon_1d,
             "lat": lat_1d,
@@ -251,6 +253,10 @@ def read_winds_netcdf(input_file):
             "Description": "4D wind data loaded from NetCDF file",
         }
     )
+    
+    ds = ds.assign_coords(alt=ds.alt.astype("float64"))
+    ds = ds.assign_coords(alt=np.round(ds.alt, 2))
+    ds = ds.sortby("alt")
     
     return ds
 
@@ -322,7 +328,8 @@ def read_icon_file(filename):
             "w": (["time", "alt", "lat", "lon"], u*0),
         },
         coords={
-            "time": time_seconds,  # Time in seconds
+            "time_s": time_seconds,  # Time in seconds
+            "time": pd.to_datetime(time_seconds, unit="s", origin="unix"),
             "datetime": ("time", time_dt),  # Time in datetime format
             "lon": lon,
             "lat": lat,
@@ -330,9 +337,22 @@ def read_icon_file(filename):
         },
     )
     
+    ds = ds.assign_coords(alt=ds.alt.astype("float64"))
+    ds = ds.assign_coords(alt=np.round(ds.alt, 2))
+    ds = ds.sortby("alt")
+    
     return ds
 
-def plot_horizontal_wind(ds, time_dt, altitudes_km, dec=1):
+def plot_full_altitude_cuts(ds, altitudes_km, path, dec=1):
+    
+    datetimes = ds.time
+    
+    for dt_ns in datetimes:
+        filename = os.path.join(path, "w3D_%s" %dt_ns.dt.strftime('%Y%m%d_%H%M%S').item())
+        plot_altitude_cuts(ds, dt_ns, altitudes_km, filename=filename, dec=dec)
+    
+def plot_altitude_cuts(ds, datetime_ns, altitudes_km, filename=None, dec=1,
+                       wcmap = "seismic", wmin=-5, wmax=5):
     """
     Plots horizontal wind vectors (u and v) for multiple altitude levels at a specified datetime.
     
@@ -353,11 +373,13 @@ def plot_horizontal_wind(ds, time_dt, altitudes_km, dec=1):
           before calling the function.
     """
     # Select the nearest time step using the 'datetime' coordinate.
-    epoch = datetime.datetime(1970, 1, 1)
-    time_seconds = (time_dt - epoch).total_seconds()
+    # epoch = datetime.datetime(1970, 1, 1)
+    # time_seconds = (time_dt - epoch).total_seconds()
+    #
+    # datetime_ns = pd.to_datetime(time_seconds, unit='s')
     
     # Select the nearest time step using the 'time' coordinate.
-    ds_time = ds.sel(time=time_seconds, method="nearest")
+    ds_time = ds.sel(time=datetime_ns, method="nearest")
     
     # Extract the altitude values along the alt dimension (assumed constant across lon and lat).
     alt_values = ds_time['alt'].values#.isel(lon=0, lat=0).values  # 1D array of altitude values
@@ -370,13 +392,17 @@ def plot_horizontal_wind(ds, time_dt, altitudes_km, dec=1):
         fig, ax = plt.subplots(figsize=(10, 8))
         axes = [ax]
     else:
-        fig, axes = plt.subplots(1, n_alt, figsize=(4 * n_alt, 5))
+        nx = int( np.ceil( np.sqrt(n_alt)) )
+        ny = int( np.ceil( (n_alt / nx) ) )
+        fig, axes = plt.subplots( ny, nx, figsize=(4 * nx, 4*ny), sharex=True, sharey=True)
     
     # Ensure axes is iterable.
     if n_alt == 1:
         axes = [axes]
     
-    plt.suptitle('Horizontal winds: %s' %time_dt.strftime('%Y-%m-%d %H:%M:%S') )
+    axs = axes.flatten()
+    
+    plt.suptitle('%s' %datetime_ns.dt.strftime('%Y-%m-%d %H:%M:%S').item() )
     
     lon = ds_time['lon'].values[::dec]#.isel(alt=alt_index)[::dec, ::dec]
     lat = ds_time['lat'].values[::dec]#.isel(alt=alt_index)[::dec, ::dec]
@@ -391,9 +417,14 @@ def plot_horizontal_wind(ds, time_dt, altitudes_km, dec=1):
         # Extract u and v horizontal wind components and the corresponding longitude and latitude.
         u = ds_time['u'].isel(alt=alt_index)[::dec, ::dec]
         v = ds_time['v'].isel(alt=alt_index)[::dec, ::dec]
+        w = ds_time['w'].isel(alt=alt_index)[::dec, ::dec]
         
         # Create the quiver plot on the corresponding subplot.
-        ax = axes[idx]
+        ax = axs[idx]
+        
+        im = ax.pcolormesh(lon3D, lat3D, w, cmap=wcmap, vmin=wmin, vmax=wmax, alpha=1.0 )
+        # plt.colorbar(im, ax=ax, label="Vertical velocity (m/s)")
+        
         ax.quiver(lon3D, lat3D, u, v, scale=1000)
         ax.set_xlabel('Longitude')
         ax.set_ylabel('Latitude')
@@ -411,9 +442,16 @@ def plot_horizontal_wind(ds, time_dt, altitudes_km, dec=1):
         ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=14,
                 verticalalignment='top', bbox=props)
 
+    for ax in axes.flatten():
+        ax.label_outer()
     
     plt.tight_layout()
-    plt.show()
+    
+    if filename is None:
+        plt.show()
+    else:
+        plt.savefig(filename)
+        plt.close()
 
 def plot_mean_winds(*datasets, cmap="seismic", vmin=-100, vmax=100, version="", rpath=None):
     
@@ -430,7 +468,7 @@ def plot_mean_winds(*datasets, cmap="seismic", vmin=-100, vmax=100, version="", 
         
         ds = datasets[i]
         
-        time = ds.time.values
+        time = ds.time_s.values
         alt = ds['alt'].values#.isel(lon=0, lat=0).values
         mean = ds.mean(dim=["lon","lat"])
         
@@ -858,7 +896,7 @@ def plot_vector_corr_and_dispersion_vs_lag(ds1, ds2, max_lag=10, version="", rpa
     time2 = ds2.time.values
     
     time_resolution  = np.mean( np.diff(time1) )
-    time_resolution2 = np.mean( np.diff(time1) )
+    time_resolution2 = np.mean( np.diff(time2) )
     
     if time_resolution != time_resolution2:
         raise ValueError("The datasets must have the same time resolution")
@@ -887,7 +925,7 @@ def plot_vector_corr_and_dispersion_vs_lag(ds1, ds2, max_lag=10, version="", rpa
     ax1.set_ylabel("Normalized vector correlation", color=color1)
     ax1.plot(time_lags, corr_values, marker='o', color=color1, label="Correlation")
     ax1.tick_params(axis='y', labelcolor=color1)
-    ax1.set_ylim(0,0.5)
+    ax1.set_ylim(0,0.8)
     ax1.grid(True)
     
     ax2 = ax1.twinx()
@@ -917,19 +955,219 @@ def plot_vector_corr_and_dispersion_vs_lag(ds1, ds2, max_lag=10, version="", rpa
     
     return lags, corr_values, dispersion_values
 
-if __name__=="__main__":
+def _infer_dt_seconds(time_coord):
+    """Δt típico en segundos a partir de una coordenada datetime-like (median diff)."""
+    t = np.asarray(time_coord.values).astype('datetime64[ns]')
+    if t.size < 2:
+        raise ValueError("Se necesitan ≥2 tiempos para inferir Δt.")
+    dtns = np.diff(t).astype('timedelta64[ns]').astype(np.int64)
+    dt_sec = np.median(dtns) / 1e9  # ns → s
+    if dt_sec <= 0:
+        raise ValueError("Δt inválido al inferir resolución temporal.")
+    return float(dt_sec)
 
+def _build_common_time_grid(ds1, ds2, target_freq=None):
+    """
+    Devuelve ds1i, ds2i (interpolados a la misma grilla temporal regular) y dt_sec.
+    - target_freq: str tipo pandas offset (p.ej., '60S'). Si None, usa min(Δt1, Δt2).
+    """
+    # Intervalo temporal solapado
+    tmin = np.max([np.asarray(ds1.time.values).min(), np.asarray(ds2.time.values).min()])
+    tmax = np.min([np.asarray(ds1.time.values).max(), np.asarray(ds2.time.values).max()])
+    if tmax <= tmin:
+        raise ValueError("Los datasets no tienen traslape temporal.")
+
+    if target_freq is None:
+        dt1 = _infer_dt_seconds(ds1.time)
+        dt2 = _infer_dt_seconds(ds2.time)
+        dt_sec = min(dt1, dt2)
+        dt_sec = max(1, int(round(dt_sec)))  # segundos enteros
+        target_freq = f"{dt_sec}s"
+    else:
+        if target_freq.lower().endswith('s'):
+            dt_sec = int(target_freq[:-1])
+        elif target_freq.lower().endswith('min'):
+            dt_sec = int(target_freq[:-3]) * 60
+        else:
+            dt_sec = 1
+
+    # Re-muestreo + interpolación lineal
+    ds1i = ds1.resample(time=target_freq).interpolate('linear')
+    ds2i = ds2.resample(time=target_freq).interpolate('linear')
+    ds1i = ds1i.sel(time=slice(tmin, tmax))
+    ds2i = ds2i.sel(time=slice(tmin, tmax))
+
+    # Alinea coordenadas
+    ds1i, ds2i = xr.align(ds1i, ds2i, join='inner')
+    if ds1i.dims.get('time', 0) < 2:
+        raise ValueError("Tras la alineación quedan <2 pasos de tiempo.")
+    
+    return ds1i, ds2i, dt_sec
+
+def _vector_corr_and_rmsd_for_lag(u1, v1, u2, v2, lag_steps):
+    """
+    Correlación vectorial normalizada y RMSD para un lag.
+    """
+    T = u1.shape[0]
+    if lag_steps > 0:
+        a_slice = slice(lag_steps, T)
+        b_slice = slice(0, T - lag_steps)
+    elif lag_steps < 0:
+        a_slice = slice(0, T + lag_steps)
+        b_slice = slice(-lag_steps, T)
+    else:
+        a_slice = slice(0, T)
+        b_slice = slice(0, T)
+
+    u1s, v1s = u1[a_slice], v1[a_slice]
+    u2s, v2s = u2[b_slice], v2[b_slice]
+
+    mask = (~np.isnan(u1s)) & (~np.isnan(v1s)) & (~np.isnan(u2s)) & (~np.isnan(v2s))
+    if mask.sum() == 0:
+        return np.nan, np.nan
+    u1s, v1s, u2s, v2s = u1s[mask], v1s[mask], u2s[mask], v2s[mask]
+
+    num = np.nansum(u1s * u2s + v1s * v2s)
+    den = np.sqrt(np.nansum(u1s**2 + v1s**2) * np.nansum(u2s**2 + v2s**2))
+    corr = num / den if den > 0 else np.nan
+    rmsd = np.sqrt(np.nanmean((u1s - u2s)**2 + (v1s - v2s)**2))
+    return corr, rmsd
+
+def plot_vector_corr_and_dispersion_vs_lag_alt(
+    ds1, ds2, max_lag_minutes=120, version="", rpath=None,
+    altitude_range=None, density_plot=True, target_freq=None,
+    density_altitude_range=None
+):
+    """
+    Calcula y grafica correlación vectorial y RMSD vs. lag por altitud,
+    manejando resoluciones temporales distintas mediante remuestreo/interpolación.
+    """
+    # 1) Interpolar a grilla temporal común
+    ds1i, ds2i, dt_sec = _build_common_time_grid(ds1, ds2, target_freq=target_freq)
+
+    # 2) Selección de alturas
+    if altitude_range is not None:
+        ds1i = ds1i.sel(alt=slice(*altitude_range))
+        ds2i = ds2i.sel(alt=slice(*altitude_range))
+        ds1i, ds2i = xr.align(ds1i, ds2i, join='inner')
+
+    # 3) Configuración de lags
+    max_lag_steps = max(1, int(round(max_lag_minutes * 60.0 / dt_sec)))
+    lag_steps = np.arange(-max_lag_steps, max_lag_steps + 1)
+    time_lags_min = lag_steps * dt_sec / 60.0
+
+    # 4) Preparar matrices
+    z = ds1i.alt.values
+    n_alt = z.size
+    corr_alt = np.full((n_alt, lag_steps.size), np.nan)
+    rmsd_alt = np.full((n_alt, lag_steps.size), np.nan)
+
+    U1, V1 = ds1i.u.values, ds1i.v.values
+    U2, V2 = ds2i.u.values, ds2i.v.values
+
+    # 5) Correlación/RMSD
+    for j in range(n_alt):
+        u1j, v1j = U1[:, j], V1[:, j]
+        u2j, v2j = U2[:, j], V2[:, j]
+        for i, L in enumerate(lag_steps):
+            c, r = _vector_corr_and_rmsd_for_lag(u1j, v1j, u2j, v2j, L)
+            corr_alt[j, i] = c
+            rmsd_alt[j, i] = r
+
+    # 6) Mapa lag–altura
+    fig, ax = plt.subplots(figsize=(12, 6))
+    h = ax.pcolormesh(time_lags_min, z, corr_alt, shading="auto", cmap="viridis")
+    ax.set_xlabel("Lag (min)")
+    ax.set_ylabel("Altitud")
+    ax.set_title(f"Correlación vectorial vs. lag vs. altitud ({version})")
+    fig.colorbar(h, ax=ax, label="Correlación vectorial")
+    fig.tight_layout()
+    if rpath:
+        plt.savefig(os.path.join(rpath, f"corr_lag_alt_{version}.pdf"))
+        plt.close()
+    else:
+        plt.show()
+
+    # 7) Mejor lag global
+    mean_over_z = np.nanmean(corr_alt, axis=0)
+    best_idx = np.nanargmax(mean_over_z)
+    best_lag_min = float(time_lags_min[best_idx])
+    print(f"Mejor lag (global): {best_lag_min:.2f} min")
+
+    # --- NUEVA FUNCIÓN PARA ALINEAR SERIES AL LAG ---
+    def _align_arrays_at_lag(da1, da2, lag_steps):
+        T = da1.sizes["time"]
+        if lag_steps > 0:
+            a1 = da1.isel(time=slice(lag_steps, T))
+            a2 = da2.isel(time=slice(0, T - lag_steps))
+        elif lag_steps < 0:
+            a1 = da1.isel(time=slice(0, T + lag_steps))
+            a2 = da2.isel(time=slice(-lag_steps, T))
+        else:
+            a1, a2 = da1, da2
+        return a1, a2
+
+    # 8) Mapa de densidad u vs u al mejor lag
+    if density_altitude_range is not None:
+        ds1d = ds1i.sel(alt=slice(*density_altitude_range))
+        ds2d = ds2i.sel(alt=slice(*density_altitude_range))
+    else:
+        ds1d, ds2d = ds1i, ds2i
+
+    L = lag_steps[best_idx]
+    A1u, A2u = _align_arrays_at_lag(ds1d.u, ds2d.u, L)
+
+    u1 = A1u.values.ravel()
+    u2 = A2u.values.ravel()
+
+    # Filtrar pares válidos (por si quedan NaNs)
+    mask = (~np.isnan(u1)) & (~np.isnan(u2))
+    u1, u2 = u1[mask], u2[mask]
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    if density_plot:
+        hb = ax.hist2d(u1, u2, bins=60)
+        fig.colorbar(hb[3], ax=ax, label="Cuentas")
+    else:
+        ax.scatter(u1, u2, s=3, alpha=0.3)
+    ax.set_xlabel("u (ds1)")
+    ax.set_ylabel("u (ds2)")
+    ax.set_title(f"Densidad u_ds1 vs u_ds2 al mejor lag ({best_lag_min:.2f} min)")
+    ax.axline((0, 0), slope=1, linestyle='--', linewidth=1)
+    fig.tight_layout()
+    if rpath:
+        plt.savefig(os.path.join(rpath, f"density_u_u_{version}.pdf"))
+        plt.close()
+    else:
+        plt.show()
+
+    return {
+        "time_lags_min": time_lags_min,
+        "corr_alt": corr_alt,
+        "rmsd_alt": rmsd_alt,
+        "best_lag_min": best_lag_min
+    }
+    
+if __name__=="__main__":
+    import sys
+    
     # Load the wind dataset
     file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyper24/winds/winds3D_20250219.h5"
     file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyper72/winds/winds3D_20250218_003000_v1.1.0.nc"
+    file_path = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/hyper/winds/winds3D_20160716_000000_v1.3.2.nc"
     
     rpath = os.path.split(file_path)[0]
+    figpath = os.path.join(os.path.split(rpath)[0], "plots", "winds")
     
-    version = "old"
+    
+    os.makedirs(figpath, exist_ok=True) 
+    
+    version = "new"
     # Select the desired time step (e.g., the first time index)
     time_dt = datetime.datetime(2025,2,19,19,0,0)
+    time_dt = datetime.datetime(2016,7,16,4,30,0)
     # Select the altitude index for the cut (modify as needed)
-    altitudes_km = [90, 95, 100]
+    altitudes_km = np.arange(82,93,2) #[85,87.5,90,92.5, 95]
     
     _, ext = os.path.splitext(file_path)
     
@@ -939,11 +1177,10 @@ if __name__=="__main__":
         ds0 = read_winds_netcdf(file_path)
     else:
         raise ValueError("File format not supported")
+                         
+    plot_full_altitude_cuts(ds0, altitudes_km, figpath)
     
-    
-    ds0 = ds0.where( (ds0.lon>=10) & (ds0.lon<=15) & (ds0.lat>=52.5) & (ds0.lat<=55.5), drop=True)
-    
-    # plot_horizontal_wind(ds0, time_dt, altitudes_km)
+    sys.exit(0)
     
     # file1 = "/Users/mcordero/Data/IAP/SIMONe/Germany/SpaceX/hyper24/winds/longitudes"
     # file2 = "/Users/mcordero/Data/IAP/SIMONe/Germany/SpaceX/hyper24/winds/latitudes"
@@ -952,6 +1189,8 @@ if __name__=="__main__":
     # np.save(file1, ds['lon'].values)
     # np.save(file2, ds['lat'].values)
     # np.save(file3, ds['alt'].values)
+    
+    ds0 = ds0.where( (ds0.lon>=10) & (ds0.lon<=15) & (ds0.lat>=52.5) & (ds0.lat<=55.5), drop=True)
     
     if version == "new":
         file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/ICON/UA-ICON_NWP_atm_ML_DOM01_falcon2_20250219-20.nc"
@@ -969,7 +1208,7 @@ if __name__=="__main__":
     ds0 = ds0.where( (ds0.alt>=89) & (ds0.alt<=101), drop=True)
     ds = ds.where( ( ds.alt>=ds0.alt.min()-0.01) & (ds.alt<=ds0.alt.max()+0.01), drop=True)
     
-    plot_mean_winds( ds0, ds, version=version, rpath=rpath)
+    plot_mean_winds( ds0, ds, version=version)#, rpath=rpath)
     
     mean0 = ds0.mean(dim=["lon","lat"])
     mean1 = ds.mean(dim=["lon","lat"])
@@ -983,6 +1222,6 @@ if __name__=="__main__":
     #
     # corr_values, lags = plot_vector_corr_vs_lag(mean0, mean1, max_lag=30)
     
-    corr_values, lags, dispersion = plot_vector_corr_and_dispersion_vs_lag(mean0, mean1, max_lag=30, version=version, rpath=rpath)
+    d_corr = plot_vector_corr_and_dispersion_vs_lag(mean0, mean1, version=version)#, rpath=rpath)
     
     

@@ -94,7 +94,7 @@ def get_xyz_bounds(x, y, z, factor=3.0):
 
 from scipy.spatial import KDTree
 
-def remove_close_clusters(df, spatial_threshold=0.5e3, temporal_threshold=5):
+def remove_duplicates(df, spatial_threshold=0.5e3, temporal_threshold=1):
     """
     Removes points that are too close in both time and space from a DataFrame.
 
@@ -188,7 +188,6 @@ def filter_data(df, tini=0, dt=24,
     
     ##################################################
     
-    
     valid  = (df['t'] >= tmin) & (df['t'] <= tmax)
     df = df[valid]
     
@@ -207,7 +206,7 @@ def filter_data(df, tini=0, dt=24,
     
     dxy = np.sqrt( df['dcosx']**2 + df['dcosy']**2 )
     zenith = np.arcsin(dxy)*180/np.pi
-    df = df[zenith < 70]
+    df = df[zenith < 60]
 
     if df.size == 0:
         return(df)
@@ -1269,6 +1268,8 @@ class SMRReader(object):
         
         df['SMR_like'] = smr_like
         
+        df['weights'] = 1.0
+        
         df = df[df.dops.notnull()]
         
         ### Meteor geolocation
@@ -1441,11 +1442,11 @@ class SMRReader(object):
             
         fp.close()
     
-    def filter(self, path=None, outlier_sigma=5, **kwargs):
+    def filter(self, path=None, outlier_sigma=4.0, **kwargs):
         
         df = self.unfiltered_df.copy()
         
-        df = remove_close_clusters(df)
+        df = remove_duplicates(df)
         
         if df.size == 0:
             self.df = df
@@ -1462,13 +1463,14 @@ class SMRReader(object):
             return
             
         #Remove outliers based on mean wind
+        # df_winds = None
         df_winds, df = mean_wind_grad(df, outlier_sigma=outlier_sigma) 
         
-        if path is not None:
+        if path is not None and df_winds is not None:
         
             ini_date = self.get_initial_date()
         
-            figfile = os.path.join(path, "mean_wind_%s.png" %ini_date.strftime('%Y%m%d_%H0000'))
+            figfile = os.path.join(path, "mean_wind_%s.png" %ini_date.strftime('%Y%m%d'))
         
             plot_mean_winds(df_winds["times"],
                             df_winds["alts"],
@@ -1481,6 +1483,10 @@ class SMRReader(object):
                             histogram=True
                             )
         
+            filename = os.path.join(path, "mean_wind_%s.hdf5" %ini_date.strftime('%Y%m%d'))
+            
+            save_mean_winds(df_winds, filename)
+            
         self.df  = df
         
         return

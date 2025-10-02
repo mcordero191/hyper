@@ -1626,7 +1626,7 @@ if __name__ == '__main__':
         mean_winds(filename, figpath_type,
                    ext=ext,
                     type=type,
-                    plot_mean=True,
+                    plot_mean=False,
                     t0=t0,
                     xrange=xrange,
                     yrange=yrange,

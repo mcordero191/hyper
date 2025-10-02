@@ -2,6 +2,7 @@ import os, glob
 import time, datetime
 
 import numpy as np
+import pandas as pd
 
 import sys
 sys.path.insert(0,'../src')
@@ -39,9 +40,9 @@ def get_folder_suffix(short_naming,
                         ):
 
     if short_naming:
-        suffix = ""
+        suffix = "hyper"
     else:
-        suffix = "%s%s_%sl%02d.%02d.%03d_w%2.1elr%2.1elf%dur%2.1eT%02d%s" %(
+        suffix = "h%s%s_%sl%02d.%02d.%03d_w%2.1elr%2.1elf%ddo%dur%2.1eT%02d%s%s" %(
                                                             nn_type[:4].upper(),
                                                             activation[:4],
                                                             NS_type,
@@ -54,12 +55,12 @@ def get_folder_suffix(short_naming,
                                                             learning_rate,
                                                             # N_pde,
                                                             laaf,
-                                                            # dropout,
+                                                            dropout,
                                                             # w_init[:2],
                                                             # init_sigma,
                                                             w_pde_update_rate,
-                                                            # sampling_method[:3],
                                                             dt,
+                                                            sampling_method[:3],
                                                             postfix,
                                                             )
         
@@ -111,7 +112,179 @@ def get_filename_suffix(short_naming,
                                                             )
         
     return suffix
+
+def balanced_time_bootstrap(df, time_col="times", bin_seconds=3600,
+                            samples_per_bin=None, random_state=None):
+    """
+    Balanced bootstrap across time bins:
+    - Split the dataset into bins of width `bin_seconds`.
+    - From each bin, sample the same number of rows (with replacement).
+    - Concatenate all bins to form the balanced bootstrap replicate.
+
+    Args:
+        df : pd.DataFrame
+            Must contain a column with times in seconds from 1970-01-01.
+        time_col : str
+            Column name with Unix timestamps (seconds).
+        bin_seconds : int
+            Size of each bin in seconds (e.g. 3600 = 1h).
+        samples_per_bin : int or None
+            Number of samples to draw per bin. 
+            If None → use the minimum bin size across all bins.
+        random_state : int or None
+            Random seed for reproducibility.
+
+    Returns:
+        pd.DataFrame : Bootstrapped replicate with balanced bins.
+    """
+    rng = np.random.default_rng(random_state)
+
+    # Assign bins
+    df = df.copy()
+    df["time_bin"] = (df[time_col] // bin_seconds).astype(int)
+
+    # Decide how many samples per bin
+    if samples_per_bin is None:
+        samples_per_bin = df["time_bin"].value_counts().max()
+
+    boot_parts = []
+    for g, subdf in df.groupby("time_bin"):
+        if len(subdf) == 0:
+            continue
+        # Sample with replacement (if bin smaller than target, still works)
+        idx = rng.integers(0, len(subdf), size=samples_per_bin)
+        boot = subdf.iloc[idx]
+        boot_parts.append(boot)
+
+    boot_df = pd.concat(boot_parts, axis=0)
     
+    boot_df = boot_df.sort_values(by=time_col).reset_index(drop=True)
+    
+    return boot_df
+
+def balanced_time_alt_bootstrap(df, time_col="times", alt_col="heights",
+                                bin_seconds=3600, bin_alt=1.0,
+                                samples_per_bin=None, random_state=None):
+    """
+    Balanced bootstrap across both time and altitude bins.
+    
+    Args:
+        df : pd.DataFrame
+            Must contain columns `time_col` (seconds since epoch)
+            and `alt_col` (altitude in same units).
+        time_col : str
+            Column name with Unix timestamps.
+        alt_col : str
+            Column name with altitude.
+        bin_seconds : int
+            Size of time bin in seconds (e.g. 3600 = 1h).
+        bin_alt : float
+            Size of altitude bin (e.g. 1.0 km).
+        samples_per_bin : int or None
+            Number of samples to draw from each time×alt bin.
+            If None → use the minimum bin size across all bins.
+        random_state : int or None
+            Random seed.
+    
+    Returns:
+        pd.DataFrame : Balanced bootstrap replicate, sorted by time then altitude.
+    """
+    rng = np.random.default_rng(random_state)
+    df = df.copy()
+
+    # assign time and altitude bins
+    df["time_bin"] = (df[time_col] // bin_seconds).astype(int)
+    df["alt_bin"] = (df[alt_col] // bin_alt).astype(int)
+
+    # decide samples per bin
+    if samples_per_bin is None:
+        samples_per_bin = df.groupby(["time_bin", "alt_bin"]).size().max()*2
+        
+
+    boot_parts = []
+    for (tbin, abin), subdf in df.groupby(["time_bin", "alt_bin"]):
+        
+        if len(subdf) == 0:
+            continue
+        
+        idx = rng.integers(0, len(subdf), size=samples_per_bin)
+        boot_parts.append(subdf.iloc[idx])
+
+    if not boot_parts:
+        raise ValueError("No bins with data found!")
+
+    boot_df = pd.concat(boot_parts, axis=0)
+
+    # sort by time and altitude
+    boot_df = boot_df.sort_values(by=time_col).reset_index(drop=True)
+
+    return boot_df
+
+def balanced_sample_weights(df, time_col="times", alt_col="heights",
+                                bin_seconds=10*60, bin_alt=1.0,
+                                samples_per_bin=None,
+                                normalize=True,
+                                weight_col="weights",
+                                random_state=None):
+    """
+    Balanced bootstrap across time × altitude bins.
+    - Each bin contributes the same number of samples (samples_per_bin).
+    - Sampling is done with replacement (bootstrap).
+    - Weights are stored in the original df: count of times each row was picked.
+
+    Args:
+        df : pd.DataFrame with time_col and alt_col.
+        time_col : str, column with Unix timestamps (seconds).
+        alt_col : str, column with altitude.
+        bin_seconds : int, time bin size (default 1h).
+        bin_alt : float, altitude bin size (default 1.0).
+        samples_per_bin : int or None.
+            If None → use the minimum bin size across all bins.
+        normalize : bool, if True, rescale weights so mean(weight)=1.
+        weight_col : str, name for the new weight column.
+        random_state : int or None, seed for reproducibility.
+
+    Returns:
+        pd.DataFrame : same df with an added weight_col.
+    """
+    rng = np.random.default_rng(random_state)
+    df = df.reset_index(drop=True).copy()
+
+    # assign bins
+    df["time_bin"] = (df[time_col] // bin_seconds).astype(int)
+    # df["alt_bin"]  = (df[alt_col]  // bin_alt).astype(int)
+
+    # init weights = 0
+    weights = np.zeros(len(df), dtype=float)
+
+    # group and decide sample size per bin
+    groups = df.groupby(["time_bin"]) #, "alt_bin"])
+    
+    if samples_per_bin is None:
+        # samples_per_bin = groups.size().max()*3
+        samples_per_bin = df["time_bin"].value_counts().max()*3
+
+    # bootstrap sampling within each bin
+    for _, subdf in groups:
+        
+        if len(subdf) == 0:
+            continue
+        
+        idx = rng.integers(0, len(subdf), size=samples_per_bin)
+        sampled_idx, counts = np.unique(idx, return_counts=True)
+        
+        # map local indices back to global integer positions
+        global_pos = subdf.index[sampled_idx]
+        weights[global_pos] += counts
+    
+    if normalize and weights.sum() > 0:
+        weights = weights / weights.sum()*len(df)
+
+    # attach weights to df
+    df[weight_col] = weights
+
+    return df
+
 def train_hyper(df,
                 df_testing=None,
                 tini=0,
@@ -166,12 +339,17 @@ def train_hyper(df,
     mean_seconds = df['times'].mean()
     data_date = datetime.datetime.fromtimestamp(mean_seconds, tz=datetime.timezone.utc)
 
-    df_training = df.sample(frac=0.98, random_state=191)
+    # df_training = df.sample(frac=0.98)
+    #BOOTSTRAPPING needed for uncertainty and resolution quantification.
+    # df_training = balanced_time_bootstrap(df)
+    df_training = balanced_sample_weights(df)
+    
     df_training.sort_index(inplace=True)
+    print(df_training.shape)
     
     if df_testing is None:
-        df_testing  = df.drop(df_training.index) 
-        # df_testing  = df.sample(frac=0.01, random_state=0)
+        # df_testing  = df.drop(df_training.index) 
+        df_testing  = df.sample(frac=0.01, random_state=0)
     
     suffix = get_filename_suffix(short_naming,
                                 data_date, dt, noise_sigma, NS_type,
@@ -305,46 +483,46 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='vortex', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='icon2015', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
     parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
-    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=3, help='# kernel layers', type=int)
+    parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
     parser.add_argument('-b', '--nblocks',            dest='n_blocks', default=2, help='', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=64, help='# nodes', type=int)
     
     parser.add_argument('--npde',                     dest='N_pde', default=5000, help='', type=int)
-    parser.add_argument('--ns',                       dest='nepochs', default=10000, help='', type=int)
+    parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
-    parser.add_argument('--nensembles',             dest='nensembles', default=5, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
-    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
+    parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
+    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=0, help='Apply clustering filter to the meteor data', type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VP_div", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     
     parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1e-6, help='', type=float)
+    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1.5e-4, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
-    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-6, help='PDE weight', type=float)
-    parser.add_argument('--srt-weight',        dest='w_srt', default=1e-3, help='Slope recovery time loss weight', type=float)
+    parser.add_argument('--pde-weight',         dest='w_pde', default=1e2, help='PDE weight', type=float)
+    parser.add_argument('--srt-weight',        dest='w_srt', default=1e-6, help='Slope recovery time loss weight', type=float)
     
-    parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
+    parser.add_argument('--laaf',        dest='nn_laaf', default=1, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
     
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
     
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
-    parser.add_argument('--architecture', dest='nn_type', default='windnet', help='select the network architecture: gpinn, respinn, ...')
-    parser.add_argument('--postfix',     dest='postfix', default="Ind3", type=str)
-    parser.add_argument('--activation',  dest='nn_activation', default='siren')
+    parser.add_argument('--architecture', dest='nn_type', default='respinn', help='select the network architecture: gpinn, respinn, ...')
+    parser.add_argument('--postfix',     dest='postfix', default="HH", type=str)
+    parser.add_argument('--activation',  dest='nn_activation', default='sine')
     
-    parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
+    parser.add_argument('--sampling_method',  dest='sampling_method', default='adaptive')
     
     parser.add_argument('-s', '--nn-init-std',    dest='nn_init_sigma', default=1.0, type=float)
     parser.add_argument('-i', '--nn-w-init',    dest='nn_w_init', default='HeNormal', type=str)
@@ -439,6 +617,9 @@ if __name__ == '__main__':
     
     single_day = False 
     skip_training = False
+    
+    #Percentage of overlapping data (in the time axis)
+    overlapping_perc = 0.125
     
     if sevenfold:
         nn_version += 0.7
@@ -582,7 +763,7 @@ if __name__ == '__main__':
         elif exp.upper()  == 'VORTEXHD':
             
             tini            = 19
-            # dt              = 4
+            dt              = 4
             
             dlon            = 400e3
             dlat            = 400e3
@@ -609,7 +790,7 @@ if __name__ == '__main__':
         
         elif exp.upper()  == 'EXT24':
             
-            tini            = 3
+            # tini            = 3
             # dt              = 3
             # dlon            = 7
             # dlat            = 2.4
@@ -621,12 +802,12 @@ if __name__ == '__main__':
             path            = "%s/Data/IAP/SIMONe/Norway/ExtremeEvent"  %home_directory
             
         
-        elif exp.upper()  == 'EXT1':
+        elif exp.upper()  == 'EXTHD':
             
-            tini            = 2.5
+            tini            = 2
             dt              = 4
-            dlon            = 400e3
-            dlat            = 400e3
+            dlon            = 300e3
+            dlat            = 300e3
             dh              = 16e3
             
             lon_center      = 16.25
@@ -743,7 +924,7 @@ if __name__ == '__main__':
             
             if resource_path is None:
                 # basepath, exp_name = os.path.split(path)
-                rpath = os.path.join(path, 'h%s' %suffix)
+                rpath = os.path.join(path, '%s' %suffix)
             else:
                 rpath = resource_path
                 
@@ -781,7 +962,7 @@ if __name__ == '__main__':
                 meteor_data.add_synthetic_noise(noise_sigma)
                 
                 nblocks = max(24//dt,1)
-                overlapping_time = (dt*0.1)*60*60
+                overlapping_time = (dt*overlapping_perc)*60*60
                 
                 for i in range(nblocks):
                 

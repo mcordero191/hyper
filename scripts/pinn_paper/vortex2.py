@@ -411,7 +411,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-d', '--dpath', dest='path', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hWINDsire_VV_noNul02.03.128_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3/c20230323", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='path', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hyper/d20230323", help='Data path')
     # parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/NewMexico/MRA/hyper24/c20240118", help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')

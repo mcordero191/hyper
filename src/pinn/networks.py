@@ -3,7 +3,7 @@ Created on 14 Aug 2024
 
 @author: radar
 '''
-# import numpy as np
+import numpy as np
 import tensorflow as tf
 import keras
 
@@ -106,31 +106,40 @@ class FCNClass(BaseModel):
         # self.emb = PositionalEncoding(num_freqs=16)
         # self.emb = HybridEmbedding(n_neurons, pe_freqs=32, rff_features=64)
         
-        self.emb = GaussianRFF(n_neurons)
+        self.emb = GaussianRFF(n_neurons, name="GaussianLayer")
         
         layers = []
-        for _ in range(n_layers):
+        for i in range(n_layers):
             
             layer = LaafLayer(n_neurons,
                               activation=activation,
                               kernel_initializer=kernel_initializer,
                               w0=1.0,
+                              name="laaf%02d" %i,
                               )
             
             layers.append(layer)
         
         self.laaf_layers = layers
         
+        ini_alphas = np.zeros(n_layers+1) 
+        # ini_alphas = 1.0*np.arange(n_layers+1)/(n_layers+1)
+        
         if laaf:
-            self.alphas = self.add_weight(
-                            name="alphas",
-                            shape=(n_layers+1, ),
-                            initializer="zeros",
-                            # constraint = tf.keras.constraints.NonNeg(),
-                            trainable=True,   
-                        )
+            trainable = True
         else:
-            self.alphas = tf.zeros( (n_layers+1, ), name="alphas" )
+            trainable = False
+            
+        self.alphas = self.add_weight(
+                        name="alphas",
+                        shape=(n_layers+1, ),
+                        initializer=tf.constant_initializer(ini_alphas), 
+                        #initializer="zeros",
+                        # constraint = keras.constraints.NonNeg(),
+                        trainable=trainable,   
+                    )
+        # else:
+        #     self.alphas = tf.cast(ini_alphas, dtype=tf.float32) # tf.zeros( (n_layers+1, ), name="alphas" )
         
         
         if self.dropout:
@@ -163,14 +172,13 @@ class FCNClass(BaseModel):
             for drop_layer in self.dropout_layers:
                 drop_layer.update_mask(n)
     
-        
-class resPINN(FCNClass):
+class genericPINN(FCNClass):
 
     def __init__(self,
                  n_outs,
                  n_neurons,
                  n_layers,
-                 use_helmholtz= 1,
+                 use_helmholtz= 0,
                  values = [1e0]*5,
                  **kwargs
                  ):
@@ -185,20 +193,11 @@ class resPINN(FCNClass):
         if use_helmholtz:
             n_outs = 4
             add_bias = False
-            
-        # layers = []
-        # for _ in range(n_layers):
-        #     layer = Linear(n_outs,
-        #                     kernel_initializer = 'zeros',
-        #                    )
-        #
-        #     layers.append(layer)
-        #
-        # self.linear_layers = layers 
         
         self.linear_layer = Linear(n_outs,
                             kernel_initializer = 'GlorotNormal',
                             add_bias=add_bias,
+                            name="FinalrMixer",
                            )
         
         self.scale = Scaler(values, add_bias=add_bias)
@@ -215,34 +214,26 @@ class resPINN(FCNClass):
         #e = tf.einsum('ij,jk->ik', m0, m1)
         
         # inputs = tf.constant(2*np.pi)*inputs
-        u = self.emb(inputs, self.alphas[0])
-        
-        # if self.normalization:
-        #     u = self.norm_layers[0](u, training=training)
+        u = self.emb(inputs)
+
         
         if self.dropout:
             u = self.dropout_layers[0](u)
         
-        u = self.laaf_layers[0](u, self.alphas[1])
+        u = self.laaf_layers[0](u, self.alphas[0])
         #
         if self.dropout:
             u = self.dropout_layers[1](u)
         
-        # output = self.linear_layers[0](u)
-        
-        # output = 0.0
-        
+        out = 0
         for i in range(1,self.n_layers):
             
-            out = self.laaf_layers[i](u, self.alphas[i+1])
-            
-            # if self.normalization:
-            #     u = self.norm_layers[i+1](u, training=training)
+            u = self.laaf_layers[i](u, self.alphas[i])
                 
             if self.dropout:
-                out = self.dropout_layers[i+1](out)
+                u = self.dropout_layers[i+1](u)
             
-            u = (u + out)
+            # out = out + u
             
             # output = ( output + self.linear_layers[i](u) )
         
@@ -304,6 +295,202 @@ class resPINN(FCNClass):
         del tape
         
         return u
+    
+class resPINN(FCNClass):
+
+    def __init__(self,
+                 n_outs,
+                 n_neurons,
+                 n_layers,
+                 use_helmholtz= 1,
+                 values=None,
+                 **kwargs
+                 ):
+                 
+        super().__init__(n_neurons,
+                        n_layers, **kwargs)
+        
+        self.use_helmholtz = use_helmholtz
+        
+        add_bias = True
+        values = [1e-1]*5
+        
+        if use_helmholtz:
+            n_outs = 4
+            add_bias = False
+            values = [1e-2]*5
+            
+        layers = []
+        for i in range(n_layers):
+            
+            layer = Linear(n_outs,
+                            # activation="sine",
+                            # kernel_initializer = 'zeros',
+                            # kernel_initializer = "identity",
+                            add_bias=True,
+                            name = "Linear%02d" %i,
+                           )
+        
+            layers.append(layer)
+        
+        self.linear_layers = layers 
+        
+        self.linear_layer = Linear(n_outs,
+                            # kernel_initializer = 'GlorotNormal',
+                            add_bias=add_bias,
+                            name="FinalrMixer",
+                           )
+        
+        self.scale = Scaler(values, add_bias=add_bias)
+    
+    
+    def build(self, input_shape):
+        
+        super().build(input_shape) 
+        
+        self.gates = self.add_weight(
+            name="gates",
+            shape=(self.n_layers+1,),
+            initializer="zeros",
+            trainable=False,
+        )
+        
+        self.step_count = tf.Variable(0.0, trainable=False)
+    
+    def update_mask(self, total_epochs):
+        
+        super().update_mask(total_epochs)
+        
+        self.step_count.assign_add(1.0)
+    
+        if True: #self.dropout:
+            alpha = tf.ones(self.n_layers+1, dtype=tf.float32)
+            self.gates.assign(alpha)
+            
+            return
+        
+        # Fraction of training completed
+        progress = self.step_count / total_epochs  
+    
+        # Gates should linearly open between 0.0 → 0.9
+        # Each gate i opens at (i / n_layers) * 0.9
+        positions = tf.linspace(0.0, 0.8, self.n_layers+1)
+    
+        # Linear ramp: 0 → 1 over a small window (say 10% / n_layers)
+        window = 0.1 / self.n_layers
+        alpha = (progress - positions) / window
+        alpha = tf.clip_by_value(alpha, 0.0, 1.0)
+    
+        # Force the very first gate to be always open
+        alpha = tf.concat([[1.0, 1.0, 1.0], alpha[3:]], axis=0)
+    
+        self.gates.assign(alpha)
+        
+    def _call(self, inputs, training=False):
+        '''
+        inputs    :    [batch_size, dimensions] 
+                        d0    :    time
+                        d1    :    altitude
+                        d2    :    x
+                        d3    :    y
+        '''
+        
+        # inputs = tf.constant(2*np.pi)*inputs
+        u = self.emb(inputs, self.alphas[0])
+        
+        # if self.normalization:
+        #     u = self.norm_layers[0](u, training=training)
+        
+        if self.dropout:
+            u = self.dropout_layers[0](u)
+        
+        u = self.laaf_layers[0](u, self.alphas[1])
+        #
+        if self.dropout:
+            u = self.dropout_layers[1](u)
+        
+        output = self.linear_layers[0](u)
+        
+        # output = 0.0
+        
+        for i in range(1,self.n_layers):
+            
+            u = self.laaf_layers[i](u, self.alphas[i+1])
+            
+            # if self.normalization:
+            #     u = self.norm_layers[i+1](u, training=training)
+                
+            if self.dropout:
+                u = self.dropout_layers[i+1](u)
+            
+            output = output + self.gates[i+1]*self.linear_layers[i](u)/self.n_layers
+        
+        output = self.linear_layer(output)
+        
+        output = self.scale(output)
+        
+        return(output)
+    
+    def call(self, inputs, training=False):
+        
+        if self.use_helmholtz:
+            uvw = self.compute_velocity_helmholtz(inputs)
+        else:
+            uvw = self._call(inputs)
+            
+        return uvw
+            
+    def compute_velocity_helmholtz(self, inputs):
+        """
+        Compute velocity field from Helmholtz decomposition:
+        u = curl(A) + grad(phi)
+        
+        inputs: (batch, 4) [t, z, x, y]
+        returns: (batch, 3) [u, v, w]
+        """
+    
+        with tf.GradientTape(persistent=True) as tape:
+            tape.watch(inputs)
+    
+            # network outputs: [A1, A2, A3, phi]
+            P = self._call(inputs)
+            A = P[:, 0:3]   # vector potential
+            phi = P[:, 3:4] # scalar potential
+    
+        # compute ∂A/∂x_j (batch, 3, 4)
+        J_A = tape.batch_jacobian(A, inputs)  # derivatives of A wrt [t,z,x,y]
+    
+        # compute ∂phi/∂x_j (batch, 1, 4)
+        J_phi = tape.batch_jacobian(phi, inputs)
+    
+        del tape
+    
+        # indices: 0=t, 1=z, 2=x, 3=y
+        # curl(A) = (∂A3/∂y - ∂A2/∂z,
+        #            ∂A1/∂z - ∂A3/∂x,
+        #            ∂A2/∂x - ∂A1/∂y)
+    
+        A1_y = J_A[:,0,3]
+        A1_z = J_A[:,0,1]
+        A2_x = J_A[:,1,2]
+        A2_z = J_A[:,1,1]
+        A3_x = J_A[:,2,2]
+        A3_y = J_A[:,2,3]
+    
+        u_rot = A3_y - A2_z
+        v_rot = A1_z - A3_x
+        w_rot = A2_x - A1_y
+    
+        # grad(phi)
+        u_div = J_phi[:,0,2]
+        v_div = J_phi[:,0,3]
+        w_div = J_phi[:,0,1]
+    
+        u = tf.stack([u_rot + u_div,
+                      v_rot + v_div,
+                      w_rot + w_div], axis=1)
+    
+        return u*1e3
 
 class resiPINN(FCNClass):
 
@@ -319,8 +506,9 @@ class resiPINN(FCNClass):
                         n_layers, **kwargs)
         
         layers = []
-        for _ in range(n_layers):
+        for i in range(n_layers):
             layer = Linear(n_neurons,
+                           name="LinearMixer%02d" %i,
                            )
             
             layers.append(layer)
@@ -334,8 +522,9 @@ class resiPINN(FCNClass):
         self.linear_output  = Linear(n_outs,
                                      kernel_initializer="zeros",
                                      add_bias=True,
+                                     name="FinalMixer"
                                    )
-    
+        
     def call(self, inputs, training=False):
         '''
         inputs    :    [batch_size, dimensions] 
@@ -376,66 +565,7 @@ class resiPINN(FCNClass):
         output = self.scale(output)
         
         return(output)
-    
-class genericPINN(FCNClass):
 
-    def __init__(self,
-                 n_outs,
-                 n_neurons,
-                 n_layers,
-                 **kwargs
-                 ):
-                 
-        super().__init__(n_outs,
-                        n_neurons,
-                        n_layers, **kwargs)
-        
-        self.linear_layer = Linear(n_outs,
-                                   kernel_initializer = 'zeros',
-                                    # constraint = tf.keras.constraints.NonNeg()
-                                   )
-                
-    def call(self, inputs):
-        '''
-        inputs    :    [batch_size, dimensions] 
-                        d0    :    time
-                        d1    :    altitude
-                        d2    :    x
-                        d3    :    y
-        '''
-        
-        #e = tf.einsum('ij,jk->ik', m0, m1)
-        
-        u = self.emb(inputs)
-        
-        if self.dropout:
-            u = self.dropout_layers[0](u)
-        
-        for i in range(0,self.n_layers):
-            u = self.laaf_layers[i](u, self.alphas[i])
-            
-            if self.dropout:
-                u = self.dropout_layers[i+1](u)
-        
-        u = self.linear_layer(u)
-        
-        output = self.scale(u)
-        
-        return(output)
-
-class ResBlock(keras.Model):
-    
-    def __init__(self):
-        
-        pass
-    
-    def build(self, input_shape):
-        
-        pass
-    
-    def call(self, inputs):
-        
-        pass
 
 class iPINN(FCNClass):
 

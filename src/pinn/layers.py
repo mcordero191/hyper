@@ -11,6 +11,12 @@ data_type     = tf.float32
 
 keras.saving.get_custom_objects().clear()
 
+class IdentityInitializer(keras.initializers.Initializer):
+    
+    def __call__(self, shape, dtype=None):
+        # Only works if shape is square (in_dim = out_dim)
+        return tf.eye(shape[0], shape[1], dtype=dtype)
+    
 class SIRENLayerInitializer(keras.initializers.Initializer):
     
     def __init__(self, w0=1.0):
@@ -24,7 +30,6 @@ class SIRENLayerInitializer(keras.initializers.Initializer):
         # limit = tf.sqrt(6.0 / in_feats) / self.w0
         
         return tf.random.uniform(shape, -limit, limit, dtype=dtype)
-
     
 # @keras.saving.register_keras_serializable(package="hyper")
 class DropoutLayer(keras.layers.Layer):
@@ -50,33 +55,33 @@ class DropoutLayer(keras.layers.Layer):
             trainable=False,
         )
         
-    def update_mask(self, n):
+    def update_mask(self, n, percent=0.2):
         """
-        unmask the i/m % of neuros
+        Progressive unmasking of neurons:
+        - At self.i = 0, about 10% of neurons are fully active (a=1).
+        - As self.i increases, the cutoff slides, activating more neurons.
+        - By self.i = 0.9*n, all neurons are active (a=1).
         """
-        #Some are completely deactivated. v214
-        # wcut = tf.constant(1.0)*i/n + tf.constant(0.)
-        # s    = 10*( tf.linspace(1.0, 0.0, self.in_dim) + wcut - 1.0 )
-        
-        #all w's  activated but with low weights. v213
-        # wcut = tf.constant(1.0)*i/n + tf.constant(0.2)
-        # s = ( tf.linspace(1.0, -1.0, self.in_dim) + 2*wcut )
-        
-        #v250
-        # wcut = tf.constant(1.25)*i/n + tf.constant(0.05)
-        # s    = 5*( tf.linspace(1.0, 0.0, self.in_dim) + wcut - 1.0 )
-        
-        #v260: high slope
-        wcut = tf.constant(1.1)*self.i/n + tf.constant(0.1)
-        s    = 50*(tf.linspace(1.0, 0.0, self.in_dim) + wcut - 1.0)
-        
-        a = tf.where(s > 1.0, 1.0, s)
-        a = tf.where(a < 0.0, 0.0, a)
-        
-        a = a/tf.reduce_mean(a)
-        
+        # Progress from 0 → 1 as i goes from 0 → 0.9*n
+        frac = tf.minimum(self.i / (0.9 * n), 1.0)
+    
+        # Define cutoff: start at 0.1, end at 1.0
+        wcut = percent + frac * (1.0 - percent)   # goes from 0.2 → 1.0
+    
+        # Build a descending ramp from 1 → 0 across neurons
+        ramp = tf.linspace(1.0, 0.0, self.in_dim)
+    
+        # Shift ramp by cutoff and scale slope
+        s = 50.0 * (ramp + wcut - 1.0)
+    
+        # Clip to [0,1]
+        a = tf.clip_by_value(s, 0.0, 1.0)
+    
+        # Normalize so mean(a) = 1 (like your old code)
+        a = a / tf.reduce_mean(a)
+    
+        # Assign and advance counter
         self.a.assign(a)
-        
         self.i.assign_add(1.0)
         
     def call(self, inputs):
@@ -116,7 +121,7 @@ class GaussianRFF(keras.layers.Layer):
         w0 = np.random.randn(d, self.D).astype(np.float32)
         
         self.w_dir = self.add_weight(
-            name='w_dir',
+            name='w',
             shape=(d, self.D),
             initializer=tf.constant_initializer(w0),
             trainable=False
@@ -143,7 +148,7 @@ class GaussianRFF(keras.layers.Layer):
         
         super().build(input_shape)
 
-    def call(self, inputs, alpha):
+    def call(self, inputs, alpha=0.0):
         # xyz: (batch, d)
         # compute scaled directions
         
@@ -352,7 +357,7 @@ class Embedding(keras.layers.Layer):
         #                               bias_initializer=kernel_initializer,
         #                               )
         
-    def call(self, inputs, alpha=1.0 ):
+    def call(self, inputs, alpha=0.0 ):
         '''
         Inputs: [npoints, nd]
         
@@ -360,7 +365,10 @@ class Embedding(keras.layers.Layer):
         '''
         #Scaling factor when GlorotNormal distribution is used
         #otherwise the frequency components are too small
-        inputs = self.w0*alpha*inputs
+        
+        sigma = tf.exp(alpha)
+        
+        inputs = self.w0*sigma*inputs
         
         x0 = self.layer0(inputs)
         # x1 = self.layer1(inputs)
@@ -486,7 +494,7 @@ class LaafLayer(keras.layers.Layer):
         elif activation == 'gelu':
             self.activation = keras.activations.gelu
         else:
-            self.activation  = keras.activations.linear
+            raise ValueError("The activation function %s is not valid" %activation)
         
     def build(self, input_shape):
         
@@ -496,12 +504,14 @@ class LaafLayer(keras.layers.Layer):
                                 shape = (nfeatures, self.n_neurons),
                                 initializer = self.kernel_initializer,
                                 trainable = True,
+                                name="w_laaf",
                                 )
         
         self.b = self.add_weight(
                                 shape = (self.n_neurons, ),
                                 initializer = 'zeros',
                                 trainable = True,
+                                name="b_laaf"
                                 )
         
     def call(self, inputs, alpha=0.0):
@@ -523,11 +533,26 @@ class Linear(keras.layers.Layer):
                  kernel_initializer = 'GlorotNormal',
                  constraint = None,
                  add_bias=False,
+                 activation=None,
                  **kwargs
                  ):
         
+        if activation == 'sine':
+            self.activation = tf.sin
+        elif activation == 'tanh':
+            self.activation = tf.tanh
+        elif activation == 'swish':
+            self.activation = keras.activations.swish
+        elif activation == 'relu':
+            self.activation  = keras.activations.relu
+        else:
+            self.activation  = keras.activations.linear
+            
         super().__init__(**kwargs)
         
+        if kernel_initializer == "identity":
+            kernel_initializer = IdentityInitializer()
+            
         self.kernel_initializer = kernel_initializer
         self.constraint = constraint
         self.noutputs = noutputs
@@ -542,15 +567,21 @@ class Linear(keras.layers.Layer):
             initializer = self.kernel_initializer,
             constraint = self.constraint, 
             trainable=True,
+            name="w_linear",
         )
         
-        # if self.add_bias:
-        self.b = self.add_weight(
-            shape=(1, self.noutputs),
-            initializer='zeros',
-            trainable=self.add_bias,
-        )
+        if self.add_bias:
+            # if self.add_bias:
+            self.b = self.add_weight(
+                shape=(1, self.noutputs),
+                initializer='zeros',
+                trainable=self.add_bias,
+                name="b_linear",
+            )
         
+        else:
+            self.b = 0.0
+            
         # self.built = True
         
     def call(self, inputs, alpha=1.0):
@@ -563,6 +594,7 @@ class Linear(keras.layers.Layer):
         
         u = tf.matmul(inputs, self.w) + self.b
         u = alpha*u
+        u = self.activation(u)
         
         return(u)
     

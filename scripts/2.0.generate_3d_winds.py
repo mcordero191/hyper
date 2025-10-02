@@ -83,8 +83,8 @@ class Grid4D():
         zmin = nn.lb[1]
         zmax = nn.ub[1]
         
-        tmin = int(nn.lb[0]/300)*300 + overlapping
-        tmax = int(nn.ub[0]/300)*300 - overlapping
+        tmin = int(nn.lb[0]/300)*300 + overlapping 
+        tmax = int(nn.ub[0]/300)*300 - overlapping 
         
         trange = tmax - tmin
         xrange = xmax - xmin
@@ -188,7 +188,7 @@ class Grid4D():
 
 class TimeAltitudePlot():
     
-    def __init__(self, lon0=None, lat0=None, alt0=None):
+    def __init__(self, lon0=None, lat0=None, alt0=None, type="instantaneous"):
         
         """
         Initialize the plot with the given parameters.
@@ -215,6 +215,7 @@ class TimeAltitudePlot():
         self.dataz_w = []
 
     def update_chunk(self, df, plot_std=False):
+        
         t   = df["t"]
         u = df["u"]
         v = df["v"]
@@ -232,31 +233,41 @@ class TimeAltitudePlot():
         else: 
             ix = np.abs(df["lon_3D"][:,0,0] - self.lon0).argmin()
         
+        
         if self.lon0 is None: 
             iy = ny // 2
         else: 
             iy = np.abs(df["lat_3D"][0,:,0] - self.lat0).argmin()
         
+        
         if self.alt0 is None: 
             iz = nz // 2
         else: 
             iz = np.abs(df["alt_3D"][0,0,:] - self.alt0).argmin()
+            
+        
+        ix0 = ix
+        ix1 = ix+1
+        iy0 = iy
+        iy1 = iy+1
+        iz0 = iz
+        iz1 = iz+1
     
         lon = df["lon_3D"][:,iy,iz]
         lat = df["lat_3D"][ix,:,iz]
         alt = df["alt_3D"][ix,iy,:]
         
-        keox_u = u[:,:,iy,iz]
-        keox_v = v[:,:,iy,iz]
-        keox_w = w[:,:,iy,iz]
+        keox_u = np.nanmean(u[:,:,iy0:iy1,iz0:iz1], axis=(2,3))
+        keox_v = np.nanmean(v[:,:,iy0:iy1,iz0:iz1], axis=(2,3))
+        keox_w = np.nanmean(w[:,:,iy0:iy1,iz0:iz1], axis=(2,3))
         
-        keoy_u = u[:,ix,:,iz]
-        keoy_v = v[:,ix,:,iz]
-        keoy_w = w[:,ix,:,iz]
+        keoy_u = np.nanmean(u[:,ix0:ix1,:,iz0:iz1], axis=(1,3))
+        keoy_v = np.nanmean(v[:,ix0:ix1,:,iz0:iz1], axis=(1,3))
+        keoy_w = np.nanmean(w[:,ix0:ix1,:,iz0:iz1], axis=(1,3))
         
-        keoz_u = u[:,ix,iy,:]
-        keoz_v = v[:,ix,iy,:]
-        keoz_w = w[:,ix,iy,:]
+        keoz_u = np.nanmean(u[:,ix0:ix1,iy0:iy1,:], axis=(1,2))
+        keoz_v = np.nanmean(v[:,ix0:ix1,iy0:iy1,:], axis=(1,2))
+        keoz_w = np.nanmean(w[:,ix0:ix1,iy0:iy1,:], axis=(1,2))
         
         if (len(t) != nt) or (nx != len(lon)) or (ny != len(lat)) or (nz != len(alt)):
             raise ValueError("Dimensions of (time, lon, lat, alt) and data do not match. (%d,%d,%d,%d)= %s" % (nt, nx, ny, nz, df["lon_3D"].shape))
@@ -556,7 +567,7 @@ def winds_from_model(ensemble_files, coords, log_index=None):
     for i, ifile in enumerate(ensemble_files):
         nn = hyper.restore(ifile, log_index=log_index)
         outputs, mask = nn.infer(T_mesh, X_mesh, Y_mesh, Z_mesh,
-                                 filter_output=False,
+                                 filter_output=True,
                                  return_valid_mask=True)
         u[ind_4d] = outputs[:,0]
         v[ind_4d] = outputs[:,1]
@@ -896,11 +907,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
     root = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex/"
-    dir = "hWINDsire_VV_noNul02.03.128_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3"
+    dir = "hyper"
     
-    # root = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
-    # dir = "hWINDsire_VP_divl02.03.064_w1.0e-06lr1.0e-03lf0ur1.0e-06T24Ind3"
+    root = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
+    dir = "hRESPsine_VV_noNul02.05.256_w1.0e+02lr1.0e-03lf1do0ur1.5e-04T24adaHH"
     #
+    
+    # root = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/"
+    # dir = "hRESPsine_VVl02.06.256_w1.0e-06lr1.0e-03lf1do1ur5.0e-05T24BootstrapW"
+    #
+    # root = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/"
+    # dir = "hRESPsine_VV_noNul02.05.256_w1.0e+02lr1.0e-03lf1do0ur1.5e-04T24ada"
 
     default_dir = os.path.join(root, dir)
     
@@ -914,14 +931,14 @@ if __name__ == '__main__':
     
     parser.add_argument('--output-format', dest='output_format', default='ncdf', help='File format of wind files: either "ncdf" or "hdf5"')
     
-    parser.add_argument('--time-step', dest='tstep', type=float, default=3*60, help='Time step in seconds')
-    parser.add_argument('--time-range', dest='time_range', type=float, default=None)
+    parser.add_argument('--time-step', dest='tstep', type=float, default=10*60, help='Time step in seconds')
+    parser.add_argument('--time-range', dest='time_range', type=float, default=None)#3*60*60)
                     
     parser.add_argument('--log-index', dest='log_index', default=None, help='')
     # New geographic grid arguments
     parser.add_argument('--lon-step', dest='lon_step', type=float, default=None, help='Longitude step in degrees')
     parser.add_argument('--lat-step', dest='lat_step', type=float, default=None, help='Latitude step in degrees')
-    parser.add_argument('--alt-step', dest='alt_step', type=float, default=0.5, help='Altitude step in km')
+    parser.add_argument('--alt-step', dest='alt_step', type=float, default=1.0, help='Altitude step in km')
     
     parser.add_argument('--lon-range', dest='lon_range', type=float, default=None, help='Longitude range in degrees')
     parser.add_argument('--lat-range', dest='lat_range', type=float, default=None, help='Latitude range in degrees')
@@ -933,9 +950,15 @@ if __name__ == '__main__':
     
     # New optional direct coordinate inputs (as comma-separated lists)
     parser.add_argument('--t-coords', dest='t_coords', default=None)
-    parser.add_argument('--lon-coords', dest='lon_coords', default=np.arange(10, 30., 0.0225), type=str, help='Comma-separated list of longitude coordinates')
-    parser.add_argument('--lat-coords', dest='lat_coords', default=np.arange(66, 72., 0.0225), type=str, help='Comma-separated list of latitude coordinates')
+    
+    parser.add_argument('--lon-coords', dest='lon_coords', default=None, type=str, help='Comma-separated list of longitude coordinates')
+    parser.add_argument('--lat-coords', dest='lat_coords', default=None, type=str, help='Comma-separated list of latitude coordinates')
     parser.add_argument('--alt-coords', dest='alt_coords', default=None, type=str, help='Comma-separated list of altitude coordinates')
+    
+    
+    # parser.add_argument('--lon-coords', dest='lon_coords', default=np.arange(10, 30., 0.0225), type=str, help='Comma-separated list of longitude coordinates')
+    # parser.add_argument('--lat-coords', dest='lat_coords', default=np.arange(66, 72., 0.0225), type=str, help='Comma-separated list of latitude coordinates')
+    # parser.add_argument('--alt-coords', dest='alt_coords', default=None, type=str, help='Comma-separated list of altitude coordinates')
     
     # parser.add_argument('--t-coords', dest='t_coords', default="1739923200.0, 1739925000.0, 1739926800.0, 1739928600.0, 1739930400.0, 1739932200.0, 1739934000.0, 1739935800.0, 1739937600.0, 1739939400.0, 1739941200.0, 1739943000.0, 1739944800.0, 1739946600.0, 1739948400.0, 1739950200.0, 1739952000.0, 1739953800.0, 1739955600.0, 1739957400.0, 1739959200.0, 1739961000.0, 1739962800.0, 1739964600.0, 1739966400.0, 1739968200.0, 1739970000.0, 1739971800.0, 1739973600.0, 1739975400.0, 1739977200.0, 1739979000.0, 1739980800.0, 1739982600.0, 1739984400.0, 1739986200.0, 1739988000.0, 1739989800.0, 1739991600.0, 1739993400.0, 1739995200.0, 1739997000.0, 1739998800.0, 1740000600.0, 1740002400.0, 1740004200.0, 1740006000.0, 1740007800.0, 1740009600.0",
     #                     type=str, help='Comma-separated list of time coordinates')
@@ -1000,7 +1023,7 @@ if __name__ == '__main__':
         os.mkdir(rpath_)
         
     if rpath is None:
-        figpath_ = os.path.join(mpath, "plots")
+        figpath_ = os.path.join(mpath, "plots_%s" %log_index)
     else:
         figpath_ = rpath
     if not os.path.isdir(figpath_):

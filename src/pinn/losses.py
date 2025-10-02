@@ -176,3 +176,154 @@ def spectral_loss(u, v=None, slope=-5/3, mode="standard", weight_div=1.0, weight
         loss_rot = tf.reduce_mean((tf.math.log(ps_rot_mean + 1e-8) - tf.math.log(tgt + 1e-8))**2)
 
         return weight_div * loss_div + weight_rot * loss_rot
+    
+class GradNormLoss:
+    
+    def __init__(self, alpha=1e-3, w_min=1e-3, w_max=1e3,
+                 warmup_epochs=10, target_frac=None):
+        
+        self.alpha = alpha
+        self.w_min = w_min
+        self.w_max = w_max
+        self.warmup_epochs = warmup_epochs
+        self.epoch = tf.Variable(0.0, trainable=False, dtype=tf.float32)
+
+        # pesos iniciales
+        self.w_div     = tf.Variable(w_min, trainable=False, dtype=tf.float32)
+        self.w_mom     = tf.Variable(w_min, trainable=False, dtype=tf.float32)
+        self.w_div_vor = tf.Variable(w_min, trainable=False, dtype=tf.float32)
+
+        # fracciones objetivo
+        self.target_frac = target_frac or {
+            "div": 1.00, "mom": 0.50, "div_vor": 0.00
+        }
+
+    def __call__(self, L_data, L_div, L_div_vor, L_mom, L_srt):
+        # pérdidas ponderadas
+        loss_total = (
+            L_data
+            + self.w_div * L_div
+            + self.w_div_vor * L_div_vor
+            + self.w_mom * L_mom
+            + L_srt
+        )
+        logs = {
+            "loss_total": loss_total,
+            "loss_data": L_data,
+            "loss_div": L_div,
+            "loss_div_vor": L_div_vor,
+            "loss_mom": L_mom,
+            "loss_srt": L_srt,
+            "w_data": tf.constant(1.0),
+            "w_div": self.w_div,
+            "w_div_vor": self.w_div_vor,
+            "w_mom": self.w_mom,
+            "w_srt": tf.constant(1.0),
+        }
+        return loss_total, logs
+    
+    def update(self, grads, logs):
+        self.epoch.assign_add(1)
+
+        if self.epoch < self.warmup_epochs:
+            return 0.0  # warmup → no ajustar
+
+        # magnitudes
+        g_data    = tf.abs(grads["grad_data"]    *1.0)
+        g_div     = tf.abs(grads["grad_div"]     * self.w_div)
+        g_mom     = tf.abs(grads["grad_mom"]     * self.w_mom)
+        g_div_vor = tf.abs(grads["grad_div_vor"] * self.w_div_vor)
+
+        g_tot = g_data + g_div + g_mom + g_div_vor + 1e-12
+
+        # ratios GradNorm
+        ratio_div     = (self.target_frac["div"]     * g_tot) / (g_div     + 1e-12)
+        ratio_mom     = (self.target_frac["mom"]     * g_tot) / (g_mom     + 1e-12)
+        ratio_div_vor = (self.target_frac["div_vor"] * g_tot) / (g_div_vor + 1e-12)
+
+        def smooth_update(var, ratio):
+            target_w = tf.clip_by_value(var * ratio, self.w_min, self.w_max)
+            return (1.0 - self.alpha) * var + self.alpha * target_w
+
+        self.w_div.assign(smooth_update(self.w_div, ratio_div))
+        self.w_mom.assign(smooth_update(self.w_mom, ratio_mom))
+        self.w_div_vor.assign(smooth_update(self.w_div_vor, ratio_div_vor))
+
+        logs.update(dict(
+            # frac_div=g_div / g_tot,
+            # frac_mom=g_mom / g_tot,
+            # frac_div_vor=g_div_vor / g_tot,
+            w_div=self.w_div,
+            w_mom=self.w_mom,
+            w_div_vor=self.w_div_vor,
+        ))
+
+        return 1.0
+
+class WeightScheduler:
+    
+    def __init__(self, total_epochs=5000, alpha=1e-3, warmup_epochs=10):
+        
+        self.epoch = tf.Variable(0, trainable=False, dtype=tf.int32)
+        self.total_epochs = total_epochs
+        self.alpha = alpha
+
+        self.warmup_epochs = warmup_epochs
+        # initial weights
+        self.w_srt = 1e-4
+        self.w_div = tf.Variable(1e-6, trainable=False, dtype=tf.float32)
+        self.w_mom = tf.Variable(1e-6, trainable=False, dtype=tf.float32)
+
+        # ranges
+        self.div_min, self.div_max = 1e-3, 1e3
+        self.mom_min, self.mom_max = 1e-3, 1e3
+
+    def _log_schedule(self, epoch, w_min, w_max):
+        # progress in [0,1]
+        frac = tf.cast(epoch, tf.float32) / float(self.total_epochs)
+        # exponential interpolation in log-space
+        log_min, log_max = tf.math.log(w_min)/tf.math.log(10.0), tf.math.log(w_max)/tf.math.log(10.0)
+        log_target = log_min + frac * (log_max - log_min)
+        return tf.pow(10.0, log_target)
+
+    def update(self, *args):
+        # get target weights
+        # target_div = self._log_schedule(self.epoch, self.div_min, self.div_max)
+        # target_mom = self._log_schedule(self.epoch, self.mom_min, self.mom_max)
+        # increment epoch
+        self.epoch.assign_add(1)
+        
+        if self.epoch < self.warmup_epochs:
+            return 0.0
+        # EMA update
+        new_w_div = (1.0 - self.alpha) * self.w_div + self.alpha * self.div_max
+        new_w_mom = (1.0 - self.alpha) * self.w_mom + self.alpha * self.mom_max
+
+        self.w_div.assign(new_w_div)
+        self.w_mom.assign(new_w_mom)
+        
+        return 1.0
+    
+    def __call__(self, L_data, L_div, L_div_vor, L_mom, L_srt):
+        # pérdidas ponderadas
+        loss_total = (
+            L_data
+            + self.w_div * L_div
+            + self.w_mom * L_div_vor
+            + self.w_mom * L_mom
+            + self.w_srt * L_srt
+        )
+        logs = {
+            "loss_total": loss_total,
+            "loss_data": L_data,
+            "loss_div": L_div,
+            "loss_div_vor": L_div_vor,
+            "loss_mom": L_mom,
+            "loss_srt": L_srt,
+            "w_data": tf.constant(1.0),
+            "w_div": self.w_div,
+            "w_div_vor": self.w_mom,
+            "w_mom": self.w_mom,
+            "w_srt": tf.constant(1.0),
+        }
+        return loss_total, logs
