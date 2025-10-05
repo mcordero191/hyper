@@ -34,7 +34,7 @@ time_base = 1467997200.0 #1.468e9
 from georeference.geo_coordinates import lla2xyh
 from utils.histograms import ax_2dhist
 from utils.plotting import epoch2num
-from pinn.networks import genericPINN, resPINN, resPINN_HH
+from pinn.networks import genericPINN, resPINN
 from pinn.spinn import sPINN
 from pinn.NIFnet import MultiFiLMNet, FiLMNet, MultiFiLMPotentialNet
 from pinn.deeponet import DeepONet
@@ -256,24 +256,16 @@ class App:
             
         elif self.nn_type == 'respinn':   
                      
-            # nn = resPINN( self.shape_out,
-            #                   self.width,
-            #                   self.depth,
-            #                   activation  = act,
-            #                   add_nu     = add_nu,
-            #                   kernel_initializer = w_init,
-            #                   laaf = laaf,
-            #                   dropout=dropout,
-            #                   stddev=init_sigma,
-            #                 )    
-            
-            nn = resPINN_HH(
-                              n_neurons =   self.width,
-                              n_layers  =   self.depth,
-                              add_nu    =   add_nu,
-                              laaf      =   laaf,
-                              dropout   =   dropout,
-                            )
+            nn = resPINN( self.shape_out,
+                              self.width,
+                              self.depth,
+                              activation  = act,
+                              add_nu     = add_nu,
+                              kernel_initializer = w_init,
+                              laaf = laaf,
+                              dropout=dropout,
+                              stddev=init_sigma,
+                            )    
             
         elif self.nn_type == 'spinn':   
                      
@@ -895,9 +887,9 @@ class App:
         
         #### Divergence ###############
         
-        # omegax_x = tpS.gradient(omegax, x)
-        # omegay_y = tpS.gradient(omegay, y)
-        # omegaz_z = tpS.gradient(omegaz, z)
+        omegax_x = tpS.gradient(omegax, x)
+        omegay_y = tpS.gradient(omegay, y)
+        omegaz_z = tpS.gradient(omegaz, z)
         
         # omegax_y = tpS.gradient(omegax, y)
         # omegax_z = tpS.gradient(omegax, z)
@@ -1019,9 +1011,9 @@ class App:
                 v_y = tpS.gradient(v, y)
                 w_z = tpS.gradient(w, z)
                 
-                # omegax_x = tpS.gradient(omegax, x)
-                # omegay_y = tpS.gradient(omegay, y)
-                # omegaz_z = tpS.gradient(omegaz, z)
+                omegax_x = tpS.gradient(omegax, x)
+                omegay_y = tpS.gradient(omegay, y)
+                omegaz_z = tpS.gradient(omegaz, z)
         
                 ############################
                 
@@ -1795,7 +1787,7 @@ class App:
         
         self.pde_func = func
         
-    # @tf.function
+    @tf.function
     def pde(self, model, X):
         '''
         X = [t, z, x, y, nu, rho, rho_ratio, N]
@@ -2004,7 +1996,7 @@ class App:
         return (loss)
   
     
-    def loss_slope_recovery_term(self, target_alpha=5.0):
+    def loss_slope_recovery_term(self, target_alpha=3.0):
         '''
         Jagtap AD, Kawaguchi K,Karniadakis GE. 2020
         Locally adaptive activation functions with slope recovery for deep and physics-informed neural networks.
@@ -2025,7 +2017,7 @@ class App:
                 # slt = -tf.reduce_mean(tf.square(alpha_tensor/target_alpha))
                 slt = tf.reduce_mean( tf.square(alpha_tensor - target_alpha ) )
             else:
-                slt = tf.reduce_sum(tf.square(self.model.alphas-target_alpha))
+                slt = tf.reduce_sum(tf.square(self.model.alphas*self.model.gates-target_alpha))
 
         else:
             slt = 0.0
@@ -2462,7 +2454,7 @@ class App:
                         )
                 
                 # print("\tHF: log_sigma =", float(self.model.high_net.four_feat.log_sigma.value))
-                # print("\n\tena_stages =", self.model.gates.numpy())
+                print("\n\tena_stages =", self.model.gates.numpy())
                 print("\n\talphas =", self.model.alphas.numpy())
                 
                 # alphas = []
@@ -3106,14 +3098,14 @@ class App:
             self.gen_PDE_samples = self._gen_LH_samples
         elif method == "uniform":
             self._set_uniform_sampling(**kwargs)
-            self.gen_PDE_samples = self._gen_uniform_samples
+            self.gen_PDE_samples = self._gen_uniform_grid
         elif method == "adaptive":
             self._set_LH_sampling(**kwargs)
             self.gen_PDE_samples = self._gen_adaptive_samples
         else:
             raise ValueError("The selected method=%s is not valid" %method)
     
-    def _set_random_sampling(self, N, boundary_frac=0.6/6):
+    def _set_random_sampling(self, N, boundary_frac=0.02):
         """
         Raissi et al 2019. JCP
         Leiteritz and Pfluger 2021 
@@ -3145,22 +3137,12 @@ class App:
         self.pde_N = N
         # how many fixed boundary samples per face
         self.boundary_N = max(1, int(boundary_frac * N))
-        
-        self._X_pde = None
 
-    def _gen_random_samples(self, iteration, *args):
-        
-        refresh_rate = 20     # how often to refresh (iterations)
-        
-        # Case 1: reuse previous samples unless refresh is due
-        if (self._X_pde is not None) and (iteration % refresh_rate != 0):
-            return self._X_pde
-    
-        print("r", end="")
+    def _gen_random_samples(self, *args):
         
         rng = np.random.default_rng()
         # compute interior count
-        interior_N = self.pde_N #- 6 * self.boundary_N
+        interior_N = self.pde_N - 6 * self.boundary_N
         interior_N = max(0, interior_N)
 
         def uniform_pts(n):
@@ -3237,8 +3219,6 @@ class App:
 
         # finally
         X = tf.concat([t, z, x, y, nu, rho, rho_ratio, N], axis=1)
-        
-        self._X_pde = X
         
         return X
 

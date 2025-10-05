@@ -1442,7 +1442,7 @@ class SMRReader(object):
             
         fp.close()
     
-    def filter(self, path=None, outlier_sigma=4.0, **kwargs):
+    def filter(self, path=None, outlier_sigma=5.0, **kwargs):
         
         df = self.unfiltered_df.copy()
         

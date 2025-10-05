@@ -40,7 +40,7 @@ def get_folder_suffix(short_naming,
                         ):
 
     if short_naming:
-        suffix = "hyper"
+        suffix = "hyper%s" %postfix
     else:
         suffix = "h%s%s_%sl%02d.%02d.%03d_w%2.1elr%2.1elf%ddo%dur%2.1eT%02d%s%s" %(
                                                             nn_type[:4].upper(),
@@ -483,7 +483,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='icon2015', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='vortex', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
@@ -499,7 +499,7 @@ if __name__ == '__main__':
     parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
     parser.add_argument('--clustering-filter',      dest='ena_clustering', default=0, help='Apply clustering filter to the meteor data', type=int)
     
-    parser.add_argument('--pde',        dest='NS_type', default="VP_div", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
     
     parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
@@ -522,7 +522,7 @@ if __name__ == '__main__':
     parser.add_argument('--postfix',     dest='postfix', default="HH", type=str)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     
-    parser.add_argument('--sampling_method',  dest='sampling_method', default='adaptive')
+    parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
     
     parser.add_argument('-s', '--nn-init-std',    dest='nn_init_sigma', default=1.0, type=float)
     parser.add_argument('-i', '--nn-w-init',    dest='nn_w_init', default='HeNormal', type=str)
@@ -539,7 +539,7 @@ if __name__ == '__main__':
     parser.add_argument('--alt-center', dest='alt_center', default=None, help='km', type=float)
     
     parser.add_argument('--output-file', dest='filename_model', default=None, help='')
-    parser.add_argument('--output-file-short-naming', dest='short_naming', default=0, type=int)
+    parser.add_argument('--output-file-short-naming', dest='short_naming', default=1, type=int)
     parser.add_argument('--realtime', dest='realtime', default=0, help='', type=int)
     
     parser.add_argument('--transfer-learning', dest='transfer_learning', default=0, help='', type=int)

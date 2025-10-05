@@ -262,7 +262,7 @@ class GradNormLoss:
 
 class WeightScheduler:
     
-    def __init__(self, total_epochs=5000, alpha=1e-6, warmup_epochs=10):
+    def __init__(self, total_epochs=5000, alpha=1e-3, warmup_epochs=10):
         
         self.epoch = tf.Variable(0, trainable=False, dtype=tf.int32)
         self.total_epochs = total_epochs
@@ -270,7 +270,7 @@ class WeightScheduler:
 
         self.warmup_epochs = warmup_epochs
         # initial weights
-        self.w_srt = 1e-5
+        self.w_srt = 1e-4
         self.w_div = tf.Variable(1e-6, trainable=False, dtype=tf.float32)
         self.w_mom = tf.Variable(1e-6, trainable=False, dtype=tf.float32)
 
