@@ -409,14 +409,19 @@ if __name__ == '__main__':
     
     import argparse
     
+    root = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex"
+    subdir = "hVV_noNul05.256_lr1.0e-03lf0do0ur1.0e-09r1.0e+02L1_BS"
+    
+    default = os.path.join(root, subdir)
+    
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-d', '--dpath', dest='path', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/hyperHH/d20230323", help='Data path')
+    parser.add_argument('-d', '--dpath', dest='path', default=default, help='Data path')
     # parser.add_argument('-d', '--dpath', dest='path', default="/Users/mcordero/Data/IAP/SIMONe/NewMexico/MRA/hyper24/c20240118", help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
     parser.add_argument('-u', '--upleg', dest='upleg', default=0, help='')
-    parser.add_argument('--log-index', dest='log_index', default=1999, help='')           
+    parser.add_argument('--log-index', dest='log_index', default=999, help='')           
     
     args = parser.parse_args()
     
@@ -426,39 +431,43 @@ if __name__ == '__main__':
     upleg  = args.upleg
     log_index  = args.log_index
     
-    ref_label = "UPLEG" if upleg else "DOWNLEG"
+    dpath = os.path.join(path, "c20230323")
     
-    suffix = "" if log_index is None else str(log_index)
-    
-    if rpath is None:
-        rpath = os.path.join(path, "plots%s" %suffix)
+    for upleg in [0,1]:
         
-    if not os.path.isdir(rpath):
-        os.mkdir(rpath)
+        ref_label = "UPLEG" if upleg else "DOWNLEG"
         
-    df_vortex = read_upleg(vortex=1, upleg=upleg, 
-                           # lat=34.45,
-                           # lon=-107.55,
-                           # dt=datetime.datetime(2024,1,18,12,56,0)
-                           )
-    
-    print("Creating GRID ...")
-    coords = create_grid(
-                        epoch = df_vortex["epoch"][0],
-                        lon0  = df_vortex["lon"][0],
-                        lat0  = df_vortex["lat"][0],
-                        )
-    
-    # coords = format_grid(df_vortex["epoch"], df_vortex["lat"], df_vortex["lon"], df_vortex["alt"])
-    
-    print("Generating winds ...")
-    #Produce u, v, w, and std(u), std(v), std(w)
-    df = winds_from_model(path, coords, log_index=log_index)
-    
-    print("Plotting winds ...")
-    plot_profiles(df, rpath, df_ref=df_vortex, ext=ext, ref_label=ref_label)
-    
-    print("Saving winds ...")
-    save_flat_winds(df, rpath)
+        suffix = "" if log_index is None else str(log_index)
+        
+        if rpath is None:
+            rpath = os.path.join(dpath, "plots_%s" %suffix)
+            
+        if not os.path.isdir(rpath):
+            os.mkdir(rpath)
+            
+        df_vortex = read_upleg(vortex=1, upleg=upleg, 
+                               # lat=34.45,
+                               # lon=-107.55,
+                               # dt=datetime.datetime(2024,1,18,12,56,0)
+                               )
+        
+        print("Creating GRID ...")
+        coords = create_grid(
+                            epoch = df_vortex["epoch"][0],
+                            lon0  = df_vortex["lon"][0],
+                            lat0  = df_vortex["lat"][0],
+                            )
+        
+        # coords = format_grid(df_vortex["epoch"], df_vortex["lat"], df_vortex["lon"], df_vortex["alt"])
+        
+        print("Generating winds ...")
+        #Produce u, v, w, and std(u), std(v), std(w)
+        df = winds_from_model(dpath, coords, log_index=log_index)
+        
+        print("Plotting winds ...")
+        plot_profiles(df, rpath, df_ref=df_vortex, ext=ext, ref_label=ref_label)
+        
+        print("Saving winds ...")
+        save_flat_winds(df, rpath)
     
     

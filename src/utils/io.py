@@ -61,7 +61,7 @@ def read_vortex_files(path):
     
     
     df = None
-    for d in [upleg, downleg]:
+    for d in [downleg]:
         
         dfi = pd.read_csv(d["filename"],
                          # sep=' ',

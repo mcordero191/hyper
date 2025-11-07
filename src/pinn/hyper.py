@@ -168,7 +168,7 @@ class App:
         self.lat_ref    = lat_ref
         self.alt_ref    = alt_ref
         
-        self.loss_manager = WeightScheduler() #GradNormLoss()
+         #GradNormLoss()
         # hiddens_shape = (self.depth-1) * [self.width]
         
         # build
@@ -520,8 +520,8 @@ class App:
         
         return(mean_grad)
     
-    @tf.function(reduce_retracing=True)
-    def forward_pass(self, model, X, training=True):
+    # @tf.function(reduce_retracing=True)
+    def call_model(self, model, X, training=True):
         
         # print("Tracing model!") 
         
@@ -534,6 +534,59 @@ class App:
         # print("Finish tracing model!")
         
         return(u)
+    
+    @tf.function(reduce_retracing=True)
+    def forward_pass(self, model, X, training=True):
+        """
+        Compute velocity field:
+        u = curl(A) + grad(phi)
+        """
+        
+        # t, z, x, y = tf.split(X, num_or_size_splits=4, axis=1)
+        
+        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
+            
+            tape.watch(X)
+            
+            A_phi, h = self.call_model( model, X )      # (B,3)
+            # phi = self.forward_phi(inputs)  # (B,1)
+            A = A_phi[:,0:3]
+            phi = A_phi[:,3:4]
+            
+        J_A = tape.batch_jacobian(A, X)
+        J_phi = tape.batch_jacobian(phi, X)
+        
+        del tape
+        
+        dA1 = J_A[:,0]
+        dA2 = J_A[:,1]
+        dA3 = J_A[:,2] # each (B, 3)
+        
+        dPhi = J_phi[:,0]
+        
+        _, A1_z, A1_x, A1_y = tf.unstack(dA1, axis=1)
+        _, A2_z, A2_x, A2_y = tf.unstack(dA2, axis=1)
+        _, A3_z, A3_x, A3_y = tf.unstack(dA3, axis=1)
+        
+        
+        _, w_div, u_div, v_div = tf.unstack(dPhi, axis=1)
+        
+        # curl(A)
+        u_rot = A3_y - A2_z
+        v_rot = A1_z - A3_x
+        w_rot = A2_x - A1_y
+        
+        
+        u = u_rot + u_div
+        v = v_rot + v_div
+        w = w_rot + w_div
+        
+        uvw = tf.stack([u, v, w], axis=1)
+        
+        if model.learn_const:
+            uvw = h + uvw
+        
+        return uvw*1e4
     
     def pde_div(self, model, t, z, x, y, nu, rho, rho_ratio, N):
         
@@ -825,7 +878,7 @@ class App:
         div = eq_continuity(u_x, v_y, w_z)#, w=w, rho_ratio=rho_ratio)
 
         div_w = eq_continuity(omegax_x, omegay_y, omegaz_z)
-        hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
+        # hor_spec = self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
         
         # d_x, d_y, d_z = grad_div(u_xx, v_xy, w_xz, u_xy, v_yy, w_yz, u_xz, v_yz, w_zz)
         
@@ -838,7 +891,7 @@ class App:
         d_y = junk
         d_z = junk
         
-        return(div, div_w, d_x, d_y, d_z, hor_spec)
+        return(div, div_w, d_x, d_y, d_z, junk)
     
     # @tf.function
     def pde_vorticity_3O_noNu(self, model, t, z, x, y, nu, rho, rho_ratio, N):
@@ -847,8 +900,8 @@ class App:
         # mom     = 0.0
         # div_w    = 0.0
         
-        with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tpS:
-            tpS.watch(t)
+        with tf.GradientTape(persistent = True, watch_accessed_variables=False) as tpS, tf.GradientTape(persistent = True, watch_accessed_variables=False) as tpT:
+            tpT.watch(t)
             
             tpS.watch(x)
             tpS.watch(y)
@@ -922,7 +975,7 @@ class App:
         # w_zz = tpS.gradient(w_z, z)
 
         ############################
-        omegaz_t    = tpS.gradient(omegaz, t)
+        omegaz_t    = tpT.gradient(omegaz, t)
                 
         ###############################
         ####Rotational formulation #####
@@ -937,7 +990,7 @@ class App:
         #Divergence
         div = eq_continuity(u_x, v_y, w_z, w=w, rho_ratio=rho_ratio)
         
-        div_w = 0.0#eq_continuity(omegax_x, omegay_y, omegaz_z)
+        div_w = 0.0 #eq_continuity(omegax_x, omegay_y, omegaz_z)
         hor_spec = 0.0#self.loss_horizontal_spectra(u_x, u_y, v_x, v_y, w_x, w_y)
         
         # poi_x     = eq_poisson(u_xx, u_yy, u_zz, omegaz_y, omegay_z)
@@ -1936,11 +1989,19 @@ class App:
         #
         # weights = 1.0 + alpha * w_sens
 
-        # loss = 1e2*tf.reduce_mean(tf.abs(df0/f_err))
-        loss = tf.reduce_mean(weights*tf.square(df0/(2*np.pi)))
+        loss = tf.reduce_mean(weights*tf.abs(df0/(2*np.pi)))
+        # loss = tf.sqrt( tf.reduce_mean(weights*tf.square(df0/(2*np.pi))) )
         
         return (loss)
     
+    def loss_BC(self, model):
+        """Face-integrated flux balance"""
+        
+        faces, normals, time_bins = self._make_BC_samples(self.lbi, self.ubi)
+        loss_BC = self._loss_BC(model, faces, normals, time_bins)
+        
+        return loss_BC
+
     def loss_w(self, model, X):
         '''
         X = [t, z, x, y, d, d_err, kx, ky, kz]
@@ -2152,9 +2213,10 @@ class App:
             loss_div, loss_div_vor, loss_mom, _ = self.loss_pde(model, X_pde)
             
             loss_srt = self.loss_slope_recovery_term()
-            
+            loss_flux = self.loss_BC(model)
+            #self.loss_flux(model, self.X_faces, self.normals)
             # combine with current weights
-            L_total, logs = self.loss_manager(loss_data, loss_div, loss_div_vor, loss_mom, loss_srt)
+            L_total, logs = self.loss_manager(loss_data, loss_div, loss_div_vor, loss_mom, loss_srt, loss_flux)
     
         # apply model gradients
         grads = tape.gradient(L_total, model.trainable_variables)
@@ -2216,6 +2278,7 @@ class App:
               ns_pde  = 5000,
               sampling_method="adaptive",
               w_pde_max = 1e4,
+              pde_ratio = 1e0,
               # NS_type     = 'VP',             #Velocity-Vorticity (VV) or Velocity-Pressure (VP) form
               ):
             
@@ -2223,6 +2286,8 @@ class App:
         # print("         # of epoch     :", epochs)
         # print("         batch size     :", batch_size)
         # print("         convergence tol:", tol)
+        
+        self.loss_manager = WeightScheduler(alpha=w_pde_update_rate, pde_ratio=pde_ratio)
         
         self.lr      = lr
         self.opt     = opt
@@ -2311,6 +2376,8 @@ class App:
         self.select_PDE_sampling(method=sampling_method, N=ns_pde)
         # self.gen_frequency_grid()
         
+        # self.prepare_boundary_faces()
+        
         t0 = time.time()
         
         for ep in range(epochs):
@@ -2337,6 +2404,7 @@ class App:
             ep_loss_mom     = logs["loss_mom"]
             ep_loss_temp    = logs["loss_div_vor"]
             ep_loss_srt     = logs["loss_srt"]
+            ep_loss_flux    = logs["loss_flux"]
             
             # ep_grad_data    = logs["grad_data"]
             # ep_grad_div     = logs["grad_div"]
@@ -2353,6 +2421,7 @@ class App:
             w_div = logs["w_div"]
             w_temp = logs["w_div_vor"]
             w_srt = logs["w_srt"]
+            w_flux = logs["w_flux"]
             
             ep_loss_u = np.nan
             ep_loss_v = np.nan
@@ -2366,7 +2435,7 @@ class App:
             tv_ve = np.nan
             tv_we = np.nan
             
-            if ep % print_rate == 1:
+            if ep % print_rate == 0:
                 rmses = self.rmse(X_testing)
                 
                 ep_loss_u = rmses[0].numpy()
@@ -2393,27 +2462,29 @@ class App:
                        )
                     )
                 
-                print("\t\t\tTotal \tData \tDIV  \tMomt \tDivW  \tSRT " )
+                print("\t\t\tTotal \tData \tDIV  \tMomt \tDivW  \tSRT  \tFLUX" )
                  
                  
-                print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e\t%.1e\t%.1e" 
+                print("\tlosses : \t%.1e\t%.1e\t%.1e\t%.1e\t%.1e\t%.1e\t%.1e" 
                     % (
                        ep_loss,
                        ep_loss_data,
                        ep_loss_pde,
                        ep_loss_mom,
                         ep_loss_temp,
-                        ep_loss_srt
+                        ep_loss_srt,
+                        ep_loss_flux,
                        )
                     )
                 
-                print("\tweights: \t\t%.1e\t%.1e\t%.1e\t%.1e\t%.1e" 
+                print("\tweights: \t\t%.1e\t%.1e\t%.1e\t%.1e\t%.1e\t%.1e" 
                     % (
                        w_data,
                        w_div,
                         w_mom,
                         w_temp,
                         w_srt,
+                        w_flux,
                        )
                     )
                 
@@ -3113,7 +3184,7 @@ class App:
         else:
             raise ValueError("The selected method=%s is not valid" %method)
     
-    def _set_random_sampling(self, N, boundary_frac=0.6/6):
+    def _set_random_sampling(self, N, boundary_frac=0.06/6):
         """
         Raissi et al 2019. JCP
         Leiteritz and Pfluger 2021 
@@ -3150,13 +3221,13 @@ class App:
 
     def _gen_random_samples(self, iteration, *args):
         
-        refresh_rate = 20     # how often to refresh (iterations)
-        
-        # Case 1: reuse previous samples unless refresh is due
-        if (self._X_pde is not None) and (iteration % refresh_rate != 0):
-            return self._X_pde
-    
-        print("r", end="")
+        # refresh_rate = 20     # how often to refresh (iterations)
+        #
+        # # Case 1: reuse previous samples unless refresh is due
+        # if (self._X_pde is not None) and (iteration % refresh_rate != 0):
+        #     return self._X_pde
+        #
+        # print("r", end="")
         
         rng = np.random.default_rng()
         # compute interior count
@@ -3165,9 +3236,18 @@ class App:
 
         def uniform_pts(n):
             shape = (n,1)
+        
+            # Random angle and radius
+            theta = rng.uniform(0, 2*np.pi, size=shape)
+            r = np.sqrt(rng.uniform(0, 1.0, size=shape))  # sqrt ensures uniform area density
+        
+            # Convert polar to Cartesian inside ellipse
+            x_np = self.pde_x0 + self.pde_xw * r * np.cos(theta)
+            y_np = self.pde_y0 + self.pde_yw * r * np.sin(theta)
+    
+            # x_np = self.pde_xw*rng.uniform(-1.0,1.0,size=shape) + self.pde_x0
+            # y_np = self.pde_yw*rng.uniform(-1.0,1.0,size=shape) + self.pde_y0
             
-            x_np = self.pde_xw*rng.uniform(-1.0,1.0,size=shape) + self.pde_x0
-            y_np = self.pde_yw*rng.uniform(-1.0,1.0,size=shape) + self.pde_y0
             z_np = self.pde_zw*rng.uniform(-1.0,1.0,size=shape) + self.pde_z0
             t_np = self.pde_tw*rng.uniform(-1.0,1.0,size=shape) + self.pde_t0
             
@@ -3187,21 +3267,24 @@ class App:
         # 2) boundary faces
         # each face: fix one coord at ±1, vary the other two + t
         faces = []
-        for coord, (center, width) in [('x',(self.pde_x0,self.pde_xw)),
-                                       ('y',(self.pde_y0,self.pde_yw)),
-                                       ('z',(self.pde_z0,self.pde_zw))]:
-            for sign in (-1.0, +1.0):
-                # other two coords random
-                other = {'x','y','z'} - {coord}
-                pts_b = uniform_pts(self.boundary_N)
-                face = {
-                    't': pts_b['t'],
-                    coord: center + sign*width*np.ones_like(pts_b['t'], dtype=np.float32),
-                }
-                # fill in other coords from pts_b
-                for o in other:
-                    face[o] = pts_b[o]
-                faces.append(face)
+        
+        if self.boundary_N>0:
+            
+            for coord, (center, width) in [('x',(self.pde_x0,self.pde_xw)),
+                                           ('y',(self.pde_y0,self.pde_yw)),
+                                           ('z',(self.pde_z0,self.pde_zw))]:
+                for sign in (-1.0, +1.0):
+                    # other two coords random
+                    other = {'x','y','z'} - {coord}
+                    pts_b = uniform_pts(self.boundary_N)
+                    face = {
+                        't': pts_b['t'],
+                        coord: center + sign*width*np.ones_like(pts_b['t'], dtype=np.float32),
+                    }
+                    # fill in other coords from pts_b
+                    for o in other:
+                        face[o] = pts_b[o]
+                    faces.append(face)
 
         # collect all samples
         for face in faces:
@@ -3644,7 +3727,210 @@ class App:
         self._X_pde_loss = tf.concat([loss_retain, loss_selected], axis=0)
     
         return self._X_pde
+    
+    # @tf.function
+    def _make_BC_samples(self, lbi, ubi, n_side=500, n_top=2000, n_time_bins=5, seed=1234):
+        """
+        TensorFlow-compiled version of BC sampler for a cylindrical domain.
+    
+        Generates:
+          - Side wall: x^2 + y^2 = R^2 (lateral boundary)
+          - Top/bottom: z = const (open boundaries)
+          - Discrete time bins for per-time flux enforcement
+    
+        Args:
+            lbi, ubi : 1D tensors or lists [tmin,zmin,xmin,ymin], [tmax,zmax,xmax,ymax]
+            n_side   : points on the cylindrical wall
+            n_top    : points per top/bottom face
+            n_time_bins : number of time slices
+            seed     : random seed for reproducibility
+    
+        Returns:
+            faces   : dict of boundary tensors (side, z+, z-)
+            normals : dict of normals (side, z+, z-)
+            t_bins  : 1D tf.Tensor of discrete times
+        """
+        # lbi = tf.cast(lbi, tf.float32)
+        # ubi = tf.cast(ubi, tf.float32)
+        tmin, zmin, xmin, ymin = tf.unstack(lbi)
+        tmax, zmax, xmax, ymax = tf.unstack(ubi)
+    
+        # Cylinder geometry
+        R = tf.minimum(xmax - xmin, ymax - ymin) / 2.0
+        x0 = (xmax + xmin) / 2.0
+        y0 = (ymax + ymin) / 2.0
+    
+        # Time bins
+        # t_bins = tf.linspace(tmin, tmax, n_time_bins)
+        t_bins = tf.random.uniform((n_time_bins,), minval=tmin, maxval=tmax, dtype=tf.float32)
+    
+        # --- Side wall ---
+        theta = tf.random.uniform((n_side, 1), 0.0, 2.0 * np.pi, seed=seed)
+        z = tf.random.uniform((n_side, 1), zmin, zmax, seed=seed + 1)
+        x = x0 + R * tf.cos(theta)
+        y = y0 + R * tf.sin(theta)
+        X_side_spatial = tf.concat([z, x, y], axis=1)
+    
+        # Normals (cosθ, sinθ, 0)
+        nx = tf.cos(theta)
+        ny = tf.sin(theta)
+        nz = tf.zeros_like(nx)
+        normals_side = tf.concat([nx, ny, nz], axis=1)
+    
+        # # --- Top and bottom caps ---
+        # def make_cap(zval, local_seed):
+        #     r = tf.sqrt(tf.random.uniform((n_top, 1), 0.0, 1.0, seed=local_seed))
+        #     th = tf.random.uniform((n_top, 1), 0.0, 2.0 * np.pi, seed=local_seed + 1)
+        #     x_cap = x0 + R * r * tf.cos(th)
+        #     y_cap = y0 + R * r * tf.sin(th)
+        #     z_cap = tf.ones_like(r) * zval
+        #     return tf.concat([z_cap, x_cap, y_cap], axis=1)
+        #
+        # X_top_spatial = make_cap(zmax, seed + 10)
+        # X_bot_spatial = make_cap(zmin, seed + 20)
+    
+        faces = {
+            "side": X_side_spatial,
+            # "z+": X_top_spatial,
+            # "z-": X_bot_spatial,
+        }
+        normals = {
+            "side": normals_side,
+            # "z+": tf.constant([[0, 0, 1]], tf.float32),
+            # "z-": tf.constant([[0, 0, -1]], tf.float32),
+        }
+        
+        self.faces = faces
+        self.normals = normals
+        self.t_bins = t_bins
+        
+        return faces, normals, t_bins
 
+
+    def _loss_BC(self, model, faces, normals, t_bins):
+        """
+        Optimized BC loss for cylindrical domain:
+          - Vectorized per-time-bin flux balance (⟨u·n⟩(t_i) = 0)
+        """
+    
+        X_side_spatial = faces["side"]      # (N, 3): z,x,y
+        n_side = normals["side"]            # (N, 3)
+        n_t = tf.shape(t_bins)[0]
+        n_s = tf.shape(X_side_spatial)[0]
+    
+        # --- (1) Build all (t, z, x, y) samples at once ---
+        # Repeat spatial points for all times
+        X_tile = tf.tile(X_side_spatial[None, :, :], [n_t, 1, 1])   # (T, N, 3)
+        t_tile = tf.reshape(tf.repeat(t_bins, n_s), (n_t, n_s, 1))  # (T, N, 1)
+        X_full = tf.concat([t_tile, X_tile], axis=-1)               # (T, N, 4)
+        X_full = tf.reshape(X_full, (-1, 4))                        # (T*N, 4)
+    
+        # Tile normals for all times
+        n_full = tf.tile(n_side[None, :, :], [n_t, 1, 1])
+        n_full = tf.reshape(n_full, (-1, 3))
+    
+        # --- (2) Single forward pass ---
+        u = self.forward_pass(model, X_full)                        # (T*N, 3)
+        flux = tf.reduce_sum(u * n_full, axis=1)                    # (T*N,)
+    
+        # reshape flux to (T, N)
+        flux_per_time = tf.reshape(flux, (n_t, n_s))
+    
+        # mean flux for each time bin
+        mean_flux_t = tf.reduce_mean(flux_per_time, axis=1)
+        L_BC = tf.reduce_mean(tf.square(mean_flux_t))             # mean over bins
+        
+        return L_BC
+
+    def prepare_boundary_faces(self,
+                                n_space_per_face=500,
+                                n_time=24):
+        """
+        Generate 4D points (t,z,x,y) on all spatial boundary faces,
+        with corresponding 3D spatial normals (n_z,n_x,n_y).
+
+        Parameters
+        ----------
+        t_min, t_max : float
+            Time limits.
+        z_min, z_max, x_min, x_max, y_min, y_max : float
+            Spatial domain limits.
+        n_space_per_face : int
+            Number of random points per spatial face.
+        n_time : int
+            Number of random time samples per face.
+
+        Returns
+        -------
+        self.X_faces : tf.Tensor, shape (N, 4)
+            Boundary points in (t,z,x,y).
+        self.normals : tf.Tensor, shape (N, 3)
+            Outward spatial normals (n_z,n_x,n_y).
+        """
+
+        t_min = self.lbi[0].numpy()
+        t_max = self.ubi[0].numpy()
+        
+        z_min = self.lbi[1].numpy()
+        z_max = self.ubi[1].numpy()
+        
+        x_min = self.lbi[2].numpy()
+        x_max = self.ubi[2].numpy()
+        
+        y_min = self.lbi[3].numpy()
+        y_max = self.ubi[3].numpy()
+        
+        
+        
+        def U(low, high, size):  # uniform sampler
+            return np.random.uniform(low, high, size)
+
+        faces, normals = [], []
+
+        # Define time samples once per face
+        t = U(t_min, t_max, n_time)
+
+        # Helper to create full space-time samples
+        def add_face(fix_axis, fix_val, free_axes, normal_vec):
+            A = U(free_axes[0][0], free_axes[0][1], n_space_per_face)
+            B = U(free_axes[1][0], free_axes[1][1], n_space_per_face)
+            t_rep = np.tile(t, n_space_per_face)
+            A_rep = np.repeat(A, n_time)
+            B_rep = np.repeat(B, n_time)
+
+            coords = {"t": t_rep, "z": np.zeros_like(t_rep),
+                      "x": np.zeros_like(t_rep), "y": np.zeros_like(t_rep)}
+
+            coords[fix_axis] = np.full_like(t_rep, fix_val)
+            coords[free_axes[0][2]] = A_rep
+            coords[free_axes[1][2]] = B_rep
+
+            X_face = np.stack([coords["t"], coords["z"], coords["x"], coords["y"]], axis=1)
+            faces.append(X_face)
+            normals.append(np.tile(normal_vec, (X_face.shape[0], 1)))
+
+        # z = z_min, z_max
+        add_face("z", z_min, [(x_min, x_max, "x"), (y_min, y_max, "y")], [ +1., 0., 0.])
+        add_face("z", z_max, [(x_min, x_max, "x"), (y_min, y_max, "y")], [ -1., 0., 0.])
+
+        # x = x_min, x_max
+        add_face("x", x_min, [(z_min, z_max, "z"), (y_min, y_max, "y")], [ 0., +1., 0.])
+        add_face("x", x_max, [(z_min, z_max, "z"), (y_min, y_max, "y")], [ 0., -1., 0.])
+
+        # y = y_min, y_max
+        add_face("y", y_min, [(z_min, z_max, "z"), (x_min, x_max, "x")], [ 0., 0., +1.])
+        add_face("y", y_max, [(z_min, z_max, "z"), (x_min, x_max, "x")], [ 0., 0., -1.])
+
+        # Stack and convert
+        X_faces = np.concatenate(faces, axis=0)
+        N_faces = np.concatenate(normals, axis=0)
+
+        self.X_faces = tf.convert_to_tensor(X_faces, dtype=tf.float32)
+        self.normals = tf.convert_to_tensor(N_faces, dtype=tf.float32)
+
+        print(f"[INFO] Generated {len(X_faces)} space–time boundary points")
+        return self.X_faces, self.normals
+    
     def plot_pde_samples(self, t, x, y, z):
         
         # print("         lower bounds:", tf.reduce_min(self.t_pde).numpy(), tf.reduce_min(self.z_pde).numpy())
@@ -3681,9 +3967,9 @@ class App:
         data = np.array(self.loss_data_log)
         
         scale_tot = 1e0
-        scale_div = 1e2/np.nanmax(self.w_div_log) #1e2
-        scale_mom = 1e2/np.nanmax(self.w_mom_log)#1e2
-        scale_vor = 1e2/np.max(self.w_temp_log)#1e2
+        scale_div = 1e2#/np.nanmax(self.w_div_log) #1e2
+        scale_mom = 1e2#/np.nanmax(self.w_mom_log)#1e2
+        scale_vor = 1e2#/np.max(self.w_temp_log)#1e2
         
         lamb_div = np.array(self.w_div_log)/(scale_div)
         lamb_mom = np.array(self.w_mom_log)/(scale_mom)

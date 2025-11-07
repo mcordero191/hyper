@@ -4,6 +4,11 @@ import time, datetime
 import numpy as np
 import pandas as pd
 
+from scipy.stats import gaussian_kde
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (needed for 3D projection)
+
+
 import sys
 sys.path.insert(0,'../src')
 
@@ -37,20 +42,43 @@ def get_folder_suffix(short_naming,
                         version = "1.0.0",
                         nn_type = "",
                         postfix = "",
+                        pde_ratio = 1e0,
                         ):
 
     if short_naming:
         suffix = "hyper%s" %postfix
     else:
-        suffix = "h%s%s_%sl%02d.%02d.%03d_w%2.1elr%2.1elf%ddo%dur%2.1eT%02d%s%s" %(
-                                                            nn_type[:4].upper(),
-                                                            activation[:4],
+        # suffix = "h%s%s_%sl%02d.%02d.%03d_w%2.1elr%2.1elf%ddo%dur%2.1eT%02d%s%s" %(
+        #                                                     nn_type[:4].upper(),
+        #                                                     activation[:4],
+        #                                                     NS_type,
+        #                                                     n_blocks,
+        #                                                     num_hidden_layers,
+        #                                                     num_neurons_per_layer,
+        #                                                     # n_nodes,
+        #                                                     w_pde,
+        #                                                     # w_srt,
+        #                                                     learning_rate,
+        #                                                     # N_pde,
+        #                                                     laaf,
+        #                                                     dropout,
+        #                                                     # w_init[:2],
+        #                                                     # init_sigma,
+        #                                                     w_pde_update_rate,
+        #                                                     dt,
+        #                                                     sampling_method[:3],
+        #                                                     postfix,
+        #                                                     )
+        
+        suffix = "h%sl%02d.%02d_lr%2.1elf%ddo%dur%2.1er%2.1e%s" %(
+                                                            # nn_type[:4].upper(),
+                                                            # activation[:4],
                                                             NS_type,
-                                                            n_blocks,
+                                                            # n_blocks,
                                                             num_hidden_layers,
                                                             num_neurons_per_layer,
                                                             # n_nodes,
-                                                            w_pde,
+                                                            # w_pde,
                                                             # w_srt,
                                                             learning_rate,
                                                             # N_pde,
@@ -59,10 +87,12 @@ def get_folder_suffix(short_naming,
                                                             # w_init[:2],
                                                             # init_sigma,
                                                             w_pde_update_rate,
-                                                            dt,
-                                                            sampling_method[:3],
+                                                            pde_ratio,
+                                                            # dt,
+                                                            # sampling_method[:3],
                                                             postfix,
                                                             )
+        
         
     return suffix
 
@@ -112,113 +142,6 @@ def get_filename_suffix(short_naming,
                                                             )
         
     return suffix
-
-def balanced_time_bootstrap(df, time_col="times", bin_seconds=3600,
-                            samples_per_bin=None, random_state=None):
-    """
-    Balanced bootstrap across time bins:
-    - Split the dataset into bins of width `bin_seconds`.
-    - From each bin, sample the same number of rows (with replacement).
-    - Concatenate all bins to form the balanced bootstrap replicate.
-
-    Args:
-        df : pd.DataFrame
-            Must contain a column with times in seconds from 1970-01-01.
-        time_col : str
-            Column name with Unix timestamps (seconds).
-        bin_seconds : int
-            Size of each bin in seconds (e.g. 3600 = 1h).
-        samples_per_bin : int or None
-            Number of samples to draw per bin. 
-            If None → use the minimum bin size across all bins.
-        random_state : int or None
-            Random seed for reproducibility.
-
-    Returns:
-        pd.DataFrame : Bootstrapped replicate with balanced bins.
-    """
-    rng = np.random.default_rng(random_state)
-
-    # Assign bins
-    df = df.copy()
-    df["time_bin"] = (df[time_col] // bin_seconds).astype(int)
-
-    # Decide how many samples per bin
-    if samples_per_bin is None:
-        samples_per_bin = df["time_bin"].value_counts().max()
-
-    boot_parts = []
-    for g, subdf in df.groupby("time_bin"):
-        if len(subdf) == 0:
-            continue
-        # Sample with replacement (if bin smaller than target, still works)
-        idx = rng.integers(0, len(subdf), size=samples_per_bin)
-        boot = subdf.iloc[idx]
-        boot_parts.append(boot)
-
-    boot_df = pd.concat(boot_parts, axis=0)
-    
-    boot_df = boot_df.sort_values(by=time_col).reset_index(drop=True)
-    
-    return boot_df
-
-def balanced_time_alt_bootstrap(df, time_col="times", alt_col="heights",
-                                bin_seconds=3600, bin_alt=1.0,
-                                samples_per_bin=None, random_state=None):
-    """
-    Balanced bootstrap across both time and altitude bins.
-    
-    Args:
-        df : pd.DataFrame
-            Must contain columns `time_col` (seconds since epoch)
-            and `alt_col` (altitude in same units).
-        time_col : str
-            Column name with Unix timestamps.
-        alt_col : str
-            Column name with altitude.
-        bin_seconds : int
-            Size of time bin in seconds (e.g. 3600 = 1h).
-        bin_alt : float
-            Size of altitude bin (e.g. 1.0 km).
-        samples_per_bin : int or None
-            Number of samples to draw from each time×alt bin.
-            If None → use the minimum bin size across all bins.
-        random_state : int or None
-            Random seed.
-    
-    Returns:
-        pd.DataFrame : Balanced bootstrap replicate, sorted by time then altitude.
-    """
-    rng = np.random.default_rng(random_state)
-    df = df.copy()
-
-    # assign time and altitude bins
-    df["time_bin"] = (df[time_col] // bin_seconds).astype(int)
-    df["alt_bin"] = (df[alt_col] // bin_alt).astype(int)
-
-    # decide samples per bin
-    if samples_per_bin is None:
-        samples_per_bin = df.groupby(["time_bin", "alt_bin"]).size().max()*2
-        
-
-    boot_parts = []
-    for (tbin, abin), subdf in df.groupby(["time_bin", "alt_bin"]):
-        
-        if len(subdf) == 0:
-            continue
-        
-        idx = rng.integers(0, len(subdf), size=samples_per_bin)
-        boot_parts.append(subdf.iloc[idx])
-
-    if not boot_parts:
-        raise ValueError("No bins with data found!")
-
-    boot_df = pd.concat(boot_parts, axis=0)
-
-    # sort by time and altitude
-    boot_df = boot_df.sort_values(by=time_col).reset_index(drop=True)
-
-    return boot_df
 
 def balanced_sample_weights(df, time_col="times", alt_col="heights",
                                 bin_seconds=10*60, bin_alt=1.0,
@@ -285,6 +208,154 @@ def balanced_sample_weights(df, time_col="times", alt_col="heights",
 
     return df
 
+
+def smooth_sample_weights(
+        df,
+        cols_xyz=("x", "y", "times"),
+        bw_method="scott",
+        normalize=True,
+        weight_col="weights",
+        random_state=None,
+        sample_frac=0.3,
+        eps=1e-20,
+    ):
+    """
+    Continuous data balancing via kernel density estimation (KDE).
+    Computes smooth inverse-density weights over (x, y, t).
+
+    Args:
+        df : pd.DataFrame
+        cols_xyz : tuple of str
+            Columns used for density estimation.
+        bw_method : str or float
+            Bandwidth method for KDE ('scott', 'silverman', or numeric).
+        normalize : bool
+            If True, rescale weights so mean(weight)=1.
+        weight_col : str
+            Name for the new column in df.
+        sample_frac : float
+            Fraction of data to use for KDE fit (for speed).
+        eps : float
+            Small offset to avoid division by zero.
+
+    Returns:
+        pd.DataFrame : same df with added 'weights' column.
+    """
+    rng = np.random.default_rng(random_state)
+    df = df.reset_index(drop=True).copy()
+
+    # subsample for KDE fitting if needed
+    if sample_frac < 1.0:
+        df_fit = df.sample(frac=sample_frac, random_state=random_state)
+    else:
+        df_fit = df
+
+    X_fit = df_fit[list(cols_xyz)].to_numpy().T
+    kde = gaussian_kde(X_fit, bw_method=bw_method)
+
+    X_all = df[list(cols_xyz)].to_numpy().T
+    density = kde.evaluate(X_all)*1e10
+
+    alpha = 0.5
+    w = 1.0 / (density + eps)**alpha
+    
+    if normalize:
+        # w /= w.max()
+        w = w * (len(w) / w.sum() )
+
+    df[weight_col] = w
+    
+    return df
+
+def plot_sample_weights(df, 
+                        x_col="x", y_col="y", z_col=None, weight_col="weights",
+                        time_col=None, time_slice=None,
+                        alt_slice=None, cmap="nipy_spectral",
+                        s=8, alpha=0.9, figsize=(7,6),
+                        view3d=False, elev=25, azim=135,
+                        title=None, savepath=None):
+    """
+    Visualize smooth inverse-density sample weights in 2D or 3D.
+
+    Args:
+        df : pd.DataFrame
+            DataFrame with coordinates and weights.
+        x_col, y_col, z_col : str
+            Column names for spatial coordinates.
+        weight_col : str
+            Column name for computed weights.
+        time_col : str or None
+            Optional column for time (to slice by time).
+        time_slice : tuple or float or None
+            (t_min, t_max) or single value for time filtering.
+        alt_slice : tuple or float or None
+            (z_min, z_max) or single value for altitude filtering.
+        cmap : str
+            Matplotlib colormap.
+        s : int
+            Marker size.
+        alpha : float
+            Marker transparency.
+        figsize : tuple
+            Figure size.
+        view3d : bool
+            If True, create 3D scatter plot using x,y,z.
+        elev, azim : float
+            View angles for 3D projection.
+        title : str or None
+            Optional title.
+        savepath : str or None
+            If given, saves figure to this path instead of showing.
+    """
+    df_plot = df.copy()
+
+    if time_col and time_slice is not None:
+        if isinstance(time_slice, (tuple, list)):
+            tmin, tmax = time_slice
+            df_plot = df_plot[(df_plot[time_col] >= tmin) & (df_plot[time_col] <= tmax)]
+        else:
+            df_plot = df_plot[np.isclose(df_plot[time_col], time_slice)]
+
+    if z_col and alt_slice is not None:
+        if isinstance(alt_slice, (tuple, list)):
+            zmin, zmax = alt_slice
+            df_plot = df_plot[(df_plot[z_col] >= zmin) & (df_plot[z_col] <= zmax)]
+        else:
+            df_plot = df_plot[np.isclose(df_plot[z_col], alt_slice)]
+
+    fig = plt.figure(figsize=figsize)
+
+    if view3d and (z_col is not None):
+        ax = fig.add_subplot(111, projection="3d")
+        sc = ax.scatter(df_plot[x_col], df_plot[y_col], df_plot[z_col],
+                        c=df_plot[weight_col], cmap=cmap, s=s, alpha=alpha)
+        ax.set_xlabel(f"{x_col} [km]")
+        ax.set_ylabel(f"{y_col} [km]")
+        ax.set_zlabel(f"{z_col} [km]")
+        ax.view_init(elev=elev, azim=azim)
+    else:
+        ax = fig.add_subplot(111)
+        sc = ax.scatter(df_plot[x_col], df_plot[y_col],
+                        c=df_plot[weight_col], cmap=cmap, s=s, alpha=alpha)
+        ax.set_xlabel(f"{x_col} [km]")
+        ax.set_ylabel(f"{y_col} [km]")
+
+    cbar = plt.colorbar(sc, ax=ax, fraction=0.03, pad=0.04)
+    cbar.set_label("Sample weight (inverse density)")
+
+    if title is None:
+        title = "Sample Weights (3D)" if view3d else "Sample Weights (x–y)"
+    ax.set_title(title)
+
+    plt.tight_layout()
+
+    if savepath:
+        figfile = os.path.join(savepath, "meteor_weighting.png")
+        plt.savefig(figfile, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+    else:
+        plt.show()
+        
 def train_hyper(df,
                 df_testing=None,
                 tini=0,
@@ -327,6 +398,7 @@ def train_hyper(df,
                 overwrite = 0,
                 verbose = False,
                 postfix = "",
+                pde_ratio = 1e0,
                 ):
     
     # config_gpu(gpu_flg = 1)
@@ -340,9 +412,10 @@ def train_hyper(df,
     data_date = datetime.datetime.fromtimestamp(mean_seconds, tz=datetime.timezone.utc)
 
     # df_training = df.sample(frac=0.98)
-    #BOOTSTRAPPING needed for uncertainty and resolution quantification.
-    # df_training = balanced_time_bootstrap(df)
-    df_training = balanced_sample_weights(df)
+    # df_training = balanced_sample_weights(df)
+    df_training = smooth_sample_weights(df)
+    plot_sample_weights(df_training, z_col="times", view3d=True, savepath=rpath)
+    
     
     df_training.sort_index(inplace=True)
     print(df_training.shape)
@@ -376,14 +449,14 @@ def train_hyper(df,
         return(filename_model)
     
     msis = None
-    # try:
-    #     msis = MSIS(data_date,
-    #                  glat=df_training['lats'].mean(),
-    #                  glon=df_training['lons'].mean(),
-    #                  time_range=dt,
-    #                  plot_values=True)
-    # except:
-    #     msis = None
+    try:
+        msis = MSIS(data_date,
+                     glat=df_training['lats'].mean(),
+                     glon=df_training['lons'].mean(),
+                     time_range=dt,
+                     plot_values=True)
+    except:
+        msis = None
     
     nn = pinn.App(
                 shape_in  = 4,
@@ -422,7 +495,8 @@ def train_hyper(df,
              w_srt   = w_srt,
              ns_pde  = N_pde,
              sampling_method = sampling_method,
-             saving_rate = 500,
+             saving_rate = 200,
+             pde_ratio = pde_ratio,
              # NS_type  = NS_type,
              )
 
@@ -477,7 +551,7 @@ if __name__ == '__main__':
     from multiprocessing import Process
     
     #delay in mins
-    delay = 0# 80*30/60
+    delay =0# 80*30/60
     
     import argparse
     
@@ -488,7 +562,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
     
-    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=128, help='# kernel', type=int)
+    parser.add_argument('-n', '--neurons-per_layer',  dest='neurons_per_layer', default=256, help='# kernel', type=int)
     parser.add_argument('-l', '--hidden-layers',      dest='hidden_layers', default=5, help='# kernel layers', type=int)
     parser.add_argument('-b', '--nblocks',            dest='n_blocks', default=2, help='', type=int)
     parser.add_argument('-c', '--nodes',              dest='n_nodes', default=64, help='# nodes', type=int)
@@ -497,21 +571,23 @@ if __name__ == '__main__':
     parser.add_argument('--ns',                       dest='nepochs', default=5000, help='', type=int)
     
     parser.add_argument('--nensembles',             dest='nensembles', default=1, help='Generates a number of ensembles to compute the statistical uncertainty of the model', type=int)
-    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=0, help='Apply clustering filter to the meteor data', type=int)
+    parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
+    parser.add_argument('--postfix',     dest='postfix', default="L1_BS", type=str)
     
     parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
     parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-weight-upd-rate', dest='w_pde_update_rate', default=1.5e-4, help='', type=float)
+    parser.add_argument('--pde-upd-rate', dest='w_pde_update_rate', default=5e-8, help='', type=float)
+    parser.add_argument('--pde-ratio', dest='pde_ratio', default=1e1, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
     parser.add_argument('--pde-weight',         dest='w_pde', default=1e2, help='PDE weight', type=float)
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e-6, help='Slope recovery time loss weight', type=float)
     
-    parser.add_argument('--laaf',        dest='nn_laaf', default=1, type=int)
+    parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
     parser.add_argument('--dropout',     dest='nn_dropout', default=0, type=int)
     
     parser.add_argument('--noutputs',   dest='noutputs', default=3, help='', type=int)
@@ -519,7 +595,6 @@ if __name__ == '__main__':
     parser.add_argument('--noise', dest='noise_sigma', default=0.0, help='', type=float)
     
     parser.add_argument('--architecture', dest='nn_type', default='respinn', help='select the network architecture: gpinn, respinn, ...')
-    parser.add_argument('--postfix',     dest='postfix', default="HH", type=str)
     parser.add_argument('--activation',  dest='nn_activation', default='sine')
     
     parser.add_argument('--sampling_method',  dest='sampling_method', default='random')
@@ -539,7 +614,7 @@ if __name__ == '__main__':
     parser.add_argument('--alt-center', dest='alt_center', default=None, help='km', type=float)
     
     parser.add_argument('--output-file', dest='filename_model', default=None, help='')
-    parser.add_argument('--output-file-short-naming', dest='short_naming', default=1, type=int)
+    parser.add_argument('--output-file-short-naming', dest='short_naming', default=0, type=int)
     parser.add_argument('--realtime', dest='realtime', default=0, help='', type=int)
     
     parser.add_argument('--transfer-learning', dest='transfer_learning', default=0, help='', type=int)
@@ -570,6 +645,7 @@ if __name__ == '__main__':
     w_srt           = args.w_srt
     
     w_pde_update_rate = args.w_pde_update_rate
+    pde_ratio       = args.pde_ratio
     
     N_pde           = args.N_pde
     NS_type         = args.NS_type
@@ -916,6 +992,7 @@ if __name__ == '__main__':
                                     dropout  = nn_dropout,
                                     sampling_method = sampling_method,
                                     postfix = postfix,
+                                    pde_ratio=pde_ratio,
                                     )
         
         for path in paths:
@@ -1031,6 +1108,7 @@ if __name__ == '__main__':
                                 "sampling_method":sampling_method,
                                 "overwrite":overwrite,
                                 "verbose":verbose,
+                                "pde_ratio":pde_ratio,
                         }
                     
                     for j in range(num_ensembles):

@@ -296,8 +296,8 @@ class TimeAltitudePlot():
         
 
     def save_plot(self, path,
-                  vmins=[-50,-50,-5],
-                  vmaxs=[ 50, 50, 5],
+                  vmins=[-100,-100,-5],
+                  vmaxs=[ 100, 100, 5],
                   cmap='seismic',
                   suffix="",
                   ):
@@ -907,7 +907,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
     root = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex/"
-    dir = "hyperHH"
+    dir = "hVV_noNul05.256_lr1.0e-03lf0do0ur1.0e-09r1.0e+02L1_BS"
     
     # root = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
     # dir = "hRESPsine_VV_noNul02.05.256_w1.0e+02lr1.0e-03lf1do0ur1.5e-04T24ranHH"
@@ -916,8 +916,8 @@ if __name__ == '__main__':
     # root = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/"
     # dir = "hRESPsine_VVl02.06.256_w1.0e-06lr1.0e-03lf1do1ur5.0e-05T24BootstrapW"
     #
-    # root = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/"
-    # dir = "hRESPsine_VV_noNul02.05.256_w1.0e+02lr1.0e-03lf1do0ur1.5e-04T24ada"
+    root = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/"
+    dir = "hVV_noNul05.256_lr1.0e-03lf0do0ur5.0e-10r1.0e+02L1_BS"
 
     default_dir = os.path.join(root, dir)
     
@@ -934,11 +934,11 @@ if __name__ == '__main__':
     parser.add_argument('--time-step', dest='tstep', type=float, default=5*60, help='Time step in seconds')
     parser.add_argument('--time-range', dest='time_range', type=float, default=None)#3*60*60)
                     
-    parser.add_argument('--log-index', dest='log_index', default=4499, help='')
+    parser.add_argument('--log-index', dest='log_index', default=None, help='')
     # New geographic grid arguments
-    parser.add_argument('--lon-step', dest='lon_step', type=float, default=0.2, help='Longitude step in degrees')
-    parser.add_argument('--lat-step', dest='lat_step', type=float, default=0.2, help='Latitude step in degrees')
-    parser.add_argument('--alt-step', dest='alt_step', type=float, default=1.0, help='Altitude step in km')
+    parser.add_argument('--lon-step', dest='lon_step', type=float, default=1.0, help='Longitude step in degrees')
+    parser.add_argument('--lat-step', dest='lat_step', type=float, default=0.3, help='Latitude step in degrees')
+    parser.add_argument('--alt-step', dest='alt_step', type=float, default=0.5, help='Altitude step in km')
     
     parser.add_argument('--lon-range', dest='lon_range', type=float, default=None, help='Longitude range in degrees')
     parser.add_argument('--lat-range', dest='lat_range', type=float, default=None, help='Latitude range in degrees')

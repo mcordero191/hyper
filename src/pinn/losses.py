@@ -262,7 +262,7 @@ class GradNormLoss:
 
 class WeightScheduler:
     
-    def __init__(self, total_epochs=5000, alpha=1e-6, warmup_epochs=10):
+    def __init__(self, total_epochs=5000, alpha=1e-6, warmup_epochs=0, pde_ratio=1e1):
         
         self.epoch = tf.Variable(0, trainable=False, dtype=tf.int32)
         self.total_epochs = total_epochs
@@ -270,13 +270,14 @@ class WeightScheduler:
 
         self.warmup_epochs = warmup_epochs
         # initial weights
-        self.w_srt = 1e-5
+        self.w_srt = 1e-4
+        self.w_flx = 1e-1
         self.w_div = tf.Variable(1e-6, trainable=False, dtype=tf.float32)
         self.w_mom = tf.Variable(1e-6, trainable=False, dtype=tf.float32)
 
         # ranges
-        self.div_min, self.div_max = 1e-3, 1e3
-        self.mom_min, self.mom_max = 1e-3, 1e3
+        self.div_min, self.div_max = 1e-5, 1e5
+        self.mom_min, self.mom_max = 1e-5, 1e5*pde_ratio
 
     def _log_schedule(self, epoch, w_min, w_max):
         # progress in [0,1]
@@ -284,6 +285,7 @@ class WeightScheduler:
         # exponential interpolation in log-space
         log_min, log_max = tf.math.log(w_min)/tf.math.log(10.0), tf.math.log(w_max)/tf.math.log(10.0)
         log_target = log_min + frac * (log_max - log_min)
+        
         return tf.pow(10.0, log_target)
 
     def update(self, *args):
@@ -304,7 +306,7 @@ class WeightScheduler:
         
         return 1.0
     
-    def __call__(self, L_data, L_div, L_div_vor, L_mom, L_srt):
+    def __call__(self, L_data, L_div, L_div_vor, L_mom, L_srt, L_flux=0.0):
         # pérdidas ponderadas
         loss_total = (
             L_data
@@ -312,6 +314,7 @@ class WeightScheduler:
             + self.w_mom * L_div_vor
             + self.w_mom * L_mom
             + self.w_srt * L_srt
+            + self.w_flx * L_flux
         )
         logs = {
             "loss_total": loss_total,
@@ -320,10 +323,12 @@ class WeightScheduler:
             "loss_div_vor": L_div_vor,
             "loss_mom": L_mom,
             "loss_srt": L_srt,
+            "loss_flux": L_flux,
             "w_data": tf.constant(1.0),
             "w_div": self.w_div,
             "w_div_vor": self.w_mom,
             "w_mom": self.w_mom,
-            "w_srt": tf.constant(1.0),
+            "w_srt": self.w_srt,
+            "w_flux": self.w_flx,
         }
         return loss_total, logs

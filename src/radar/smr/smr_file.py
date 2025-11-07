@@ -26,6 +26,10 @@ from utils.histograms import ax_2dhist_simple
 from utils.plotting import epoch2num
 from utils.plotting import plot_mean_winds
 
+from scipy.spatial import KDTree
+from scipy.stats import chi2, norm
+from sklearn.covariance import MinCovDet
+
 stations = {}
 stations['collm']       = [51.31, 13.0, 10e-3]
 stations['bornim']      = [52.44, 13.02, 10e-3]
@@ -42,7 +46,30 @@ stations['tromso']      = [69.58, 19.22, 10e-3]
 stations['alta']        = [69.96, 23.29, 10e-3]
 stations['straumen']    = [67.40, 15.6, 10e-3]
 
-def get_xyz_bounds(x, y, z, factor=3.0):
+def get_xyz_bounds(x, y, z, sigma=1.5, sigma_z=3.0):
+    
+    X = np.column_stack((x, y))
+    mcd = MinCovDet(support_fraction=0.75).fit(X)
+    mean_xy = mcd.location_
+    cov_xy = mcd.covariance_
+    
+    inv_cov_xy = np.linalg.inv(cov_xy)
+    
+    # Mahalanobis distance
+    d2 = np.einsum('ij,jk,ik->i', X - mean_xy, inv_cov_xy, X - mean_xy)
+
+    # Correct statistical 2D sigma selection
+    threshold_xy = chi2.ppf(norm.cdf(sigma), df=2)
+    mask_xy = d2 < threshold_xy
+
+    # z selection
+    z0 = np.median(z)
+    mad_z = np.median(np.abs(z - z0))
+    mask_z = np.abs(z - z0) < sigma_z * mad_z
+
+    return mask_xy & mask_z
+
+def get_xyz_bounds_ori(x, y, z, factor=3.5):
     
     from scipy import stats
     
@@ -62,37 +89,6 @@ def get_xyz_bounds(x, y, z, factor=3.0):
     
     return (valid)
     
-    # xbins = np.arange( np.min(x), np.max(x)+30e3, 30e3)
-    # ybins = np.arange( np.min(y), np.max(y)+30e3, 30e3)
-    # zbins = np.arange( np.min(z), np.max(z)+1e3, 1e3)
-    #
-    # hist, edges = np.histogramdd( np.array([x, y]).T, (xbins, ybins) )
-    #
-    # valid = np.where(hist >= 30)
-    #
-    # idx0 = np.min(valid, axis=1)
-    # idx1 = np.max(valid, axis=1)
-    #
-    # xmin = edges[0][idx0[0]]
-    # xmax = edges[0][idx1[0]+1]
-    #
-    # ymin = edges[1][idx0[1]]
-    # ymax = edges[1][idx1[1]+1]
-    #
-    # hist, edges = np.histogramdd( np.array([z,]).T, (zbins,) )
-    #
-    # valid = np.where(hist >= 30)
-    #
-    # idx0 = np.min(valid, axis=1)
-    # idx1 = np.max(valid, axis=1)
-    #
-    # zmin = edges[0][idx0[0]]
-    # zmax = edges[0][idx1[0]+1]
-    #
-    #
-    # return( xmax-xmin, ymax-ymin, zmax-zmin )
-
-from scipy.spatial import KDTree
 
 def remove_duplicates(df, spatial_threshold=0.5e3, temporal_threshold=1):
     """
@@ -165,6 +161,53 @@ def remove_duplicates(df, spatial_threshold=0.5e3, temporal_threshold=1):
     # Return filtered DataFrame
     return df_sorted.iloc[keep_indices]
 
+def filter_by_angle(df, angle_limit=60):
+    """
+    Detect whether (dcosx, dcosy) represent zenith or elevation angles per tx_station,
+    then apply the appropriate filtering:
+      - For zenith angles: keep values below 'angle_limit'
+      - For elevation angles: keep values above 'angle_limit'
+    """
+    dxy = np.sqrt(df['dcosx']**2 + df['dcosy']**2)
+    angle = np.degrees(np.arcsin(dxy))
+    
+    valid = angle < angle_limit
+    
+    return df[valid]
+    
+    # df = df.assign(angle=angle)
+    # keep_mask = pd.Series(False, index=df.index)
+    #
+    # for station, group in df.groupby('tx_station'):
+    #
+    #     if station.lower() != "tromso":
+    #         continue
+    #
+    #     idx = group.index
+    #     angles = group['angle']
+    #
+    #     n_above = np.sum(angles > angle_limit)
+    #     n_below = np.sum(angles < 90- angle_limit)
+    #
+    #     # n_above1 = np.sum(angles < 90-angle_limit)
+    #     # n_below1 = np.sum(angles >= 90-angle_limit)
+    #
+    #     print(n_above, n_below)
+    #     # print(n_below, n_below1)
+    #
+    #     if True: #n_above > n_below:
+    #         valid = angles < angle_limit  # zenith
+    #         angle_type = "zenith"
+    #     else:
+    #         valid = angles > 90-angle_limit  # elevation
+    #         angle_type = "elevation"
+    #
+    #     keep_mask.loc[idx] = valid
+    #
+    #     print(f"{station}: {angle_type}, kept {valid.sum()} of {len(valid)} samples")
+    #
+    # return df.loc[keep_mask].drop(columns='angle')
+
     
 def filter_data(df, tini=0, dt=24,
                 sevenfold=False,
@@ -174,6 +217,14 @@ def filter_data(df, tini=0, dt=24,
                 **kwargs
                 ):
     
+    
+    if not(sevenfold):
+        #Filter synthetic measurements
+        if 'SMR_like' in df.keys():
+            valid = (df['SMR_like'] == 1) 
+            df = df[valid]
+            
+            
     if central_date is not None:
         tbase = central_date
     elif tini >= 0:
@@ -194,24 +245,22 @@ def filter_data(df, tini=0, dt=24,
     if df.size == 0:
         return(df)
     
-    ##################################################
+    ########################
     
-    if not(sevenfold):
-        #Filter synthetic measurements
-        if 'SMR_like' in df.keys():
-            valid = (df['SMR_like'] == 1) 
-            df = df[valid]
-            
-    ##################################################
+    valid  = (np.abs(df['dops']) < 70)
+    df = df[valid]
     
-    dxy = np.sqrt( df['dcosx']**2 + df['dcosy']**2 )
-    zenith = np.arcsin(dxy)*180/np.pi
-    df = df[zenith < 60]
-
     if df.size == 0:
         return(df)
     
-    ########################
+    ##################################################
+    
+    df = filter_by_angle(df, angle_limit=70)
+    
+    if df.size == 0:
+        return(df)
+    
+    ##################################################
     
     if ena_clustering:
         
@@ -219,7 +268,7 @@ def filter_data(df, tini=0, dt=24,
         
         le = LabelEncoder()
         le.fit(links)
-        nlinks = 1#len(le.classes_)
+        nlinks = 1 #len(le.classes_)
         
         for _ in range(nlinks):
         #########################
@@ -235,10 +284,13 @@ def filter_data(df, tini=0, dt=24,
             links = df['link'].values
             ids = le.transform(links)
             
+            # dz = df['braggs_z']
+        
             X = np.stack([  dop,
                             # kz,
                             zenith,
                             ids,
+                            # dz,
                           ],
                           axis=1)
             
@@ -252,60 +304,16 @@ def filter_data(df, tini=0, dt=24,
         
         if df.size == 0:
             return(df)
+    
     #####################################################
     
-    # x = df['x']
-    # y = df['y']
-    # z = df['z']
-    #
-    # attrs = df.attrs
-    # xmid = attrs['lon_center']
-    # ymid = attrs['lat_center']
-    # zmid = attrs['alt_center']
-    
-    # if lon_center is not None: xmid = lon_center
-    # else: xmid = np.round( x.mean(), 1)
-    #
-    # if lat_center is not None: ymid = lat_center
-    # else: ymid = np.round( y.mean(), 1)
-    #
-    # xmid = 0
-    # ymid = 0
-    # zmid = np.round( z.mean(), 1)
-    #
-    # # print('Filter middle point:', xmid, ymid, zmid)
-    #
-    # dlon0, dlat0, dh0 = get_xyz_bounds(x, y, z)
-    #
-    # if (dlon is None): dlon = dlon0
-    # if (dlat is None): dlat = dlat0
-    # if (dh is None)  : dh   = dh0
-    #
-    # # Set boundary
-    # xmin = xmid - dlon/2
-    # xmax = xmid + dlon/2
-    # ymin = ymid - dlat/2
-    # ymax = ymid + dlat/2
-    # zmin = zmid - dh/2
-    # zmax = zmid + dh/2
-    #
-    # valid  = (x >= xmin) & (x <= xmax)
-    # valid &= (y >= ymin) & (y <= ymax) 
-    # valid &= (z >= zmin) & (z <= zmax)
-    
-        #tbase = pd.to_datetime(dfraw['t'][0].date())
-    
-    lons = df['lons']
-    lats = df['lats']
-    alts = df['heights']
+    lons = df['x']
+    lats = df['y']
+    alts = df['z']
     
     valid = get_xyz_bounds(lons, lats, alts)
     
     df = df[valid]
-    
-    ########################
-    
-    # plot_hist(df)
     
     ########################
     
@@ -1235,6 +1243,8 @@ class SMRReader(object):
             #     attrs['lat_center'] = fp.attrs['lat_ref']
             #     attrs['alt_center'] = fp.attrs['alt_ref']
         
+        rxs, txs = self.get_rx_tx_station(link)
+        
         self.ini_time = times.min()
         self.n_samples = len(times)
         
@@ -1243,6 +1253,10 @@ class SMRReader(object):
         
         df['times'] = times
         df['link'] = link
+        
+        df["rx_station"] = rxs
+        df["tx_station"] = txs
+        
         df['lats'] = lat
         df['lons'] = lon
         df['heights'] = alt #km
@@ -1341,6 +1355,21 @@ class SMRReader(object):
     def get_spatial_center(self):
         
         return(self.lon_center, self.lat_center, self.alt_center)
+    
+    def get_rx_tx_station(self, links):
+        
+        txs = []
+        rxs = []
+        
+        for link in links:
+            link = link.decode('ascii', 'replace')
+            link = link.split('-')[0]
+            tx, rx = link.split('_')[0:2]
+            
+            rxs.append(rx)
+            txs.append(tx)
+        
+        return(rxs, txs)
     
     def get_rx_tx_lla(self, index):
         
@@ -1442,7 +1471,7 @@ class SMRReader(object):
             
         fp.close()
     
-    def filter(self, path=None, outlier_sigma=5.0, **kwargs):
+    def filter(self, path=None, outlier_sigma=3.0, **kwargs):
         
         df = self.unfiltered_df.copy()
         
@@ -1494,7 +1523,7 @@ class SMRReader(object):
     def add_synthetic_noise(self, sigma):
         
         if sigma == 0:
-            self.df['dop_errs'] = 1.0
+            # self.df['dop_errs'] = 1.0
             return
         
         n = self.df.shape[0]

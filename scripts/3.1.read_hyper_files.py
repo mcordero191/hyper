@@ -1154,18 +1154,13 @@ if __name__=="__main__":
     # Load the wind dataset
     file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyper24/winds/winds3D_20250219.h5"
     file_path = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/hyper72/winds/winds3D_20250218_003000_v1.1.0.nc"
-    file_path = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/hyper/winds/winds3D_20160716_000000_v1.3.2.nc"
+    file_path = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/hVV_noNul05.256_lr1.0e-03lf0do0ur5.0e-10r1.0e+02L1_BS/winds/winds3D_20160716_000000_v1.3.2.nc"
     
     rpath = os.path.split(file_path)[0]
     figpath = os.path.join(os.path.split(rpath)[0], "plots", "winds")
     
-    
     os.makedirs(figpath, exist_ok=True) 
     
-    version = "new"
-    # Select the desired time step (e.g., the first time index)
-    time_dt = datetime.datetime(2025,2,19,19,0,0)
-    time_dt = datetime.datetime(2016,7,16,4,30,0)
     # Select the altitude index for the cut (modify as needed)
     altitudes_km = np.arange(82,93,2) #[85,87.5,90,92.5, 95]
     
@@ -1189,6 +1184,11 @@ if __name__=="__main__":
     # np.save(file1, ds['lon'].values)
     # np.save(file2, ds['lat'].values)
     # np.save(file3, ds['alt'].values)
+    
+    version = "new"
+    # Select the desired time step (e.g., the first time index)
+    # time_dt = datetime.datetime(2025,2,19,19,0,0)
+    # time_dt = datetime.datetime(2016,7,16,4,30,0)
     
     ds0 = ds0.where( (ds0.lon>=10) & (ds0.lon<=15) & (ds0.lat>=52.5) & (ds0.lat<=55.5), drop=True)
     

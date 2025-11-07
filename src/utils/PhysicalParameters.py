@@ -188,8 +188,11 @@ def get_msis_mean_values(dt, alt, glat, glon,
         
         
     """
+    # Ensure dt is datetime.datetime, not datetime.date
+    if isinstance(dt, datetime.date) and not isinstance(dt, datetime.datetime):
+        dt = datetime.datetime.combine(dt, datetime.time(0, 0))
     
-    hours = np.arange(0, time_range, 4.0)
+    hours = np.arange(0, time_range, 6.0)
     times = [dt + datetime.timedelta(hours=x) for x in hours]
     
     rho, T = run_msis(times, alt, glat, glon)

@@ -657,12 +657,14 @@ class resPINN_HH(BaseModel):
                  w0_phi=1.0,
                  dropout=0.0,
                  laaf=True,
+                 learn_const=False,
                  **kwargs):
         
         super().__init__(**kwargs)
 
         self.n_layers = n_layers
         self.dropout = dropout
+        self.learn_const = learn_const
 
         # -------------------
         # Net A (rotational)
@@ -677,6 +679,18 @@ class resPINN_HH(BaseModel):
         # ]
         self.out_A = Linear(4, add_bias=False, name="out_A")
 
+        if learn_const:
+            # self.c = tf.Variable(tf.zeros(3), trainable=True, name="c_harmonic")
+            
+            initializer = keras.initializers.RandomNormal(mean=0.0, stddev=1e-2)
+            
+            self.c_model = keras.models.Sequential([
+                                              keras.layers.Dense(4, activation=tf.sin),#, kernel_initializer=initializer),
+                                              keras.layers.Dense(4, activation=tf.sin),#, kernel_initializer=initializer),
+                                              # keras.layers.Dense(8, activation=tf.sin),
+                                              keras.layers.Dense(3)
+                                            ])
+            
         # -------------------
         # # Net φ (irrotational)
         # # -------------------
@@ -691,6 +705,7 @@ class resPINN_HH(BaseModel):
         # self.out_phi = Linear(1, add_bias=False, name="out_phi")
 
         # Dropout layers if needed
+        self.dropout_layers_A = None
         if dropout > 0:
             self.dropout_layers_A = [DropoutLayer() for _ in range(n_layers)]
             # self.dropout_layers_phi = [DropoutLayer() for _ in range(n_layers)]
@@ -702,7 +717,13 @@ class resPINN_HH(BaseModel):
             initializer=tf.constant_initializer(0.0),
             trainable=laaf,
         )
-
+    
+    def update_mask(self, total_epochs):
+        
+        if self.dropout_layers_A is not None:
+            for drop_layer in self.dropout_layers_A:
+                drop_layer.update_mask(total_epochs)
+        
     def forward_A(self, inputs, training=False):
         
         emb = self.emb_A(inputs, self.alphas[0])
@@ -757,40 +778,81 @@ class resPINN_HH(BaseModel):
         Compute velocity field:
         u = curl(A) + grad(phi)
         """
-        with tf.GradientTape(persistent=True) as tape:
+        
+        t, z, x, y = tf.split(inputs, num_or_size_splits=4, axis=1)
+        
+        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
             
-            tape.watch(inputs)
-            A_phi = self.forward_A(inputs)      # (B,3)
+            tape.watch(x)
+            tape.watch(y)
+            tape.watch(z)
+            
+            A = self.forward_A( tf.concat([t, z, x, y], axis=1) )      # (B,3)
             # phi = self.forward_phi(inputs)  # (B,1)
-            A = A_phi[:,0:3]
-            phi = A_phi[:,3:4]
+            # A = A_phi[:,0:3]
+            # phi = A_phi[:,3:4]
+            
+            A1 = A[:,0:1]
+            A2 = A[:,1:2]
+            A3 = A[:,2:3]
 
-        J_A = tape.batch_jacobian(A, inputs)    # (B,3,4)
-        J_phi = tape.batch_jacobian(phi, inputs)  # (B,1,4)
+        # J_A = tape.batch_jacobian(A, inputs)    # (B,3,4)
+        # J_phi = tape.batch_jacobian(phi, inputs)  # (B,1,4)
+        
+        # A1_x = tape.gradient(A1, x)
+        A1_y = tape.gradient(A1, y)
+        A1_z = tape.gradient(A1, z)
+        
+        A2_x = tape.gradient(A2, x)
+        # A2_y = tape.gradient(A2, y)
+        A2_z = tape.gradient(A2, z)
+        
+        A3_x = tape.gradient(A3, x)
+        A3_y = tape.gradient(A3, y)
+        # A3_z = tape.gradient(A3, z)
+        
+        # u_div = tape.gradient(phi, x)
+        # v_div = tape.gradient(phi, y)
+        # w_div = tape.gradient(phi, z)
         
         del tape
 
         # Indices: 0=t, 1=z, 2=x, 3=y
-        A1_y, A1_z = J_A[:, 0, 3], J_A[:, 0, 1]
-        A2_x, A2_z = J_A[:, 1, 2], J_A[:, 1, 1]
-        A3_x, A3_y = J_A[:, 2, 2], J_A[:, 2, 3]
+        # A1_y, A1_z = J_A[:, 0, 3], J_A[:, 0, 1]
+        # A2_x, A2_z = J_A[:, 1, 2], J_A[:, 1, 1]
+        # A3_x, A3_y = J_A[:, 2, 2], J_A[:, 2, 3]
 
         # curl(A)
         u_rot = A3_y - A2_z
         v_rot = A1_z - A3_x
         w_rot = A2_x - A1_y
 
-        # grad(phi)
-        u_div = J_phi[:, 0, 2]   # ∂phi/∂x
-        v_div = J_phi[:, 0, 3]   # ∂phi/∂y
-        w_div = J_phi[:, 0, 1]   # ∂phi/∂z
+        # # grad(phi)
+        # u_div = J_phi[:, 0, 2]   # ∂phi/∂x
+        # v_div = J_phi[:, 0, 3]   # ∂phi/∂y
+        # w_div = J_phi[:, 0, 1]   # ∂phi/∂z
         
-        u = tf.stack([u_rot + u_div,
-                      v_rot + v_div,
-                      w_rot + w_div], axis=1)
+        u = u_rot #+ u_div
+        v = v_rot #+ v_div
+        w = w_rot #+ w_div
         
-        return u
+        uvw = tf.concat([u, v, w], axis=1)
+        
+        if self.learn_const:
+            uvw_c = self.c_model(inputs[:,0:1])
+            uvw = uvw + uvw_c
+        
+        return uvw
 
     def call(self, inputs, training=False):
         
-        return self.compute_velocity_helmholtz(inputs)
+        # return self.compute_velocity_helmholtz(inputs)
+        
+        A_phi = self.forward_A( inputs )
+        
+        h = tf.constant(0.0)
+        if self.learn_const:
+            h = self.c_model(inputs[:,0:1])
+            
+        return A_phi, h
+        
