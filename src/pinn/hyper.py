@@ -168,7 +168,7 @@ class App:
         self.lat_ref    = lat_ref
         self.alt_ref    = alt_ref
         
-         #GradNormLoss()
+        #GradNormLoss()
         # hiddens_shape = (self.depth-1) * [self.width]
         
         # build
@@ -586,7 +586,7 @@ class App:
         if model.learn_const:
             uvw = h + uvw
         
-        return uvw*1e4
+        return uvw*tf.constant(1e4)
     
     def pde_div(self, model, t, z, x, y, nu, rho, rho_ratio, N):
         
@@ -1856,8 +1856,7 @@ class App:
         # print("Tracing pde!")
         t, z, x, y, nu, rho, rho_ratio, N = tf.split(X, num_or_size_splits=8, axis=1)
         
-        nu_scaling = self.model.nu
-        nu         = tf.math.exp(nu_scaling) #scaling
+        nu         = 10**(self.model.nu) #scaling
         
         div, div_vor, mom_x, mom_y, mom_z, hor_grad = self.pde_func(model, t, z, x, y, nu, rho, rho_ratio, N)
         
@@ -2213,7 +2212,7 @@ class App:
             loss_div, loss_div_vor, loss_mom, _ = self.loss_pde(model, X_pde)
             
             loss_srt = self.loss_slope_recovery_term()
-            loss_flux = self.loss_BC(model)
+            loss_flux = 0.0 #self.loss_BC(model)
             #self.loss_flux(model, self.X_faces, self.normals)
             # combine with current weights
             L_total, logs = self.loss_manager(loss_data, loss_div, loss_div_vor, loss_mom, loss_srt, loss_flux)
@@ -2536,6 +2535,8 @@ class App:
                 # print("\n\tena_stages =", self.model.gates.numpy())
                 print("\n\talphas =", self.model.alphas.numpy())
                 
+                print("\tres weights =", self.model.res_A.numpy())
+                
                 # alphas = []
                 # for var in self.model.trainable_variables:
                 #     if var.name.endswith("log_sigma"):
@@ -2707,7 +2708,7 @@ class App:
         # rz = (self.ubi[1] -  self.lbi[1])/2.0
         
         r = np.sqrt( ((x-x0)/rx)**2 + ((y-y0)/ry)**2)# + ((z-z0)/rz)**2 )
-        mask = (r > 0.9)
+        mask = (r > 1.0)
         
         mask |= (t<self.lbi[0]) | (t>self.ubi[0])
         # mask |= (x<self.lbi[2]) | (x>self.ubi[2])
@@ -3301,7 +3302,7 @@ class App:
         ones  = tf.ones_like(t, dtype=tf.float32)
         
         N       = ones
-        nu = 1e1*ones
+        nu = zeros
         rho = ones
         rho_ratio = zeros
         
@@ -3313,7 +3314,7 @@ class App:
             
             # ... wrap to tensors ...
             N       = tf.convert_to_tensor(N.reshape(-1,1), dtype=data_type)
-            # nu      = tf.convert_to_tensor(nu.reshape(-1,1), dtype=data_type)
+            #nu      = tf.convert_to_tensor(nu.reshape(-1,1), dtype=data_type)
             rho     = tf.convert_to_tensor(rho.reshape(-1,1), dtype=data_type)
             rho_z   = tf.convert_to_tensor(rho_z.reshape(-1,1), dtype=data_type)
             rho_ratio = tf.convert_to_tensor(rho_ratio.reshape(-1,1), dtype=data_type)

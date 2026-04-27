@@ -411,10 +411,9 @@ def train_hyper(df,
     mean_seconds = df['times'].mean()
     data_date = datetime.datetime.fromtimestamp(mean_seconds, tz=datetime.timezone.utc)
 
-    # df_training = df.sample(frac=0.98)
+    df_training = df#.sample(frac=0.98)
     # df_training = balanced_sample_weights(df)
-    df_training = smooth_sample_weights(df)
-    plot_sample_weights(df_training, z_col="times", view3d=True, savepath=rpath)
+    # plot_sample_weights(df_training, z_col="times", view3d=True, savepath=rpath)
     
     
     df_training.sort_index(inplace=True)
@@ -495,7 +494,7 @@ def train_hyper(df,
              w_srt   = w_srt,
              ns_pde  = N_pde,
              sampling_method = sampling_method,
-             saving_rate = 200,
+             saving_rate = 500,
              pde_ratio = pde_ratio,
              # NS_type  = NS_type,
              )
@@ -551,13 +550,13 @@ if __name__ == '__main__':
     from multiprocessing import Process
     
     #delay in mins
-    delay =0# 80*30/60
+    delay = 0# 80*30/60
     
     import argparse
     
     parser = argparse.ArgumentParser(description='Script to estimate 3D wind fields')
     
-    parser.add_argument('-e', '--exp', dest='exp', default='vortex', help='Experiment configuration')
+    parser.add_argument('-e', '--exp', dest='exp', default='VORTEX', help='Experiment configuration')
     
     parser.add_argument('-d', '--dpath', dest='dpath', default=None, help='Data path')
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Resource path')
@@ -574,17 +573,17 @@ if __name__ == '__main__':
     parser.add_argument('--clustering-filter',      dest='ena_clustering', default=1, help='Apply clustering filter to the meteor data', type=int)
     
     parser.add_argument('--pde',        dest='NS_type', default="VV_noNu", help='Navier-Stokes formulation, either VP (velocity-pressure) or VV (velocity-vorticity)')
-    parser.add_argument('--postfix',     dest='postfix', default="L1_BS", type=str)
+    parser.add_argument('--postfix',     dest='postfix', default="Validated", type=str)
     
     parser.add_argument('--time-window', dest='dtime', default=24, help='hours', type=int)
     parser.add_argument('--initime',    dest='tini', default=0, help='hours', type=float)
     
-    parser.add_argument('--learning-rate',      dest='learning_rate', default=1e-3, help='', type=float)
-    parser.add_argument('--pde-upd-rate', dest='w_pde_update_rate', default=5e-8, help='', type=float)
-    parser.add_argument('--pde-ratio', dest='pde_ratio', default=1e1, help='', type=float)
+    parser.add_argument('--learning-rate',      dest='learning_rate', default=5e-4, help='', type=float)
+    parser.add_argument('--pde-upd-rate', dest='w_pde_update_rate', default=1e-8, help='', type=float)
+    parser.add_argument('--pde-ratio', dest='pde_ratio', default=1e-2, help='', type=float)
     
     parser.add_argument('--data-weight',        dest='w_data', default=1e0, help='data fidelity weight', type=float)
-    parser.add_argument('--pde-weight',         dest='w_pde', default=1e2, help='PDE weight', type=float)
+    parser.add_argument('--pde-weight',         dest='w_pde', default=1e-5, help='PDE weight', type=float)
     parser.add_argument('--srt-weight',        dest='w_srt', default=1e-6, help='Slope recovery time loss weight', type=float)
     
     parser.add_argument('--laaf',        dest='nn_laaf', default=0, type=int)
@@ -832,7 +831,7 @@ if __name__ == '__main__':
             alt_center      = 89
             path            = "%s/Data/IAP/SIMONe/Norway/VorTex2"  %home_directory
             
-            # df_testing = read_vortex_files(path)
+            df_testing = read_vortex_files("%s/Data/IAP/SIMONe/Norway/VorTex"  %home_directory)
             
             single_day      = True
             
@@ -961,6 +960,16 @@ if __name__ == '__main__':
             path            = "%s/Data/IAP/SIMONe/Virtual/ICON_20160816/ICON_-08+73+90"  %home_directory
             # noise_sigma     = 6.0
         
+        elif exp.upper()  == 'NORWAY2024':
+            
+            path            = "%s/Data/IAP/SIMONe/Norway/IAPData"  %home_directory
+            noise_sigma     = 0.0
+            
+        elif exp.upper()  == 'GERMANY2024':
+            
+            path            = "%s//Data/IAP/SIMONe/Germany/IAPData"  %home_directory
+            noise_sigma     = 0.0
+            
         else:
             raise ValueError('Experiment option not implemented ...')
     

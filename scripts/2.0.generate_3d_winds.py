@@ -12,11 +12,14 @@ import numpy as np
 import h5py
 import netCDF4
 
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
 from pinn import hyper
 from utils import plotting, version_history
 
 version_history_file = "hyper_history.json"
-
+    
 class Grid4D():
     
     def __init__(self, 
@@ -129,54 +132,60 @@ class Grid4D():
             self.alt_step = self.alt_range/40.0
         
     def set_spatial_grid(self):
-        
-        # Compute grid boundaries centered at the reference coordinates
+
         lon_min = self.lon_ref - self.lon_range / 2
         lon_max = self.lon_ref + self.lon_range / 2
-        
+
         lat_min = self.lat_ref - self.lat_range / 2
         lat_max = self.lat_ref + self.lat_range / 2
-        
+
         alt_min = self.alt_ref - self.alt_range / 2
         alt_max = self.alt_ref + self.alt_range / 2
-            
+
+        self.is_points = False
+        self.lon_points = self.lat_points = self.alt_points = None
+
         if self.lon_coords is not None and self.lat_coords is not None and self.alt_coords is not None:
+            lon = np.asarray(self.lon_coords, dtype=float)
+            lat = np.asarray(self.lat_coords, dtype=float)
+            alt = np.asarray(self.alt_coords, dtype=float)
             
-            lon = np.sort(self.lon_coords)
-            lat = np.sort(self.lat_coords)
-            alt = np.sort(self.alt_coords)
-            
-            lat = lat[(lat >= lat_min) & (lat <= lat_max)]
-            lon = lon[(lon >= lon_min) & (lon <= lon_max)]
-            alt = alt[(alt >= alt_min) & (alt <= alt_max)]
+            self.lon_points, self.lat_points, self.alt_points = lon, lat, alt
+            self.is_points = True
         else:
-            # Create uniform grids in geographic coordinates
             self.lon_grid = np.arange(lon_min, lon_max, self.lon_step)
             self.lat_grid = np.arange(lat_min, lat_max, self.lat_step)
             self.alt_grid = np.arange(alt_min, alt_max, self.alt_step)
-    
-            # Create a 3D mesh grid (lon, lat, alt)
-        self.lon_3D, self.lat_3D, self.alt_3D = np.meshgrid(self.lon_grid, self.lat_grid, self.alt_grid, indexing='ij')
-    
+
+            self.lon_3D, self.lat_3D, self.alt_3D = np.meshgrid(
+                self.lon_grid, self.lat_grid, self.alt_grid, indexing='ij'
+            )
+        
     def set_temporal_grid(self):
         
         if self.t_coords is not None:
             times = np.array(self.t_coords)
-            times = times[(times >= self.tmin) & (times <= self.tmax)]
+            #times = times[(times >= self.tmin) & (times <= self.tmax)]
         else:
             times = np.arange(self.tmin, self.tmax, self.tstep)
             
         self.t_grid = times
 
     def update(self, model_file, log_index=None):
-        
+
         self.read_coords(model_file, log_index=log_index)
         self.set_spatial_grid()
         self.set_temporal_grid()
 
-        coords = {}
-        
-        coords["t"]   = self.t_grid
+        coords = {"t": self.t_grid, "is_points": self.is_points}
+
+        if self.is_points:
+            coords["lon_p"] = self.lon_points
+            coords["lat_p"] = self.lat_points
+            coords["alt_p"] = self.alt_points
+            
+            return coords
+
         coords["lon"] = self.lon_grid
         coords["lat"] = self.lat_grid
         coords["alt"] = self.alt_grid
@@ -188,7 +197,7 @@ class Grid4D():
 
 class TimeAltitudePlot():
     
-    def __init__(self, lon0=None, lat0=None, alt0=None, type="instantaneous"):
+    def __init__(self, lon0=None, lat0=None, alt0=None, plot_mean=False):
         
         """
         Initialize the plot with the given parameters.
@@ -213,6 +222,8 @@ class TimeAltitudePlot():
         self.dataz_u = []  
         self.dataz_v = []
         self.dataz_w = []
+        
+        self.plot_mean = plot_mean
 
     def update_chunk(self, df, plot_std=False):
         
@@ -228,30 +239,33 @@ class TimeAltitudePlot():
         
         nt, nx, ny, nz = u.shape
         
-        if self.lat0 is None: 
-            ix = nx // 2
-        else: 
-            ix = np.abs(df["lon_3D"][:,0,0] - self.lon0).argmin()
+        if self.lat0 is None:  ix = nx // 2
+        else: ix = np.abs(df["lon_3D"][:,0,0] - self.lon0).argmin()
         
         
-        if self.lon0 is None: 
-            iy = ny // 2
-        else: 
-            iy = np.abs(df["lat_3D"][0,:,0] - self.lat0).argmin()
+        if self.lon0 is None: iy = ny // 2
+        else: iy = np.abs(df["lat_3D"][0,:,0] - self.lat0).argmin()
         
         
-        if self.alt0 is None: 
-            iz = nz // 2
-        else: 
-            iz = np.abs(df["alt_3D"][0,0,:] - self.alt0).argmin()
+        if self.alt0 is None: iz = nz // 2
+        else: iz = np.abs(df["alt_3D"][0,0,:] - self.alt0).argmin()
+
+        if not self.plot_mean:
+            xwindow = 1
+            ywindow = 1
+            zwindow = 1
+        else:
+            xwindow = int(0.7*min(nx, 2*min(ix, nx-ix)))
+            ywindow = int(0.7*min(ny, 2*min(iy, ny-iy)))
+            zwindow = int(0.7*min(nz, 2*min(iz, nz-iz)))
             
-        
-        ix0 = ix
-        ix1 = ix+1
-        iy0 = iy
-        iy1 = iy+1
-        iz0 = iz
-        iz1 = iz+1
+            
+        ix0 = ix - xwindow//2
+        ix1 = ix + xwindow//2 + 1
+        iy0 = iy - ywindow//2
+        iy1 = iy + ywindow//2 + 1
+        iz0 = iz - zwindow//2
+        iz1 = iz + zwindow//2 + 1
     
         lon = df["lon_3D"][:,iy,iz]
         lat = df["lat_3D"][ix,:,iz]
@@ -324,6 +338,7 @@ class TimeAltitudePlot():
                                  vmins=vmins,
                                  vmaxs=vmaxs,
                                  cmap=cmap,
+                                 histogram=True,
                                  ylabel = "Longitude")
         
         data_u = np.vstack(self.datay_u)
@@ -341,6 +356,7 @@ class TimeAltitudePlot():
                                  vmins=vmins,
                                  vmaxs=vmaxs,
                                  cmap=cmap,
+                                 histogram=True,
                                  ylabel = "Latitude")
         
         data_u = np.vstack(self.dataz_u)
@@ -359,7 +375,9 @@ class TimeAltitudePlot():
                                  figtitle=lat_lon,
                                  vmins=vmins,
                                  vmaxs=vmaxs,
-                                 cmap=cmap)
+                                 cmap=cmap,
+                                 histogram=True,
+                                 )
 
 class TwoDPlanesPlot():
     def __init__(self, lon0=None, lat0=None, alt0=None):
@@ -516,7 +534,90 @@ class TwoDPlanesPlot():
                                  vmaxs=vmaxs,
                                  cmap=cmap)
 
-            
+class ProfilePlot:
+    """
+    Points-mode UVW vs altitude profile (raw samples).
+    x-axis: velocity (m/s)
+    y-axis: altitude (km)
+    Plots u, v, w as scatter using all (time, point) samples.
+    """
+
+    def __init__(self, plot_style="scatter"):
+        # plot_style: "scatter" (recommended) or "line"
+        self.plot_style = plot_style
+        self._alt = []
+        self._u = []
+        self._v = []
+        self._w = []
+        self._t = []
+
+    def update_chunk(self, df, plot_std=False):
+        assert df.get("is_points", False)
+
+        alt_p = np.asarray(df["alt_p"], dtype=float)  # (Np,)
+        t = np.atleast_1d(df["t"]).astype(float)      # (Nt,)
+
+        if plot_std:
+            U = np.asarray(df["u_std"], dtype=float)
+            V = np.asarray(df["v_std"], dtype=float)
+            W = np.asarray(df["w_std"], dtype=float)
+        else:
+            U = np.asarray(df["u"], dtype=float)
+            V = np.asarray(df["v"], dtype=float)
+            W = np.asarray(df["w"], dtype=float)
+
+        Nt = U.shape
+
+        # Flatten all samples: (Nt, Np) -> (Nt*Np,)
+        alt = alt_p.reshape(-1)
+        u = U.reshape(-1)
+        v = V.reshape(-1)
+        w = W.reshape(-1)
+        tt = t.reshape(-1)
+
+        self._alt.append(alt)
+        self._u.append(u)
+        self._v.append(v)
+        self._w.append(w)
+        self._t.append(tt)
+
+    def save_plot(self, path, ext="png", suffix="", plot_std=False):
+        if len(self._alt) == 0:
+            return
+
+        alt = np.concatenate(self._alt)
+        u = np.concatenate(self._u)
+        v = np.concatenate(self._v)
+        w = np.concatenate(self._w)
+
+        t_all = np.concatenate(self._t).astype(float)
+        dt = datetime.datetime.utcfromtimestamp(float(np.nanmean(t_all)))
+        tag = "std" if plot_std else "uvw"
+
+        fig = plt.figure()
+        ax = plt.gca()
+
+        if self.plot_style == "line":
+            ax.plot(u, alt, label="U")
+            ax.plot(v, alt, label="V")
+            ax.plot(w, alt, label="W")
+        else:
+            ax.scatter(u, alt, s=8, label="U")
+            ax.scatter(v, alt, s=8, label="V")
+            ax.scatter(w, alt, s=8, label="W")
+
+        ax.set_xlabel("Velocity (m/s)")
+        ax.set_ylabel("Altitude (km)")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+
+        fname = os.path.join(
+            path,
+            f"profile_{tag}_{dt.strftime('%Y%m%d_%H%M%S')}.{ext}"
+        )
+        plt.savefig(fname, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+        
 def find_ensemble_files(hourly_file):
     
     idx = hourly_file.find("i000")
@@ -527,7 +628,76 @@ def find_ensemble_files(hourly_file):
         
 def winds_from_model(ensemble_files, coords, log_index=None):
     
-    t = coords["t"]
+    t = np.atleast_1d(coords["t"])
+    N = len(ensemble_files)
+
+    if coords.get("is_points", False):
+        lon = np.atleast_1d(coords["lon_p"])
+        lat = np.atleast_1d(coords["lat_p"])
+        alt = np.atleast_1d(coords["alt_p"])
+
+        Nt, Np = len(t), len(lon)
+        if Nt == 0 or Np == 0:
+            return None
+
+        # Broadcast to (Nt, Np)
+        T_mesh = np.broadcast_to(t, (Nt, ))
+        X_mesh = np.broadcast_to(lon, (Nt, ))
+        Y_mesh = np.broadcast_to(lat, (Nt, ))
+        Z_mesh = np.broadcast_to(alt, (Nt, ))
+
+        u0 = np.zeros((Nt, ), dtype=np.float32)
+        v0 = np.zeros((Nt, ), dtype=np.float32)
+        w0 = np.zeros((Nt, ), dtype=np.float32)
+
+        u_std = np.zeros((Nt, ), dtype=np.float32)
+        v_std = np.zeros((Nt, ), dtype=np.float32)
+        w_std = np.zeros((Nt, ), dtype=np.float32)
+
+        for ifile in ensemble_files:
+            nn = hyper.restore(ifile, log_index=log_index)
+            outputs, mask = nn.infer(
+                T_mesh, X_mesh, Y_mesh, Z_mesh,
+                filter_output=True,
+                return_valid_mask=True
+            )
+            u = outputs[:, 0].reshape(Nt)
+            v = outputs[:, 1].reshape(Nt)
+            w = outputs[:, 2].reshape(Nt)
+
+            u0 += u / N
+            v0 += v / N
+            w0 += w / N
+
+        df = {
+            "version": nn.version,
+            "is_points": True,
+            "t": t,
+            "lon_p": lon, "lat_p": lat, "alt_p": alt,
+            "u": u0, "v": v0, "w": w0,
+            "u_std": u_std, "v_std": v_std, "w_std": w_std,
+            "mask": mask.reshape(Nt),
+        }
+
+        if N < 2:
+            return df
+
+        for ifile in ensemble_files:
+            nn = hyper.restore(ifile, log_index=log_index)
+            outputs = nn.infer(T_mesh, X_mesh, Y_mesh, Z_mesh, filter_output=False)
+            u = outputs[:, 0].reshape(Nt)
+            v = outputs[:, 1].reshape(Nt)
+            w = outputs[:, 2].reshape(Nt)
+
+            u_std += (u - u0) ** 2 / (N - 1)
+            v_std += (v - v0) ** 2 / (N - 1)
+            w_std += (w - w0) ** 2 / (N - 1)
+
+        df["u_std"] = np.sqrt(u_std)
+        df["v_std"] = np.sqrt(v_std)
+        df["w_std"] = np.sqrt(w_std)
+        
+        return df
     
     lon_3D = coords["lon_3D"]
     lat_3D = coords["lat_3D"]
@@ -561,8 +731,6 @@ def winds_from_model(ensemble_files, coords, log_index=None):
     u_std = np.zeros(shape_4D, dtype=np.float32) 
     v_std = np.zeros(shape_4D, dtype=np.float32) 
     w_std = np.zeros(shape_4D, dtype=np.float32) 
-    
-    N = len(ensemble_files)
     
     for i, ifile in enumerate(ensemble_files):
         nn = hyper.restore(ifile, log_index=log_index)
@@ -664,6 +832,68 @@ def save_winds(df, output_file):
             group.create_dataset("v_std", data=df["v_std"][i])
             group.create_dataset("w_std", data=df["w_std"][i])
 
+def append_profile_hdf5(df, output_file, overwrite=False):
+    """
+    Writes/append trajectory/points winds:
+      lon_p, lat_p, alt_p: (Np,)
+      t: (Nt,)
+      u,v,w,u_std,v_std,w_std,mask: (Nt, Np)
+    """
+    assert df.get("is_points", False)
+
+    t = np.atleast_1d(df["t"]).astype(float)
+    lon = np.atleast_1d(df["lon_p"]).astype(float)
+    lat = np.atleast_1d(df["lat_p"]).astype(float)
+    alt = np.atleast_1d(df["alt_p"]).astype(float)
+
+    dt = datetime.datetime.utcfromtimestamp(np.mean(t))
+    current_version = df["version"]
+
+    filename = output_file + "_v%s.h5" % current_version
+    if overwrite and os.path.exists(filename):
+        os.remove(filename)
+
+    with h5py.File(filename, "a") as fp:
+        fp.attrs["Author"] = "Miguel Urco Cordero"
+        fp.attrs["Email"] = "miguelcordero191@gmail.com"
+        fp.attrs["Description"] = "Point-mode wind profile from HYPER along a trajectory"
+        fp.attrs["Reference"] = "Urco et al., 2024; https://doi.org/10.1029/2024JH000162"
+        fp.attrs["Date"] = dt.strftime("%Y-%m-%d")
+        fp.attrs["version"] = current_version
+
+        if "lon" not in fp:
+            d = fp.create_dataset("lon", data=lon); d.attrs["units"] = "Degrees"
+        if "lat" not in fp:
+            d = fp.create_dataset("lat", data=lat); d.attrs["units"] = "Degrees"
+        if "alt" not in fp:
+            d = fp.create_dataset("alt", data=alt); d.attrs["units"] = "km"
+
+        # Time
+        if "time" not in fp:
+            tds = fp.create_dataset("time", data=t, maxshape=(None,), chunks=True)
+            tds.attrs["units"] = "seconds since 1970-01-01"
+            base = 0
+        else:
+            tds = fp["time"]
+            base = tds.shape[0]
+            tds.resize((base + len(t),))
+            tds[base:base + len(t)] = t
+
+        # 2D vars (time, point)
+        def _append_2d(name, data):
+            data = np.asarray(data, dtype=np.float32)
+            if name not in fp:
+                fp.create_dataset(name, data=data, maxshape=None, chunks=True)
+            else:
+                dset = fp[name]
+                dset.resize((dset.shape[0] + data.shape[0]))
+                dset[-data.shape[0]:] = data
+
+        for var in ["u", "v", "w", "u_std", "v_std", "w_std"]:
+            _append_2d(var, df[var])
+
+        _append_2d("mask", df["mask"].astype(np.float32))
+        
 def append_winds_hdf5(df, output_file, overwrite=False):
     
     # Extract time and spatial coordinate arrays from the input dictionary
@@ -899,7 +1129,87 @@ def append_winds_netcdf(df, output_file, overwrite=False):
         append_variable(var_name, df[var_name], unit)
 
     ds.close()
+
+def _to_unix_seconds_utc(y, mo, d, h, mi, sec_float):
+    """
+    Convert Y/M/D H:M:secFloat (UTC) -> unix seconds (float).
+    Handles fractional seconds.
+    """
+    dt_object_utc = datetime.datetime(y-1,mo,d,h,mi,int(sec_float), tzinfo=datetime.timezone.utc)
+
+    # 2. Convert to epoch time (seconds since epoch)
+    # For local time (naive object):
+    epoch_time_utc = dt_object_utc.timestamp()
     
+    return  epoch_time_utc
+
+def read_coord_file(path):
+    """
+    Reads a whitespace/tab-separated text file with a header row.
+    Works with headers containing spaces (numpy will convert spaces -> underscores).
+    Expected columns (case-insensitive, spaces tolerated):
+      - Year, Month, Day, Hour, Minute, Second
+      - Geodetic Latitude, Geodetic Longitude, Geodetic Altitude
+    Returns:
+      t_coords, lon_coords, lat_coords, alt_coords as 1D numpy arrays (order preserved).
+    """
+    if path is None:
+        return None, None, None, None
+
+    path = path.strip()
+    if path == "":
+        return None, None, None, None
+
+    data = np.genfromtxt(path, names=True, dtype=None, encoding='utf-8', delimiter=None)
+
+    # Normalize field names: lowercase
+    fields = {name.lower(): name for name in data.dtype.names}
+
+    def _col(*candidates):
+        for c in candidates:
+            c = c.lower()
+            if c in fields:
+                return data[fields[c]]
+        return None
+
+    year   = _col("year")
+    month  = _col("month")
+    day    = _col("day")
+    hour   = _col("hour")
+    minute = _col("minute")
+    second = _col("second")
+
+    # Numpy converts "Geodetic Latitude" -> "Geodetic_Latitude"
+    lat = _col("geodetic_latitude", "latitude", "lat", "geodeticlatitude")
+    lon = _col("geodetic_longitude", "longitude", "lon", "geodeticlongitude")
+    alt = _col("geodetic_altitude", "altitude", "alt", "geodeticaltitude")
+
+    missing_time = any(v is None for v in (year, month, day, hour, minute, second))
+    missing_geo  = any(v is None for v in (lat, lon, alt))
+
+    if missing_geo:
+        raise ValueError(
+            f"--coord-file '{path}' is missing required geo columns. "
+            f"Found columns: {list(data.dtype.names)}. "
+            f"Need (at least): Geodetic Latitude/Longitude/Altitude (or Lat/Lon/Alt equivalents)."
+        )
+
+    # If time columns are missing, you can still use lon/lat/alt only (t_coords stays None)
+    if missing_time:
+        t_coords = None
+    else:
+        t_coords = np.array(
+            [_to_unix_seconds_utc(y, mo, d, h, mi, s)
+             for y, mo, d, h, mi, s in zip(year, month, day, hour, minute, second)],
+            dtype=float
+        )
+
+    lon_coords = np.asarray(lon, dtype=float)
+    lat_coords = np.asarray(lat, dtype=float)
+    alt_coords = np.asarray(alt, dtype=float)
+
+    return t_coords, lon_coords, lat_coords, alt_coords
+
 if __name__ == '__main__':
     
     import argparse
@@ -907,17 +1217,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Script to produce 3D wind outputs')
     
     root = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex/"
-    dir = "hVV_noNul05.256_lr1.0e-03lf0do0ur1.0e-09r1.0e+02L1_BS"
+    dir = "hVVl05.256_lr5.0e-04lf0do0ur1.0e-08r1.0e-02Validated"
     
-    # root = "/Users/radar/Data/IAP/SIMONe/Virtual/ICON_20160815/ICON_+00+70+90"
-    # dir = "hRESPsine_VV_noNul02.05.256_w1.0e+02lr1.0e-03lf1do0ur1.5e-04T24ranHH"
+    # root = "/Users/radar/Data/IAP/SIMONe/Norway/IAPData"
+    # root = "/Users/radar/Data/IAP/SIMONe/Germany/IAPData"
+    # dir = "hyper"
     #
     
     # root = "/Users/radar/Data/IAP/SIMONe/Germany/SpaceX/"
     # dir = "hRESPsine_VVl02.06.256_w1.0e-06lr1.0e-03lf1do1ur5.0e-05T24BootstrapW"
     #
-    root = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/"
-    dir = "hVV_noNul05.256_lr1.0e-03lf0do0ur5.0e-10r1.0e+02L1_BS"
+    # root = "/Users/radar/Data/IAP/SIMONe/Norway/ExtremeEvent/"
+    # dir = "hVV_noNul05.256_lr1.0e-03lf0do0ur5.0e-10r1.0e+02L1_BS"
+    
+    # root = "/Users/radar/Data/IAP/SIMONe/Condor/Tonga/"
+    # dir = "hVV_noNul05.128_lr5.0e-04lf1do0ur1.0e-12r1.0e+01"
 
     default_dir = os.path.join(root, dir)
     
@@ -936,8 +1250,8 @@ if __name__ == '__main__':
                     
     parser.add_argument('--log-index', dest='log_index', default=None, help='')
     # New geographic grid arguments
-    parser.add_argument('--lon-step', dest='lon_step', type=float, default=1.0, help='Longitude step in degrees')
-    parser.add_argument('--lat-step', dest='lat_step', type=float, default=0.3, help='Latitude step in degrees')
+    parser.add_argument('--lon-step', dest='lon_step', type=float, default=0.45, help='Longitude step in degrees')
+    parser.add_argument('--lat-step', dest='lat_step', type=float, default=0.15, help='Latitude step in degrees')
     parser.add_argument('--alt-step', dest='alt_step', type=float, default=0.5, help='Altitude step in km')
     
     parser.add_argument('--lon-range', dest='lon_range', type=float, default=None, help='Longitude range in degrees')
@@ -955,6 +1269,16 @@ if __name__ == '__main__':
     parser.add_argument('--lat-coords', dest='lat_coords', default=None, type=str, help='Comma-separated list of latitude coordinates')
     parser.add_argument('--alt-coords', dest='alt_coords', default=None, type=str, help='Comma-separated list of altitude coordinates')
     
+    parser.add_argument('--coord-file', dest='coord_file', default=None, type=str,
+    help=('Path to text file with coordinates. Expected columns like: '
+          'Year Month Day Hour Minute Second Latitude Longitude  Altitude.'
+          'If set, overrides --t-coords/--lon-coords/--lat-coords/--alt-coords.')
+    
+    # parser.add_argument('--coord-file', dest='coord_file', default="/Users/radar/Data/IAP/SIMONe/Norway/VorTex/VortEx_Trajectory.txt", type=str,
+    # help=('Path to text file with coordinates. Expected columns like: '
+    #       'Year Month Day Hour Minute Second Latitude Longitude  Altitude.'
+    #       'If set, overrides --t-coords/--lon-coords/--lat-coords/--alt-coords.')
+)
     
     # parser.add_argument('--lon-coords', dest='lon_coords', default=np.arange(10, 30., 0.0225), type=str, help='Comma-separated list of longitude coordinates')
     # parser.add_argument('--lat-coords', dest='lat_coords', default=np.arange(66, 72., 0.0225), type=str, help='Comma-separated list of latitude coordinates')
@@ -996,6 +1320,8 @@ if __name__ == '__main__':
     
     output_format = args.output_format
     
+    file_prefix = "winds3D"
+    
     # Helper to parse comma-separated lists into arrays of floats
     def parse_coords(coord_str):
         if coord_str is None:
@@ -1012,6 +1338,20 @@ if __name__ == '__main__':
     lon_coords = parse_coords(args.lon_coords)
     lat_coords = parse_coords(args.lat_coords)
     alt_coords = parse_coords(args.alt_coords)
+    
+    is_points = False
+    
+    # New: override from file if provided
+    ft, flon, flat, falt = read_coord_file(args.coord_file)
+    if args.coord_file is not None and str(args.coord_file).strip() != "":
+        # Preserve file order (do NOT sort here)
+        t_coords   = ft
+        lon_coords = flon
+        lat_coords = flat
+        alt_coords = falt
+        
+        file_prefix = "wind_profile"
+        is_points = True
     
     cmap = 'seismic'
     
@@ -1062,9 +1402,16 @@ if __name__ == '__main__':
         print("Processing experiment %s" % day_folder)
         
         plotData = TimeAltitudePlot(lon0=lon0, lat0=lat0, alt0=alt0)
+        plotMeanData = TimeAltitudePlot(lon0=lon0, lat0=lat0, alt0=alt0, plot_mean=True)
         
         if plot_std:
             plotStd = TimeAltitudePlot(lon0=lon0, lat0=lat0, alt0=alt0)
+        
+        if is_points:
+            plotData = ProfilePlot()
+            plotMeanData = None
+            if plot_std:
+                plotStd = ProfilePlot()
         
         print("Generating winds ...")
         for i, hourly_file in enumerate(hourly_files):
@@ -1084,25 +1431,30 @@ if __name__ == '__main__':
             
             print(".", end='', flush=True)
             
-            output_file = os.path.join(rpath_, "winds3D_%s" % dt.strftime("%Y%m%d_%H%M%S"))
+            output_file = os.path.join(rpath_, "%s_%s" % (file_prefix, dt.strftime("%Y%m%d_%H%M%S")))
             
             overwrite = False
             if i == 0: overwrite = True
             
-            if output_format == "hdf5":
-                append_winds_hdf5(df, output_file, overwrite=overwrite)
-            elif output_format == "ncdf":
-                append_winds_netcdf(df, output_file, overwrite=overwrite)
+            if df.get("is_points", False):
+                append_profile_hdf5(df, output_file, overwrite=overwrite)
             else:
-                raise ValueError("File format not supported")
+                if output_format == "hdf5":
+                    append_winds_hdf5(df, output_file, overwrite=overwrite)
+                elif output_format == "ncdf":
+                    append_winds_netcdf(df, output_file, overwrite=overwrite)
+                else:
+                    raise ValueError("File format not supported")
             
             plotData.update_chunk(df)
+            if plotMeanData is not None: plotMeanData.update_chunk(df)
             
             if plot_std:
                 plotStd.update_chunk(df, plot_std=True)
         
         print("Plotting winds ...")
         plotData.save_plot(path=figpath_, suffix=df["version"])
+        if plotMeanData is not None: plotMeanData.save_plot(path=figpath_, suffix="mean_%s" %df["version"])
         
         if plot_std:
             
@@ -1110,5 +1462,5 @@ if __name__ == '__main__':
                               suffix="std_%s" %df["version"],
                               cmap='inferno',
                               vmins=[0,0,0],
-                              vmaxs=[30,30,5],
+                        vmaxs=[30,30,5],
                               )

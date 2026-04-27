@@ -517,7 +517,7 @@ def plot_mean_winds(t, h, u, v, w,
         
     plt.tight_layout(
                      pad=0.1, 
-                     rect=[0.02,0.0,1.02,0.97]
+                     rect=[0.02,0.0,0.99,0.97]
                      )
     
     axs[-1].annotate('@mu',

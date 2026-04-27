@@ -18,7 +18,7 @@ def read_upleg(vortex=1, upleg = 1,
     
     if vortex == 2:
         
-        filename = '/Users/radar/Data/IAP/SIMONe/Norway/VorTex2/VortEx2_TrajectoryUTC_0_1Hz.txt'
+        filename = '/Users/radar/Data/IAP/SIMONe/Norway/VorTex2/VortEx2_Trajectory.txt'
         lat = 69.45
         lon = 15.75
         ref_label = 'UPLEG'
@@ -382,7 +382,7 @@ def plot_profiles(df, figpath,
                 if w is not None:
                     # ax.plot(10*w[i,:,j,k], alts[i,:,j,k], 'g', linestyle=linestyle, alpha=alpha, label=label_w)
                     
-                    ax.errorbar(10*w[i,j,k], alts[i,j,k], xerr=w_std[i,j,k], color='g', linestyle=linestyle, alpha=alpha, label=label_w)
+                    ax.errorbar(10*w[i,j,k], alts[i,j,k], xerr=10*w_std[i,j,k], color='g', linestyle=linestyle, alpha=alpha, label=label_w)
                 
                 
             if plot_ref:
@@ -410,7 +410,7 @@ if __name__ == '__main__':
     import argparse
     
     root = "/Users/radar/Data/IAP/SIMONe/Norway/VorTex"
-    subdir = "hVV_noNul05.256_lr1.0e-03lf0do0ur1.0e-09r1.0e+02L1_BS"
+    subdir = "hVVl05.256_lr5.0e-04lf0do0ur1.0e-08r1.0e-02Validated"
     
     default = os.path.join(root, subdir)
     
@@ -421,7 +421,7 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--rpath', dest='rpath', default=None, help='Data path')
     parser.add_argument('-e', '--extension', dest='ext', default='png', help='figures extension')
     parser.add_argument('-u', '--upleg', dest='upleg', default=0, help='')
-    parser.add_argument('--log-index', dest='log_index', default=999, help='')           
+    parser.add_argument('--log-index', dest='log_index', default=None, help='')           
     
     args = parser.parse_args()
     
@@ -440,7 +440,7 @@ if __name__ == '__main__':
         suffix = "" if log_index is None else str(log_index)
         
         if rpath is None:
-            rpath = os.path.join(dpath, "plots_%s" %suffix)
+            rpath = os.path.join(path, "plots_%s" %suffix)
             
         if not os.path.isdir(rpath):
             os.mkdir(rpath)

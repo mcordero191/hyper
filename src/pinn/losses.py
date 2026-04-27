@@ -270,14 +270,14 @@ class WeightScheduler:
 
         self.warmup_epochs = warmup_epochs
         # initial weights
-        self.w_srt = 1e-4
+        self.w_srt = 1e-3
         self.w_flx = 1e-1
         self.w_div = tf.Variable(1e-6, trainable=False, dtype=tf.float32)
         self.w_mom = tf.Variable(1e-6, trainable=False, dtype=tf.float32)
 
         # ranges
-        self.div_min, self.div_max = 1e-5, 1e5
-        self.mom_min, self.mom_max = 1e-5, 1e5*pde_ratio
+        self.div_min, self.div_max = 1e-5, 1e7
+        self.mom_min, self.mom_max = 1e-5, 1e7*pde_ratio
 
     def _log_schedule(self, epoch, w_min, w_max):
         # progress in [0,1]

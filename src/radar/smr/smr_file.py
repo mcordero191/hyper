@@ -255,7 +255,7 @@ def filter_data(df, tini=0, dt=24,
     
     ##################################################
     
-    df = filter_by_angle(df, angle_limit=70)
+    df = filter_by_angle(df, angle_limit=60)
     
     if df.size == 0:
         return(df)
@@ -268,7 +268,7 @@ def filter_data(df, tini=0, dt=24,
         
         le = LabelEncoder()
         le.fit(links)
-        nlinks = 1 #len(le.classes_)
+        nlinks = 2 #len(le.classes_)
         
         for _ in range(nlinks):
         #########################
@@ -1245,6 +1245,9 @@ class SMRReader(object):
         
         rxs, txs = self.get_rx_tx_station(link)
         
+        print(np.unique(rxs))
+        print(np.unique(txs))
+        
         self.ini_time = times.min()
         self.n_samples = len(times)
         
@@ -1363,7 +1366,7 @@ class SMRReader(object):
         
         for link in links:
             link = link.decode('ascii', 'replace')
-            link = link.split('-')[0]
+            #link = link.split('-')[0]
             tx, rx = link.split('_')[0:2]
             
             rxs.append(rx)

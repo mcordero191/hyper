@@ -30,9 +30,10 @@ class BaseModel(keras.Model):
     
         self.nu = self.add_weight(name='Nu',
                         shape = (),
-                        initializer = 'ones',
+                        initializer = 'zeros',
                         trainable = self.add_nu,
-                        constraint = keras.constraints.NonNeg())
+                        #constraint = keras.constraints.NonNeg()
+                        )
     
         super().build(input_shape) 
         
@@ -302,7 +303,7 @@ class resPINN(FCNClass):
                  n_outs,
                  n_neurons,
                  n_layers,
-                 use_helmholtz= 1,
+                 use_helmholtz= 0,
                  values=None,
                  **kwargs
                  ):
@@ -313,7 +314,7 @@ class resPINN(FCNClass):
         self.use_helmholtz = use_helmholtz
         
         add_bias = True
-        values = [1e-1]*5
+        values = [1e0]*5
         
         if use_helmholtz:
             n_outs = 4
@@ -670,13 +671,24 @@ class resPINN_HH(BaseModel):
         # Net A (rotational)
         # -------------------
         self.emb_A = GaussianRFF(n_neurons, name="Emb_A")
+        
         self.laaf_A = [
-            LaafLayer(n_neurons, activation="sine", w0=w0_A, name=f"laafA_{i}")
-            for i in range(n_layers)
-        ]
+                        LaafLayer(n_neurons, activation="sine", w0=w0_A, name=f"laafA_{i}")
+                        for i in range(n_layers)
+                    ]
+        
         # self.proj_A = [
         #     Linear(n_neurons, name=f"projA_{i}") for i in range(n_layers)
         # ]
+        
+        self.res_A = self.add_weight(
+                                        name="residual_A",
+                                        shape=(self.n_layers,),
+                                        initializer=tf.constant_initializer(-2),
+                                        trainable=True,
+                                        # constraint=keras.constraints.NonNeg,
+                                    )
+        
         self.out_A = Linear(4, add_bias=False, name="out_A")
 
         if learn_const:
@@ -729,6 +741,8 @@ class resPINN_HH(BaseModel):
         emb = self.emb_A(inputs, self.alphas[0])
         u = emb
         
+        alpha = self.res_A #0.5*(tf.tanh(self.res_A) + 1)
+        
         for i, laaf in enumerate(self.laaf_A):
             
             # # inject embedding
@@ -742,9 +756,9 @@ class resPINN_HH(BaseModel):
         
             if self.dropout > 0:
                 h = self.dropout_layers_A[i](h, training=training)
-        
+                
             # skip connection: add input back
-            u = u + h
+            u = u + alpha[i] * h #(h-u)
             
         return self.out_A(u)
 
@@ -755,13 +769,6 @@ class resPINN_HH(BaseModel):
         
         for i, laaf in enumerate(self.laaf_phi):
             prev_u = u  # save incoming state
-            
-            # # inject embedding
-            # if i > 0:
-            #     h = tf.concat([u, emb], axis=-1)
-            #     h = self.proj_phi[i](h)
-            # else:
-            #     h = u
         
             h = laaf(u, self.alphas[self.n_layers+2+i])
         
