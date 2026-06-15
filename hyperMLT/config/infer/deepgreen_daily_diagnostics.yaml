@@ -1,0 +1,54 @@
+experiment:
+  name: vortex_deepgreen_mlt_daily_infer
+  version: 0.1.0
+  description: Inference diagnostics for a daily-trained DeepGreen model.
+
+model:
+  artifact_path: ../../runs/hyperMLT/vortex_deepgreen_mlt_vorticity_inviscid
+  log_index: null
+
+domain:
+  grid:
+    time_step: 600
+    time_range: null
+    lon_step: 0.20
+    lat_step: 0.20
+    alt_step: 1.0
+    lon_range: null
+    lat_range: null
+    alt_range: null
+  points:
+    coord_file: null
+    t_coords: null
+    lon_coords: null
+    lat_coords: null
+    alt_coords: null
+
+inference:
+  gradients: false
+  plotting:
+    enabled: true
+    extension: png
+    mean_winds:
+      enabled: true
+      histogram: true
+      vmins: [-100, -100, -10]
+      vmaxs: [100, 100, 10]
+      title: Mean winds from inferred daily field
+    time_coordinate_slices:
+      enabled: true
+      lon0: 18.0
+      lat0: 69.0
+      alt0: 90.0
+      plot_mean: false
+      average_fraction: 0.7
+      plot_residual: false
+      residual:
+        background_time_window_hours: 4.0
+        background_alt_window_km: 2.0
+      vmins: [-100, -100, -10]
+      vmaxs: [100, 100, 10]
+
+output:
+  root_dir: ../../runs/hyperMLT/infer_daily
+  format: hdf5

@@ -1,0 +1,138 @@
+# TEMPLATE ONLY.
+# Current hyperMLT does not yet implement a runnable multi-day training workflow.
+# This file captures the intended configuration shape for:
+# - day 1: trunk + branch learned from scratch
+# - day N>1: trunk loaded from previous day and penalized not to drift much
+# - day N>1: branch/source generator reset and learned from scratch
+
+experiment:
+  name: vortex_deepgreen_mlt_multiday_shared_trunk
+  version: 0.1.0
+  description: Target config for future hyperMLT multi-day DeepGreen shared-trunk training.
+
+datasets:
+  primary:
+    source: smr
+    path: /Users/admin/Data/IAP/SIMONe/Norway/IAPData
+    pattern: mmaria_multilink_mmaria-norway_202406*
+    filter:
+      max_arrival_angle_deg: 70
+      clustering_radius: 0.1
+      clustering_min_samples: 100
+      clustering_passes: 1
+      max_abs_doppler_velocity: 100
+      duplicate_space_threshold_m: 500
+      duplicate_time_threshold_s: 1
+      enable_doppler_clustering_filter: true
+      enable_mean_wind_quality_filter: true
+      mean_wind_residual_sigma: 4
+      require_smr_like: false
+      horizontal_support_sigma: 4
+      support_core_fraction: 0.25
+      vertical_support_sigma: 4
+    selection:
+      operations: []
+    validation:
+      holdout_fraction: 0.05
+      random_seed: 0
+      radial_mode: radius_quantile
+      radial_quantile: 0.5
+
+domain:
+  time:
+    start_hour: 0
+    duration_hours: 24
+    padding_fraction: 0.125
+  region:
+    lon_center: 18
+    lat_center: 69
+    alt_center_km: 90
+  normalization:
+    mode: fixed
+    lower_bounds: [0, 80000, -200000, -200000]
+    upper_bounds: [86400, 100000, 200000, 200000]
+    label: vortex_400x400x20km_dt24h
+
+model:
+  architecture: deepgreen
+  network:
+    parameterization:
+      wind: direct
+      output_scale: [10, 10, 1]
+    backbone:
+      activation: sin
+      weight_init: HeNormal
+    Encoder:
+      width: 64
+      depth: 4
+      use_skip_connections: true
+    Decoder:
+      width: 64
+      depth: 4
+      use_skip_connections: true
+    KernelFunction:
+      type: matern52
+      latent_dim: 12
+      n_green_functions: 16
+    SourceGenerator:
+      width: 16
+      depth: 3
+      n_sources: 32
+
+physics:
+  formulation: continuity_only
+  state: uvw
+  residual_weights:
+    data: 1.0
+    div: 0.0
+    mom: 0.0
+    temp: 0.0
+    srt: 0.0
+  pde_sampling:
+    method: random
+    sample_count: 4096
+
+training:
+  epochs: 5000
+  learning_rate: 5.0e-04
+  optimizer: Adam
+  data_loss: mae
+  random_seed: 1234
+  validation:
+    metric: doppler_rmse
+  scheduling:
+    type: staged
+    stages:
+      - start: 0
+        weights:
+          data: 1.0
+          div: 0.0
+          mom: 0.0
+      - start: 200
+        weights:
+          data: 1.0
+          div: 1e6
+          mom: 0.0
+
+multiday:
+  enabled: true
+  file_order: chronological
+  first_day:
+    trunk_init: fresh
+    branch_init: fresh
+  subsequent_days:
+    trunk_init: previous_day
+    branch_init: fresh
+  shared_trunk:
+    carry_across_days: true
+    trunk_lr_scale: 0.1
+    anchor_weight: 1.0e-05
+    checkpoint_dir: ../../runs/hyperMLT/shared_trunks
+  day_runs:
+    root_dir: ../../runs/hyperMLT/daily_runs
+    name_pattern: "{experiment}/{day}"
+
+output:
+  root_dir: ../../runs/hyperMLT
+  write_plots: true
+  verbose: true

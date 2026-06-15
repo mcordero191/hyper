@@ -1,0 +1,102 @@
+experiment:
+  name: vortex_respinn_mlt_vpdiv_smoke
+  version: 0.1.0
+  description: Fast continuity-only PDE smoke test for hyperMLT RESPINN training.
+
+datasets:
+  primary:
+    source: smr
+    path: /private/tmp/hyperMLT_smoke_data
+    pattern: mmaria_multilink_mmaria-norway_20240601
+    stop_after_first_day: true
+    filter:
+      max_arrival_angle_deg: 70
+      clustering_radius: 0.1
+      clustering_min_samples: 20
+      clustering_passes: 1
+      max_abs_doppler_velocity: 70
+      duplicate_space_threshold_m: 500
+      duplicate_time_threshold_s: 1
+      enable_doppler_clustering_filter: true
+      enable_mean_wind_quality_filter: true
+      mean_wind_residual_sigma: 4
+      require_smr_like: false
+      horizontal_support_sigma: 2.5
+      support_core_fraction: 0.75
+      vertical_support_sigma: 3.5
+    selection:
+      operations: []
+      random_seed: 0
+    validation:
+      holdout_fraction: 0.05
+      random_seed: 0
+  auxiliary: []
+
+domain:
+  time:
+    start_hour: 0
+    duration_hours: 24
+    padding_fraction: 0.125
+  region:
+    lon_center: 18
+    lat_center: 69
+    alt_center_km: 90
+  normalization:
+    mode: fixed
+    lower_bounds: [0, 80000, -150000, -150000]
+    upper_bounds: [86400, 100000, 150000, 150000]
+    label: vortex_300x300x20km_dt24h
+
+model:
+  architecture: respinn
+  network:
+    parameterization:
+      wind: direct
+    backbone:
+      width: 128
+      depth: 2
+      nblocks: 3
+      activation: sine
+      initializer: siren
+      w0: 1.0
+      multiscale_factors: [1.0, 2.0, 4.0]
+
+physics:
+  formulation: continuity_only
+  state: uvw
+  residual_weights:
+    data: 1.0
+    div: 0.0
+    mom: 0.0
+    temp: 0.0
+    srt: 0.0
+  pde_sampling:
+    method: random
+    sample_count: 2048
+
+training:
+  epochs: 2000
+  learning_rate: 5.0e-04
+  optimizer: Adam
+  data_loss: mae
+  random_seed: 1234
+  validation:
+    metric: doppler_rmse
+  scheduling:
+    type: staged
+    stages:
+      - start: 0
+        weights:
+          data: 1.0
+          div: 0.0
+          mom: 0.0
+      - start: 600
+        weights:
+          data: 1.0
+          div: 1e9
+          mom: 0.0
+
+output:
+  root_dir: /private/tmp/hyperMLT_respinn_vpdiv_smoke_runs_repo
+  write_plots: true
+  verbose: true

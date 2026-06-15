@@ -1,0 +1,41 @@
+experiment:
+  name: vortex_deepgreen_mlt_infer
+  version: 0.1.0
+  description: Initial hyperMLT inference baseline derived from legacy hyper.
+
+model:
+  artifact_path: ./runs/hyperMLT
+  log_index: null
+
+domain:
+  grid:
+    time_step: 600
+    time_range: null
+    lon_step: 0.45
+    lat_step: 0.15
+    alt_step: 0.5
+    lon_range: null
+    lat_range: null
+    alt_range: null
+    lon_ref: null
+    lat_ref: null
+    alt_ref: null
+  points:
+    coord_file: null
+    t_coords: null
+    lon_coords: null
+    lat_coords: null
+    alt_coords: null
+
+inference:
+  gradients: false
+  plotting:
+    enabled: true
+    plot_std: false
+    extension: png
+    background_time_window_hours: 4.0
+    background_alt_window_km: 2.0
+
+output:
+  root_dir: ./runs/hyperMLT/winds
+  format: hdf5

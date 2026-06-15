@@ -1,0 +1,89 @@
+experiment:
+  name: vortex_respinn_mlt
+  version: 0.1.0
+  description: Initial hyperMLT RESPINN training baseline on the full dataset.
+
+datasets:
+  primary:
+    source: smr
+    path: /Users/admin/Data/IAP/SIMONe/Norway/IAPData
+    filter:
+      max_arrival_angle_deg: 70
+      clustering_radius: 0.1
+      clustering_min_samples: 100
+      clustering_passes: 1
+      max_abs_doppler_velocity: 100
+      duplicate_space_threshold_m: 500
+      duplicate_time_threshold_s: 1
+      enable_doppler_clustering_filter: true
+      enable_mean_wind_quality_filter: true
+      mean_wind_residual_sigma: 4
+      require_smr_like: false
+      horizontal_support_sigma: 4
+      support_core_fraction: 0.25
+      vertical_support_sigma: 4
+    selection:
+      operations: []
+    validation:
+      holdout_fraction: 0.05
+      random_seed: 0
+      radial_mode: radius_quantile
+      radial_quantile: 0.5
+
+domain:
+  time:
+    start_hour: 0
+    duration_hours: 24
+    padding_fraction: 0.125
+  region:
+    lon_center: 18
+    lat_center: 69
+    alt_center_km: 90
+  normalization:
+    mode: fixed
+    lower_bounds: [0, 80000, -200000, -200000]
+    upper_bounds: [86400, 100000, 200000, 200000]
+    label: vortex_300x300x20km_dt24h
+
+model:
+  architecture: respinn
+  network:
+    parameterization:
+      wind: direct
+    backbone:
+      width: 64
+      depth: 2
+      nblocks: 3
+      activation: sine
+      initializer: siren
+      w0: 1.0
+      multiscale_factors: [1.0, 3.0]
+
+physics:
+  formulation: data_only
+  state: uvw
+  residual_weights:
+    data: 1.0
+    div: 0.0
+    mom: 0.0
+    temp: 0.0
+    srt: 0.0
+  pde_sampling:
+    method: random
+    sample_count: 0
+
+training:
+  epochs: 2000
+  learning_rate: 5.0e-04
+  optimizer: Adam
+  data_loss: mae
+  random_seed: 1234
+  validation:
+    metric: doppler_rmse
+  scheduling:
+    type: fixed
+
+output:
+  root_dir: ../../runs/hyperMLT
+  write_plots: true
+  verbose: true

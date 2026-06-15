@@ -1,0 +1,41 @@
+experiment:
+  name: infer_tiny
+  version: 0.1.0
+  description: Tiny-grid smoke test for hyperMLT inference.
+
+model:
+  artifact_path: /private/tmp/hyperMLT_smoke_runs_repo/vortex_deepgreen_mlt_smoke/latest
+  log_index: null
+
+domain:
+  grid:
+    time_step: 600
+    time_range: [0, 600]
+    lon_step: 0.1
+    lat_step: 0.1
+    alt_step: 2.0
+    lon_range: [17.8, 18.0]
+    lat_range: [68.9, 69.0]
+    alt_range: [88.0, 92.0]
+    lon_ref: null
+    lat_ref: null
+    alt_ref: null
+  points:
+    coord_file: null
+    t_coords: null
+    lon_coords: null
+    lat_coords: null
+    alt_coords: null
+
+inference:
+  gradients: false
+  plotting:
+    enabled: true
+    plot_std: false
+    extension: png
+    background_time_window_hours: 4.0
+    background_alt_window_km: 2.0
+
+output:
+  root_dir: /private/tmp/hyperMLT_infer_repo
+  format: hdf5
