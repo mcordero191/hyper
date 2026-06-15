@@ -1,65 +1,48 @@
 # hyper
 
-This repository currently contains two code lines:
+This branch is `hyper v2.0`. The repository now uses the `hyperMLT` codebase as the main project at the repository root.
 
-- legacy `hyper` under `src/`
-- `hyperMLT` under `hyperMLT/`
-
-The active replacement project is `hyperMLT`. It is the planned `hyper v2.0` codebase and is the project that should be used for new training, multiday training, and inference work.
-
-## v2.0 entrypoints
+## Entrypoints
 
 Training:
 
 ```bash
-python /Users/admin/git/hyper/hyperMLT/scripts/train.py \
-  --config-file /Users/admin/git/hyper/hyperMLT/config/train/deepgreen_vorticity_inviscid_baseline.yaml
+python /Users/admin/git/hyper/scripts/train.py \
+  --config-file /Users/admin/git/hyper/config/train/deepgreen_vorticity_inviscid_baseline.yaml
 ```
 
 Multiday training:
 
 ```bash
-python /Users/admin/git/hyper/hyperMLT/scripts/multiday_train.py \
-  --config-file /Users/admin/git/hyper/hyperMLT/config/train/deepgreen_multiday_vorticity_inviscid_shared_trunk.yaml
+python /Users/admin/git/hyper/scripts/multiday_train.py \
+  --config-file /Users/admin/git/hyper/config/train/deepgreen_multiday_vorticity_inviscid_shared_trunk.yaml
 ```
 
 Inference:
 
 ```bash
-python /Users/admin/git/hyper/hyperMLT/scripts/infer.py \
-  --config-file /Users/admin/git/hyper/hyperMLT/config/infer/deepgreen_daily_diagnostics.yaml
+python /Users/admin/git/hyper/scripts/infer.py \
+  --config-file /Users/admin/git/hyper/config/infer/deepgreen_daily_diagnostics.yaml
 ```
 
-## Project status
+## Scope
 
-`hyperMLT` is the forward path for this repository:
+This repository contains:
 
-- standalone package and scripts
-- local implementations only, without runtime imports from legacy project code
-- DeepGreen and RESPINN training
-- PDE-informed training
-- multiday DeepGreen shared-trunk workflow
-- inference and diagnostics
-
-The legacy `hyper` tree is still present in this branch only as historical reference while `hyperMLT` is being validated. It is not the recommended entrypoint for new work.
+- DeepGreen and RESPINN models
+- PDE-informed training workflows
+- daily and multiday training
+- inference and diagnostic plotting
+- local implementations inside `hyperMLT/`
 
 ## Main directories
 
-- `hyperMLT/config/train/`
-- `hyperMLT/config/infer/`
-- `hyperMLT/scripts/`
-- `hyperMLT/hyperMLT/`
+- `config/train/`
+- `config/infer/`
+- `hyperMLT/`
+- `scripts/`
 - `docs/hyper_v2_branch_plan.md`
 
-## Validation branch strategy
+## Migration note
 
-The intended migration path is:
-
-1. create a dedicated `hyper v2.0` branch from this repository
-2. treat `hyperMLT` as the main project on that branch
-3. validate training, multiday training, inference, and diagnostics over time
-4. merge only after the new project is stable enough to replace the legacy mainline
-
-The branch promotion checklist is in:
-
-- `docs/hyper_v2_branch_plan.md`
+This branch is the replacement track for the old `hyper` project. The migration checklist is documented in `docs/hyper_v2_branch_plan.md`.
