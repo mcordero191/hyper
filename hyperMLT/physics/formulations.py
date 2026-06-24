@@ -26,12 +26,26 @@ FORMULATION_LABELS = {
 }
 
 
+def _format_available_formulations() -> str:
+
+    implemented = ", ".join(sorted(FORMULATION_LABELS))
+    aliases = ", ".join(sorted(FORMULATION_ALIASES))
+
+    return (
+        f"Implemented canonical formulations: {implemented}. "
+        f"Accepted names and aliases: {aliases}."
+    )
+
+
 def normalize_formulation_name(name: str) -> str:
 
     normalized = str(name).strip().lower()
 
     if normalized not in FORMULATION_ALIASES:
-        raise ValueError(f"Unsupported hyperMLT PDE formulation '{name}'.")
+        raise ValueError(
+            f"Unsupported hyperMLT PDE formulation '{name}'. "
+            f"{_format_available_formulations()}"
+        )
 
     return FORMULATION_ALIASES[normalized]
 

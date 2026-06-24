@@ -11,13 +11,19 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-from hyperMLT.artifacts.io import write_json
+from hyperMLT.artifacts.io import write_json, write_resolved_config
 from hyperMLT.datasets.mean_winds import mean_wind_from_fields
 from hyperMLT.models import build_model
 from hyperMLT.plotting.mean_winds import plot_mean_winds
+from hyperMLT.plotting.parameters import plot_pde_sampling_domain
 from hyperMLT.physics.formulations import get_pde_loss_function, normalize_formulation_name
 from hyperMLT.physics.sampling import sample_pde_points
-from hyperMLT.utils.console import format_progress_report, format_summary_table
+from hyperMLT.utils.console import (
+    format_domain_summary,
+    format_physics_summary,
+    format_progress_report,
+    format_summary_table,
+)
 
 from .losses import doppler_from_field, get_data_loss_function
 from .metrics import doppler_rmse
@@ -62,11 +68,33 @@ class PreparedTrainingData:
     validation: MeasurementBatch | None
     validation_inner: MeasurementBatch | None
     validation_outer: MeasurementBatch | None
-    pde: PDEBatch | None
+    pde_sample_count: int
     lower: tf.Tensor
     upper: tf.Tensor
     normalized_to_physical_grad_scale: tf.Tensor
     time_base: float
+
+
+def _apply_doppler_noise_to_batch(
+    batch: MeasurementBatch | None,
+    *,
+    rng: np.random.Generator,
+    doppler_std: float,
+) -> MeasurementBatch | None:
+
+    if batch is None or doppler_std <= 0.0:
+        return batch
+
+    noise = rng.normal(loc=0.0, scale=float(doppler_std), size=batch.dops.shape).astype(np.float32)
+    noisy_dops = batch.dops + tf.constant(noise, dtype=tf.float32)
+
+    return MeasurementBatch(
+        coords_raw=batch.coords_raw,
+        coords_norm=batch.coords_norm,
+        dops=noisy_dops,
+        weights=batch.weights,
+        braggs=batch.braggs,
+    )
 
 
 def _count_variables(variables) -> int:
@@ -83,9 +111,10 @@ def _build_training_setup_summary(
     formulation_label: str,
     formulation_name: str,
     total_epochs: int,
+    run_dir: Path,
 ) -> str:
 
-    pde_samples = 0 if prepared.pde is None else int(prepared.pde.coords_norm.shape[0])
+    pde_samples = int(prepared.pde_sample_count)
     validation_samples = 0 if prepared.validation is None else int(prepared.validation.coords_norm.shape[0])
     validation_inner_samples = 0 if prepared.validation_inner is None else int(prepared.validation_inner.coords_norm.shape[0])
     validation_outer_samples = 0 if prepared.validation_outer is None else int(prepared.validation_outer.coords_norm.shape[0])
@@ -98,16 +127,18 @@ def _build_training_setup_summary(
         ("Learning rate", f"{float(config.training.learning_rate):.1e}"),
         ("Epochs", total_epochs),
         ("Random seed", int(config.training.random_seed)),
-        ("Train meteors", int(prepared.train.coords_norm.shape[0])),
-        ("Validation meteors", validation_samples),
-        ("Validation inner", validation_inner_samples),
-        ("Validation outer", validation_outer_samples),
-        ("PDE samples", pde_samples),
-        ("Scheduler", str(config.training.scheduling.get("type", "fixed"))),
+        ("Train / Val", f"{int(prepared.train.coords_norm.shape[0])} / {validation_samples}"),
+        ("Val inner / outer", f"{validation_inner_samples} / {validation_outer_samples}"),
+        ("Output scale", str(dict(config.model.network.get("parameterization", {})).get("output_scale", "-"))),
         ("Trainable params", _count_variables(model.trainable_variables)),
-        ("Non-trainable params", _count_variables(model.non_trainable_variables)),
         ("Total params", model.count_params()),
+        ("Artifacts", run_dir),
     ]
+
+    non_trainable = _count_variables(model.non_trainable_variables)
+
+    if non_trainable > 0:
+        rows.insert(-1, ("Non-trainable params", non_trainable))
 
     return format_summary_table("Training Setup Summary", rows)
 
@@ -122,12 +153,97 @@ def _build_timing_summary(title: str, timings: dict[str, float]) -> str:
     return format_summary_table(title, rows)
 
 
-def _build_feature_bounds(domain: dict[str, Any]) -> tuple[tf.Tensor, tf.Tensor]:
+def _center_mode_from_raw_config(config) -> str:
 
-    norm = domain["normalization"]
+    raw_region = dict(config._raw_mapping.get("domain", {}).get("region", {}))
+    keys = ("lon_center", "lat_center", "alt_center_km")
 
-    lower = tf.constant(norm["lower_bounds"], dtype=tf.float32)
-    upper = tf.constant(norm["upper_bounds"], dtype=tf.float32)
+    if any(key not in raw_region for key in keys):
+        return "auto"
+
+    if any(raw_region.get(key) is None for key in keys):
+        return "auto"
+
+    return "fixed"
+
+
+def _resolve_auto_normalization_bounds(config, window, *, time_base: float) -> tuple[np.ndarray, np.ndarray]:
+
+    normalization = dict(config.to_dict()["domain"]["normalization"] or {})
+    selected_df = window.selection_df.copy()
+
+    if "used_for_training" in selected_df.columns:
+        selected_df = selected_df[selected_df["used_for_training"]].copy()
+    elif len(window.training_df) > 0:
+        selected_df = window.training_df.copy()
+
+    if selected_df.empty:
+        raise ValueError("Cannot resolve automatic normalization bounds from an empty selected dataset.")
+
+    coords = np.stack(
+        [
+            (selected_df["times"].to_numpy(dtype=np.float64) - float(time_base)),
+            selected_df["z"].to_numpy(dtype=np.float64),
+            selected_df["x"].to_numpy(dtype=np.float64),
+            selected_df["y"].to_numpy(dtype=np.float64),
+        ],
+        axis=1,
+    )
+
+    method = str(normalization.get("method", "quantile")).strip().lower()
+    padding_fraction = float(normalization.get("padding_fraction", 0.05) or 0.0)
+
+    if method == "quantile":
+        quantiles = normalization.get("quantiles", [0.005, 0.995])
+
+        if not isinstance(quantiles, (list, tuple)) or len(quantiles) != 2:
+            raise ValueError("Automatic normalization quantiles must be a two-element list like [0.005, 0.995].")
+
+        q_low = float(quantiles[0])
+        q_high = float(quantiles[1])
+        lower_np = np.quantile(coords, q_low, axis=0)
+        upper_np = np.quantile(coords, q_high, axis=0)
+    elif method in {"minmax", "min_max"}:
+        lower_np = np.min(coords, axis=0)
+        upper_np = np.max(coords, axis=0)
+    else:
+        raise ValueError(
+            f"Unsupported automatic normalization method '{method}'. "
+            "Expected 'quantile' or 'minmax'."
+        )
+
+    spans = upper_np - lower_np
+    safe_spans = np.where(spans > 0.0, spans, 1.0)
+    lower_np = lower_np - padding_fraction * safe_spans
+    upper_np = upper_np + padding_fraction * safe_spans
+
+    # Snap automatic bounds to coarse, interpretable values.
+    # Axis order is [time_s, altitude_m, x_m, y_m].
+    round_steps = np.asarray([3600.0, 1000.0, 10000.0, 10000.0], dtype=np.float64)
+    lower_np = np.floor(lower_np / round_steps) * round_steps
+    upper_np = np.ceil(upper_np / round_steps) * round_steps
+
+    min_width = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64)
+    upper_np = np.where((upper_np - lower_np) > 0.0, upper_np, lower_np + min_width)
+
+    return lower_np.astype(np.float32), upper_np.astype(np.float32)
+
+
+def _build_feature_bounds(config, window, *, time_base: float) -> tuple[tf.Tensor, tf.Tensor]:
+
+    norm = config.to_dict()["domain"]["normalization"]
+    lower_values = norm.get("lower_bounds")
+    upper_values = norm.get("upper_bounds")
+
+    if lower_values is None or upper_values is None:
+        lower_np, upper_np = _resolve_auto_normalization_bounds(config, window, time_base=time_base)
+        config.domain.normalization["lower_bounds"] = lower_np.tolist()
+        config.domain.normalization["upper_bounds"] = upper_np.tolist()
+        lower_values = config.domain.normalization["lower_bounds"]
+        upper_values = config.domain.normalization["upper_bounds"]
+
+    lower = tf.constant(lower_values, dtype=tf.float32)
+    upper = tf.constant(upper_values, dtype=tf.float32)
 
     return lower, upper
 
@@ -226,6 +342,7 @@ def _pde_batch_from_window(
     time_base: float,
     lower: tf.Tensor,
     upper: tf.Tensor,
+    random_seed: int,
 ) -> PDEBatch | None:
 
     if not _schedule_requires_pde(config):
@@ -244,7 +361,10 @@ def _pde_batch_from_window(
         sample_count=sample_count,
         method=str(sampling.get("method", "random")),
         time_base=time_base,
-        random_seed=int(config.training.random_seed),
+        random_seed=int(random_seed),
+        xy_coverage_fraction=float(sampling.get("xy_coverage_fraction", 0.97) or 0.97),
+        z_coverage_fraction=float(sampling.get("z_coverage_fraction", 0.97) or 0.97),
+        use_full_time_span=bool(sampling.get("use_full_time_span", True)),
     )
 
     coords_raw = tf.constant(coords_raw_np, dtype=tf.float32)
@@ -264,9 +384,9 @@ def _pde_batch_from_window(
 
 def prepare_training_data(config, window) -> PreparedTrainingData:
 
-    lower, upper = _build_feature_bounds(config.to_dict()["domain"])
-    normalized_to_physical_grad_scale = _build_normalized_to_physical_grad_scale(lower, upper)
     time_base = _window_time_base(window)
+    lower, upper = _build_feature_bounds(config, window, time_base=time_base)
+    normalized_to_physical_grad_scale = _build_normalized_to_physical_grad_scale(lower, upper)
 
     train_batch = _measurement_batch_from_df(
         window.training_df,
@@ -305,20 +425,31 @@ def prepare_training_data(config, window) -> PreparedTrainingData:
             upper=upper,
         )
 
-    pde_batch = _pde_batch_from_window(
-        config,
-        window,
-        time_base=time_base,
-        lower=lower,
-        upper=upper,
-    )
+    pde_sample_count = 0
+    if _schedule_requires_pde(config):
+        pde_sample_count = int(dict(config.physics.pde_sampling or {}).get("sample_count", 0) or 0)
+
+    noise_cfg = dict(config.datasets.primary.get("noise", {}))
+    doppler_std = float(noise_cfg.get("doppler_std", 0.0) or 0.0)
+
+    if doppler_std > 0.0:
+        seed = noise_cfg.get("random_seed", config.training.random_seed)
+        rng = np.random.default_rng(int(seed))
+
+        if bool(noise_cfg.get("apply_to_train", True)):
+            train_batch = _apply_doppler_noise_to_batch(train_batch, rng=rng, doppler_std=doppler_std)
+
+        if bool(noise_cfg.get("apply_to_validation", True)):
+            validation_batch = _apply_doppler_noise_to_batch(validation_batch, rng=rng, doppler_std=doppler_std)
+            validation_inner_batch = _apply_doppler_noise_to_batch(validation_inner_batch, rng=rng, doppler_std=doppler_std)
+            validation_outer_batch = _apply_doppler_noise_to_batch(validation_outer_batch, rng=rng, doppler_std=doppler_std)
 
     return PreparedTrainingData(
         train=train_batch,
         validation=validation_batch,
         validation_inner=validation_inner_batch,
         validation_outer=validation_outer_batch,
-        pde=pde_batch,
+        pde_sample_count=pde_sample_count,
         lower=lower,
         upper=upper,
         normalized_to_physical_grad_scale=normalized_to_physical_grad_scale,
@@ -659,6 +790,7 @@ def train_model(
 
     prepare_start = perf_counter()
     prepared = prepare_training_data(config, window)
+    write_resolved_config(run_dir, config)
     startup_timings["prepare_data_s"] = perf_counter() - prepare_start
 
     tf.keras.utils.set_random_seed(int(config.training.random_seed))
@@ -734,10 +866,31 @@ def train_model(
             formulation_label=formulation_label,
             formulation_name=formulation,
             total_epochs=total_epochs,
+            run_dir=run_dir,
         )
     )
     print("")
-    print(_build_timing_summary("Training Startup Timing", startup_timings))
+    print(
+        format_domain_summary(
+            center=tuple(window.metadata["active_center"]),
+            center_mode=_center_mode_from_raw_config(config),
+            normalization=dict(config.domain.normalization),
+        )
+    )
+    print("")
+    print(
+        format_physics_summary(
+            formulation_label=formulation_label,
+            formulation_name=formulation,
+            sampling=dict(config.physics.pde_sampling or {}),
+            scheduling=dict(config.training.scheduling or {}),
+            residual_weights=dict(config.physics.residual_weights or {}),
+            filter_config=dict(config.datasets.primary.get("filter", {})),
+        )
+    )
+    if bool(config.output.verbose):
+        print("")
+        print(_build_timing_summary("Training Startup Timing", startup_timings))
 
     def _should_report_epoch(epoch: int) -> bool:
 
@@ -938,11 +1091,19 @@ def train_model(
 
         weights_cfg = current_loss_weights(config, epoch, total_epochs)
 
-        pde_t_norm = None if prepared.pde is None else prepared.pde.t_norm
-        pde_z_norm = None if prepared.pde is None else prepared.pde.z_norm
-        pde_x_norm = None if prepared.pde is None else prepared.pde.x_norm
-        pde_y_norm = None if prepared.pde is None else prepared.pde.y_norm
-        pde_rho_ratio = None if prepared.pde is None else prepared.pde.rho_ratio
+        pde_batch = _pde_batch_from_window(
+            config,
+            window,
+            time_base=prepared.time_base,
+            lower=prepared.lower,
+            upper=prepared.upper,
+            random_seed=int(config.training.random_seed) + epoch,
+        )
+        pde_t_norm = None if pde_batch is None else pde_batch.t_norm
+        pde_z_norm = None if pde_batch is None else pde_batch.z_norm
+        pde_x_norm = None if pde_batch is None else pde_batch.x_norm
+        pde_y_norm = None if pde_batch is None else pde_batch.y_norm
+        pde_rho_ratio = None if pde_batch is None else pde_batch.rho_ratio
 
         total_loss, loss_data, loss_div, loss_mom, loss_temp = train_step(
             prepared.train.coords_norm,
@@ -1105,6 +1266,7 @@ def train_model(
         model.load_weights(weights_path)
 
     doppler_comparison_plot_path = None
+    pde_sampling_domain_plot_path = None
 
     if bool(config.output.write_plots):
         train_outputs = model(prepared.train.coords_norm, training=False).numpy()
@@ -1132,6 +1294,26 @@ def train_model(
             validation_observed=validation_observed,
             validation_predicted=validation_predicted,
         )
+
+        if prepared.pde_sample_count > 0:
+            pde_domain_coords = sample_pde_points(
+                window.training_df,
+                prepared.lower,
+                prepared.upper,
+                sample_count=max(20000, int(prepared.pde_sample_count) * 8),
+                method="random",
+                time_base=prepared.time_base,
+                random_seed=int(config.training.random_seed),
+                xy_coverage_fraction=float(dict(config.physics.pde_sampling or {}).get("xy_coverage_fraction", 0.97) or 0.97),
+                z_coverage_fraction=float(dict(config.physics.pde_sampling or {}).get("z_coverage_fraction", 0.97) or 0.97),
+                use_full_time_span=bool(dict(config.physics.pde_sampling or {}).get("use_full_time_span", True)),
+            )
+            pde_sampling_domain_plot_path = run_dir / "pde_sampling_domain.png"
+            plot_pde_sampling_domain(
+                window.training_df,
+                pde_domain_coords,
+                pde_sampling_domain_plot_path,
+            )
 
     model_summary_path = run_dir / "model_summary.txt"
     with model_summary_path.open("w", encoding="utf-8") as handle:

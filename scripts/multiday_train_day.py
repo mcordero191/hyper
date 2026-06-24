@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MPLCONFIGDIR = PROJECT_ROOT / ".mplcache"
 MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(MPLCONFIGDIR))
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 LEGACY_SRC_ROOT = PROJECT_ROOT.parent / "src"
@@ -22,11 +23,11 @@ if str(LEGACY_SRC_ROOT) not in sys.path:
 
 from hyperMLT.artifacts.io import create_run_directory, write_json, write_resolved_config
 from hyperMLT.config import load_train_config
-from hyperMLT.datasets import build_window_summary, load_window_for_file
+from hyperMLT.datasets import load_window_for_file
 from hyperMLT.models import build_model, describe_model_family
 from hyperMLT.physics.formulations import describe_formulation, normalize_formulation_name
 from hyperMLT.training.trainer import train_model
-from hyperMLT.utils.console import format_summary_table
+from hyperMLT.utils.console import format_dataset_summary, format_summary_table
 from hyperMLT.utils.paths import resolve_from_config
 
 
@@ -63,8 +64,8 @@ def _load_trunk_checkpoint(path: str | None) -> list[np.ndarray] | None:
 def _initialize_model_for_day(config, trunk_weights):
 
     model = build_model(config.model, shape_out=3)
-    lower = np.asarray(config.domain.normalization["lower_bounds"], dtype=np.float32).reshape(1, -1)
-    _ = model(lower, training=False)
+    dummy = np.zeros((1, 4), dtype=np.float32)
+    _ = model(dummy, training=False)
 
     if trunk_weights is not None:
         model.backbone.trunk.set_weights(trunk_weights)
@@ -113,17 +114,22 @@ def main(argv: list[str] | None = None) -> None:
         output_dir=day_run_dir,
         enable_plots=bool(config.output.write_plots),
     )
+    config.domain.region["lon_center"] = float(window.metadata["active_center"][0])
+    config.domain.region["lat_center"] = float(window.metadata["active_center"][1])
+    config.domain.region["alt_center_km"] = float(window.metadata["active_center"][2])
+    write_resolved_config(day_run_dir, config)
 
     print("")
     print(format_summary_table("Multiday Step", [("Day index", args.day_index), ("Day label", args.day_label), ("File", file_path.name)]))
     print("")
-    print(build_window_summary(window))
-    print(f"Training meteors after selection: {len(window.training_df)}")
-    print(f"Validation meteors: {0 if window.validation_df is None else len(window.validation_df)}")
-    if getattr(window, "validation_inner_df", None) is not None:
-        print(f"Validation inner meteors: {len(window.validation_inner_df)}")
-    if getattr(window, "validation_outer_df", None) is not None:
-        print(f"Validation outer meteors: {len(window.validation_outer_df)}")
+    print(
+        format_dataset_summary(
+            window=window,
+            dataset_source=str(config.datasets.primary.get("source", "unknown")),
+            validation_config=dict(config.datasets.primary.get("validation", {})),
+            noise_config=dict(config.datasets.primary.get("noise", {})),
+        )
+    )
 
     carried_trunk_weights = _load_trunk_checkpoint(args.trunk_checkpoint)
     model = _initialize_model_for_day(config, carried_trunk_weights)

@@ -18,7 +18,7 @@ datasets:
       enable_doppler_clustering_filter: true
       enable_mean_wind_quality_filter: true
       mean_wind_residual_sigma: 4
-      require_smr_like: false
+      require_smr_like: true
       horizontal_support_sigma: 4
       support_core_fraction: 0.25
       vertical_support_sigma: 4
@@ -36,9 +36,9 @@ domain:
     duration_hours: 24
     padding_fraction: 0.125
   region:
-    lon_center: 18
-    lat_center: 69
-    alt_center_km: 90
+    lon_center: none
+    lat_center: none
+    alt_center_km: none
   normalization:
     mode: fixed
     lower_bounds: [0, 80000, -200000, -200000]
@@ -50,6 +50,7 @@ model:
   network:
     parameterization:
       wind: direct
+      output_scale: [10.0, 10.0, 1.0]
     backbone:
       width: 64
       depth: 2

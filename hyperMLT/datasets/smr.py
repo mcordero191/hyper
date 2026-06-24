@@ -36,6 +36,14 @@ class PreparedMeteorWindow:
 CACHE_FORMAT_VERSION = 4
 
 
+def _round_to_step(value: float, step: float) -> float:
+
+    if step <= 0.0:
+        return float(value)
+
+    return float(np.round(float(value) / step) * step)
+
+
 def _format_link_list(values: list[str], limit: int = 5) -> str:
 
     if not values:
@@ -311,16 +319,25 @@ def load_window_for_file(
 
     with h5py.File(file_path, "r") as fp:
         default_center = (
-            float(np.round(np.median(fp["lons"][:]), 1)),
-            float(np.round(np.median(fp["lats"][:]), 1)),
-            float(np.round(np.median(fp["heights"][:] * 1e-3), 1)),
+            _round_to_step(float(np.median(fp["lons"][:])), 0.5),
+            _round_to_step(float(np.median(fp["lats"][:])), 0.5),
+            _round_to_step(float(np.median(fp["heights"][:] * 1e-3)), 0.5),
         )
 
     region = domain_config.get("region", {})
+
+    def _resolve_center_value(key: str, default: float) -> float:
+        value = region.get(key, default)
+
+        if value is None:
+            return float(default)
+
+        return float(value)
+
     active_center = (
-        float(region.get("lon_center", default_center[0])),
-        float(region.get("lat_center", default_center[1])),
-        float(region.get("alt_center_km", default_center[2])),
+        _resolve_center_value("lon_center", default_center[0]),
+        _resolve_center_value("lat_center", default_center[1]),
+        _resolve_center_value("alt_center_km", default_center[2]),
     )
 
     filter_config = dict(dataset_config.get("filter", {}))

@@ -59,13 +59,18 @@ def get_xyz_bounds(
     y_arr = np.asarray(y, dtype=np.float64)
     z_arr = np.asarray(z, dtype=np.float64)
 
-    r2 = x_arr**2 + y_arr**2
+    x0 = float(np.median(x_arr))
+    y0 = float(np.median(y_arr))
+    dx = x_arr - x0
+    dy = y_arr - y0
+
+    r2 = dx**2 + dy**2
     support_fraction = float(np.clip(support_fraction, 1.0e-3, 1.0))
     support_threshold = np.quantile(r2, support_fraction)
     support_mask = r2 <= support_threshold
 
-    x_support = x_arr[support_mask]
-    y_support = y_arr[support_mask]
+    dx_support = dx[support_mask]
+    dy_support = dy[support_mask]
 
     def _robust_centered_scale(values: np.ndarray) -> float:
         if values.size == 0:
@@ -82,16 +87,36 @@ def get_xyz_bounds(
 
         return float(scale)
 
-    scale_x = _robust_centered_scale(x_support)
-    scale_y = _robust_centered_scale(y_support)
+    if dx_support.size >= 3:
+        support_xy = np.column_stack([dx_support, dy_support])
+        cov_xy = np.cov(support_xy, rowvar=False)
+    else:
+        scale_x = _robust_centered_scale(dx)
+        scale_y = _robust_centered_scale(dy)
+        cov_xy = np.diag([scale_x**2, scale_y**2])
 
-    d2 = (x_arr / scale_x) ** 2 + (y_arr / scale_y) ** 2
+    if cov_xy.shape != (2, 2):
+        scale_x = _robust_centered_scale(dx)
+        scale_y = _robust_centered_scale(dy)
+        cov_xy = np.diag([scale_x**2, scale_y**2])
+
+    jitter = 1.0e-6 * max(float(np.trace(cov_xy)), 1.0)
+    cov_xy = cov_xy + np.eye(2, dtype=np.float64) * jitter
+    inv_cov_xy = np.linalg.pinv(cov_xy)
+
+    delta_xy = np.column_stack([dx, dy])
+    d2 = np.einsum("ni,ij,nj->n", delta_xy, inv_cov_xy, delta_xy)
     threshold_xy = chi2.ppf(norm.cdf(sigma), df=2)
     mask_xy = d2 < threshold_xy
 
     z0 = np.median(z_arr)
     mad_z = np.median(np.abs(z_arr - z0))
-    mask_z = np.abs(z_arr - z0) < sigma_z * mad_z
+    scale_z = 1.4826 * mad_z
+    if not np.isfinite(scale_z) or scale_z <= 0.0:
+        scale_z = np.sqrt(np.mean((z_arr - z0) ** 2))
+    if not np.isfinite(scale_z) or scale_z <= 0.0:
+        scale_z = 1.0
+    mask_z = np.abs(z_arr - z0) < sigma_z * scale_z
 
     return mask_xy & mask_z
 

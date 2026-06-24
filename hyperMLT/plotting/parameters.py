@@ -174,3 +174,55 @@ def plot_spacetime_sampling(
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
     fig.savefig(figfile, dpi=200)
     plt.close(fig)
+
+
+def plot_pde_sampling_domain(
+    training_df: pd.DataFrame,
+    pde_coords_raw: np.ndarray,
+    figfile: str | Path,
+    *,
+    max_train_points: int = 30000,
+    max_pde_points: int = 40000,
+) -> None:
+
+    if training_df.empty or pde_coords_raw.size == 0:
+        return
+
+    train_plot = _sample_rows(training_df, max_points=max_train_points, seed=2)
+
+    pde_coords = np.asarray(pde_coords_raw, dtype=np.float64)
+    if pde_coords.shape[0] > max_pde_points:
+        rng = np.random.default_rng(3)
+        idx = rng.choice(np.arange(pde_coords.shape[0]), size=max_pde_points, replace=False)
+        pde_coords = pde_coords[idx]
+
+    train_x = train_plot["x"].to_numpy(dtype=np.float64) * 1e-3
+    train_y = train_plot["y"].to_numpy(dtype=np.float64) * 1e-3
+    train_z = train_plot["z"].to_numpy(dtype=np.float64) * 1e-3
+
+    pde_x = pde_coords[:, 2] * 1e-3
+    pde_y = pde_coords[:, 3] * 1e-3
+    pde_z = pde_coords[:, 1] * 1e-3
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.8))
+    panels = [
+        (train_x, train_y, pde_x, pde_y, "X (km)", "Y (km)", "X-Y"),
+        (train_x, train_z, pde_x, pde_z, "X (km)", "Z (km)", "X-Z"),
+        (train_y, train_z, pde_y, pde_z, "Y (km)", "Z (km)", "Y-Z"),
+    ]
+
+    for axis, (tx, ty, px, py, xlabel, ylabel, title) in zip(axes, panels):
+        axis.scatter(px, py, s=2, alpha=0.06, color="tab:orange", label="PDE support", rasterized=True)
+        axis.scatter(tx, ty, s=3, alpha=0.16, color="tab:blue", label="Training samples", rasterized=True)
+        axis.set_xlabel(xlabel)
+        axis.set_ylabel(ylabel)
+        axis.set_title(title)
+        axis.grid(True, alpha=0.3)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels, loc="upper center", ncol=2)
+
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
+    fig.savefig(figfile, dpi=200)
+    plt.close(fig)
