@@ -1,0 +1,121 @@
+experiment:
+  name: vortex_respinn_dns_baseline
+  version: 0.1.0
+  description: RESPINN DNS baseline with residual width-256 backbone and VV_noNu physics.
+
+datasets:
+  primary:
+    source: smr
+    path: /Users/admin/Data/IAP/SIMONe/Virtual/DNS/DNSx10_+12+53+91
+    pattern: virt_mmaria_multilink_SIMONe_2018_20181102
+    filter:
+      max_arrival_angle_deg: 70
+      clustering_radius: 0.1
+      clustering_min_samples: 100
+      clustering_passes: 1
+      max_abs_doppler_velocity: 100
+      duplicate_space_threshold_m: 500
+      duplicate_time_threshold_s: 1
+      enable_doppler_clustering_filter: true
+      enable_mean_wind_quality_filter: true
+      mean_wind_residual_sigma: 4
+      require_smr_like: true
+      horizontal_support_sigma: 3.0
+      support_core_fraction: 0.5
+      vertical_support_sigma: 2.5
+    selection:
+      operations: []
+    noise:
+      doppler_std: 0.1
+      apply_to_train: true
+      apply_to_validation: false
+    validation:
+      holdout_fraction: 0.05
+      random_seed: 0
+      radial_mode: radius_quantile
+      radial_quantile: 0.5
+
+domain:
+  time:
+    start_hour: 0
+    duration_hours: 4
+    padding_fraction: 0.0
+  region:
+    lon_center: null
+    lat_center: null
+    alt_center_km: null
+  normalization:
+    mode: auto
+    lower_bounds: null
+    upper_bounds: null
+    label: dns_400x400x20km_dt03h
+
+model:
+  architecture: respinn
+  network:
+    parameterization:
+      wind: direct
+      output_scale: [1.0, 1.0, 0.1]
+    backbone:
+      width: 256
+      depth: 2
+      nblocks: 3
+      use_skip_connections: true
+      activation: sine
+      initializer: siren
+      w0: 1.0
+      multiscale_factors: [1.0]
+
+physics:
+  formulation: vertical_vorticity_inviscid
+  state: uvw
+  residual_weights:
+    data: 1.0
+    div: 0.0
+    mom: 0.0
+    temp: 0.0
+    srt: 0.0
+  pde_sampling:
+    method: random
+    sample_count: 2048
+    xy_coverage_fraction: 0.99
+    z_coverage_fraction: 0.99
+    use_full_time_span: true
+
+training:
+  epochs: 4000
+  learning_rate: 1.0e-03
+  optimizer: Adam
+  data_loss: mae
+  gradient_diagnostics: true
+  random_seed: 1234
+  validation:
+    metric: doppler_rmse
+  scheduling:
+    type: staged
+    stages:
+      - start: 0
+        weights:
+          data: 1.0
+          div: 0.0
+          mom: 0.0
+      - start: 200
+        weights:
+          data: 1.0
+          div: 1e9
+          mom: 0.0
+      - start: 2000
+        weights:
+          data: 1.0
+          div: 1e9
+          mom: 1e12
+      - start: 4000
+        weights:
+          data: 1.0
+          div: 1e9
+          mom: 1e12
+
+output:
+  root_dir: /Users/admin/Data/IAP/SIMONe/Virtual/DNS
+  write_plots: true
+  verbose: true
